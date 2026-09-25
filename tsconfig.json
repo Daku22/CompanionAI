@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": ["ES2020", "DOM"],
+
+    // Il progetto e' JavaScript, ma viene comunque controllato: allowJs+checkJs
+    // danno il valore di TypeScript senza mantenere due copie di ogni file.
+    // La copia .ts di MemoryManager e' stata rimossa proprio per questo: era
+    // andata alla deriva rispetto al .js su quali metodi fossero asincroni.
+    "allowJs": true,
+    "checkJs": true,
+
+    "strict": false,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/main/*.js",
+    "src/memory/*.js",
+    "src/memory/*.ts",
+    "src/renderer/vrm-animation.js",
+    "scripts/*.js",
+    "scripts/lib/*.js",
+    "scripts/*.mjs"
+  ],
+  // smoke.mjs usa await a livello di modulo, che il controllo in CommonJS non ammette.
+  "exclude": ["node_modules", "scripts/smoke.mjs"]
+}

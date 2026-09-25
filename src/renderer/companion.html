@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <!-- Nessuno script inline tranne l'importmap, ammesso per hash: se lo cambi,
+       aggiorna l'hash (npm test lo ricalcola e dice quale mettere).
+       vrm: e avatar: servono i modelli 3D; blob: le texture estratte dai .glb. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-dEBWv9sAuEpT/PIrAaxaAWeQ8RlY4DsruqyeyfWjBSM='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: vrm: avatar:; connect-src 'self' data: blob: vrm: avatar:">
+  <title>CompanionAI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+    }
+    #app {
+      width: 100%; height: 100%;
+      position: relative;
+    }
+    #pixi-mount {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    #three-mount {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+    }
+    /* Speech bubble */
+    #bubble {
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-4px);
+      background: rgba(255,255,255,0.96);
+      border: 1.5px solid #7a9e82;
+      border-radius: 14px;
+      padding: 4px 12px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      color: #2c4033;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.22s ease, transform 0.22s ease;
+      z-index: 50;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+    }
+    #bubble::after {
+      content: '';
+      position: absolute;
+      bottom: -7px; left: 50%;
+      transform: translateX(-50%);
+      border: 4px solid transparent;
+      border-top-color: #7a9e82;
+    }
+    #bubble.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    /* Drag zone — whole window draggable */
+    #drag-zone {
+      position: absolute;
+      inset: 0;
+      -webkit-app-region: drag;
+      z-index: 10;
+    }
+    /* Chat button (clickable, not draggable) */
+    #click-zone {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 24px;
+      height: 24px;
+      -webkit-app-region: no-drag;
+      cursor: pointer;
+      z-index: 20;
+      border-radius: 50%;
+      background: rgba(120, 160, 140, 0.35);
+      border: 1.5px solid rgba(100, 140, 120, 0.5);
+      transition: background 0.15s;
+    }
+    #click-zone:hover {
+      background: rgba(120, 160, 140, 0.6);
+    }
+    #switch-zone {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 24px;
+      height: 24px;
+      -webkit-app-region: no-drag;
+      cursor: pointer;
+      z-index: 20;
+      border-radius: 50%;
+      background: rgba(120, 160, 140, 0.35);
+      border: 1.5px solid rgba(100, 140, 120, 0.5);
+      transition: background 0.15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #switch-zone:hover {
+      background: rgba(120, 160, 140, 0.6);
+    }
+    /* Switch button icon */
+    #switch-zone::after {
+      content: '🔄';
+      font-size: 13px;
+    }
+    /* Chat button icon */
+    #click-zone::after {
+      content: '💬';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 13px;
+      line-height: 1;
+    }
+    /* Maniglia per spostare la finestra in 3D: li' il mouse serve a ruotare la
+       camera, quindi l'intera finestra non puo' essere una zona di trascinamento. */
+    #drag-handle {
+      position: absolute;
+      top: 10px; left: 50%;
+      transform: translateX(-50%);
+      width: 40px; height: 14px;
+      border-radius: 7px;
+      background: rgba(120, 160, 140, 0.35);
+      border: 1.5px solid rgba(100, 140, 120, 0.5);
+      -webkit-app-region: drag;
+      cursor: move;
+      z-index: 20;
+      display: none;
+    }
+    body.mode-3d #drag-handle { display: block; }
+    /* Voci del menu avatar, generate da companion-3d.js */
+    .menu-item { padding: 5px; cursor: pointer; -webkit-app-region: no-drag; white-space: nowrap; }
+    .menu-item:hover { background: rgba(180, 140, 255, 0.15); border-radius: 6px; }
+    .menu-item.active { color: #d9c4ff; }
+    .menu-item .kind { opacity: 0.5; margin-left: 6px; }
+
+    /* Dynamic window border glow on hover / near edge */
+    #window-border {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border: 2px solid transparent;
+      border-radius: 12px;
+      transition: border-color 0.22s ease, box-shadow 0.22s ease;
+      z-index: 99;
+    }
+    body:hover #window-border {
+      border-color: rgba(120, 180, 255, 0.35);
+      box-shadow: inset 0 0 10px rgba(120, 180, 255, 0.2);
+    }
+    .near-edge #window-border {
+      border-color: rgba(100, 210, 255, 0.9);
+      box-shadow: inset 0 0 14px rgba(100, 210, 255, 0.5), 0 0 10px rgba(100, 210, 255, 0.4);
+    }
+  </style>
+  <!-- Librerie copiate sotto src/ da scripts/vendor.js: dentro l'app
+       impacchettata i percorsi di node_modules non sono garantiti. -->
+  <script src="vendor/pixi.min.js"></script>
+  <script src="vendor/pixi-unsafe-eval.min.js"></script>
+  <script src="assets/strips/sprites.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/three-addons/",
+        "@pixiv/three-vrm": "./vendor/three-vrm.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+<div id="app">
+  <div id="window-border"></div>
+  <div id="bubble"></div>
+  <div id="pixi-mount"></div>
+  <div id="three-mount"></div>
+  <div id="drag-zone"></div>
+  <div id="click-zone"></div>
+  <div id="switch-zone"></div>
+  <div id="drag-handle" title="Trascina per spostare"></div>
+  <div id="model-menu" style="display: none; position: absolute; top: 35px; left: 8px; background: rgba(14, 11, 22, 0.94); border: 1px solid rgba(180,140,255,0.2); border-radius: 10px; padding: 5px; z-index: 30; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; color: white; -webkit-app-region: no-drag;">
+    <div id="avatar-list"></div>
+    <div id="btn-import-avatar" class="menu-item" style="color: #d9c4ff;">+ Importa avatar…</div>
+  </div>
+</div>
+
+<script src="companion-2d.js"></script>
+
+<script type="module" src="companion-3d.js"></script>
+</body>
+</html>

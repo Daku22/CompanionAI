@@ -1,0 +1,61 @@
+# Release: su un tag v* costruisce l'installer Windows e crea una bozza di
+# release su GitHub con installer e checksum SHA-256. La bozza va controllata
+# e pubblicata a mano dalla pagina Releases.
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tipi e test
+        run: npm run check
+
+      - name: Il tag corrisponde alla versione
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Il tag ${{ github.ref_name }} non corrisponde a package.json ($version)"
+          }
+
+      - name: Installer
+        env:
+          COMPANION_BUILD_OUT: ${{ github.workspace }}\dist
+        run: npm run build
+
+      - name: Niente asset privati o segreti, nemmeno nel pacchetto
+        run: npm run check:publish -- --asar dist/win-unpacked/resources/app.asar
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\*.exe | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Out-File -Encoding ascii dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            dist/*.exe
+            dist/SHA256SUMS.txt

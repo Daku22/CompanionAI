@@ -1,0 +1,33 @@
+# Controlli su ogni push e pull request: tipi, test e assenza di asset privati
+# o segreti. Gira su Windows perche' l'app e' solo per Windows.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    env:
+      # I test non aprono finestre: il binario di Electron (~100 MB) non serve.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tipi e test
+        run: npm run check
+
+      - name: Niente asset privati o segreti
+        run: npm run check:publish

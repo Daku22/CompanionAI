@@ -1,0 +1,89 @@
+{
+  "name": "companion-ai",
+  "productName": "CompanionAI",
+  "version": "1.0.0",
+  "description": "A desktop companion that lives on top of your windows: an animated 2D or VRM 3D avatar, persistent local memory and a router for seven AI providers.",
+  "main": "src/main/main.js",
+  "scripts": {
+    "icon": "node scripts/make-icon.js",
+    "assets": "npm run vendor && npm run icon",
+    "vendor": "node scripts/vendor.js",
+    "strips": "electron scripts/build-strips.js",
+    "prestart": "npm run assets",
+    "start": "electron .",
+    "predev": "npm run assets",
+    "dev": "electron . --dev",
+    "test": "node src/memory/test-memory.js && node scripts/test-router.js && node scripts/test-guards.js && node scripts/test-animation.mjs && node scripts/test-avatar-library.js && node scripts/test-sprite-frames.js && node scripts/test-strips.js && node scripts/test-csp.js",
+    "test:memory": "node src/memory/test-memory.js",
+    "test:router": "node scripts/test-router.js",
+    "test:guards": "node scripts/test-guards.js",
+    "test:anim": "node scripts/test-animation.mjs",
+    "test:flusso": "node scripts/test-main-flusso.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check": "npm run typecheck && npm test",
+    "smoke": "npm run assets && node scripts/smoke.mjs",
+    "check:publish": "node scripts/check-publish.js",
+    "prebuild": "npm run assets",
+    "build": "node scripts/build.js",
+    "predist": "npm run assets",
+    "dist": "node scripts/build.js --dir"
+  },
+  "devDependencies": {
+    "@pixi/unsafe-eval": "^7.4.3",
+    "@pixiv/three-vrm": "^3.5.5",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "pixi.js": "^7.4.2",
+    "three": "^0.177.0",
+    "typescript": "^5.4.0"
+  },
+  "build": {
+    "appId": "ai.companion.desktop",
+    "productName": "CompanionAI",
+    "copyright": "Copyright © 2026 Daku",
+    "files": [
+      "src/**/*",
+      "!src/memory/test-memory.js",
+      "!src/memory/types.ts",
+      "modelli-3d/**/*",
+      "package.json",
+      "LICENSE",
+      "ASSETS-LICENSE.md",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "CompanionAI-Setup-${version}.${ext}",
+      "license": "LICENSE"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    }
+  },
+  "author": "Daku (https://github.com/Daku22)",
+  "homepage": "https://github.com/Daku22/CompanionAI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Daku22/CompanionAI.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Daku22/CompanionAI/issues"
+  },
+  "license": "MIT"
+}

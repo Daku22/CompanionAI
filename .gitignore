@@ -1,0 +1,46 @@
+# ── Dipendenze ────────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Materiale di ricerca (repo di terzi, sola lettura, ~1.1 GB) ──────────────
+research/
+
+# ── Segreti ───────────────────────────────────────────────────────────────────
+.env
+.env.local
+*.pem
+*.key
+
+# ── Output di build ───────────────────────────────────────────────────────────
+dist/
+build/
+out/
+release/
+*.asar
+
+# ── Dati runtime e test (mai committare conversazioni reali) ─────────────────
+data/
+
+# ── Sistema operativo / editor ────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# ── Log ───────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# Librerie copiate da node_modules da scripts/vendor.js (rigenerate a ogni build)
+src/renderer/vendor/
+
+# Icone generate da scripts/make-icon.js
+build/icon.png
+src/renderer/assets/icon.png
+
+# ── Asset privati ─────────────────────────────────────────────────────────────
+# Avatar che non si possono ridistribuire (Yanineko, Dust, Neko) e le loro
+# master. Nel repository privato sono registrati con "git add -f"; in quello
+# pubblico questa regola li tiene fuori. Vedi ASSETS-LICENSE.md.
+private-assets/
