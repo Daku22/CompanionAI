@@ -97,9 +97,15 @@ Gli avatar importati stanno in `<userData>/avatars`, serviti dal protocollo
 
 Un avatar che non si può pubblicare, come un personaggio di un'opera altrui,
 diventa un pacchetto di sprite con `npm run strips -- --masters <cartella>
---pack` e si importa dall'app: resta sul proprio PC, fuori dal repository. Le
-sue master possono stare in `private-assets/`, che `.gitignore` esclude e
-`npm run check:publish` rifiuta.
+--pack` e si importa dall'app: resta sul proprio PC, fuori dal repository.
+
+In alternativa, nella propria copia del progetto, lo si mette in
+`private-assets/`, che `.gitignore` esclude e `npm run check:publish` rifiuta.
+I pacchetti di sprite (`sprites.json`) e i `.vrm` che l'app trova lì dentro,
+fino a tre livelli di cartelle, diventano avatar integrati della copia locale.
+I pacchetti 2D privati vanno in testa all'elenco, quindi il primo è il
+predefinito; i VRM privati vanno in coda. Li serve `vrm://private/…`, che nel
+pacchetto pubblico risponde 404.
 
 ## Memoria
 

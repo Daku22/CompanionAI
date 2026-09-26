@@ -5,13 +5,23 @@
 // scritta a mano: prima menu e codice nominavano modelli che non si potevano
 // distribuire, e togliere un file rompeva il menu invece di farlo sparire.
 //
-// Il primo avatar dell'elenco e' quello predefinito: l'avatar 2D integrato,
-// se le sue strip ci sono, altrimenti Fred.
+// Accanto agli avatar pubblici ci sono quelli privati: se nella cartella del
+// progetto esiste private-assets/ (esclusa da .gitignore e rifiutata da
+// check:publish), i suoi pacchetti di sprite e i suoi VRM diventano avatar
+// integrati della copia locale. E' cosi' che una copia privata tiene Yanineko,
+// Dust e Neko senza che finiscano nel repository o nell'installer pubblico.
+//
+// Ordine, e quindi predefinito (il primo): 2D privati, 2D integrato, Fred,
+// poi i VRM privati.
 
 const fs = require('fs')
 const path = require('path')
 
 const SPRITES_SCRIPT = path.join('src', 'renderer', 'assets', 'strips', 'sprites.js')
+const PRIVATE_DIR = 'private-assets'
+// Profondita' massima della ricerca in private-assets/: bastano cartelle come
+// yanineko/sprite-pack/sprites.json o modelli-3d/Dust/DUST.vrm.
+const PRIVATE_DEPTH = 3
 
 const MODELS_3D = [
   // Fred di Swampazzo (VRoid Hub): licenza VRM 1.0 con ridistribuzione e
@@ -38,16 +48,69 @@ function readBuiltinSprites(appRoot) {
 
 /**
  * @typedef {{ id: string, name: string, kind: string, builtin: boolean,
- *             capabilities: string[], url: string|null, default?: boolean }} BuiltinAvatar
+ *             capabilities: string[], url: string|null, default?: boolean,
+ *             private?: boolean }} BuiltinAvatar
  */
 
+/** URL vrm:// di un file dentro private-assets/, servito dal main. */
+function privateUrl(relative) {
+  return 'vrm://private/' + relative.split(/[\\/]/).map(encodeURIComponent).join('/')
+}
+
+function walkPrivate(dir, depth, out) {
+  let entries = []
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (_) { return out }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory() && depth < PRIVATE_DEPTH) walkPrivate(full, depth + 1, out)
+    else if (entry.isFile()) out.push(full)
+  }
+  return out
+}
+
 /**
- * @param {string} appRoot cartella che contiene src/ e modelli-3d/
+ * Avatar di private-assets/: pacchetti di sprite (sprites.json) e VRM.
+ * @returns {{ sprites: BuiltinAvatar[], models: BuiltinAvatar[] }}
+ */
+function privateAvatars(appRoot) {
+  const root = path.join(appRoot, PRIVATE_DIR)
+  /** @type {BuiltinAvatar[]} */ const sprites = []
+  /** @type {BuiltinAvatar[]} */ const models = []
+  if (!fs.existsSync(root)) return { sprites, models }
+  for (const file of walkPrivate(root, 0, [])) {
+    const relative = path.relative(root, file)
+    const base = path.basename(file).toLowerCase()
+    if (base === 'sprites.json') {
+      let manifest = null
+      try { manifest = JSON.parse(fs.readFileSync(file, 'utf8')) } catch (_) {}
+      if (!manifest || !manifest.animations || !manifest.animations.idle) continue
+      const name = typeof manifest.name === 'string' && manifest.name.trim() ? manifest.name.trim() : path.basename(path.dirname(file))
+      sprites.push({
+        // Id minuscolo: e' quello che la configurazione salvava prima ("yanineko").
+        id: name.toLowerCase(), name, kind: 'sprite-pack', builtin: true, private: true,
+        capabilities: ['animation', 'walk'], url: privateUrl(relative),
+      })
+    } else if (base.endsWith('.vrm')) {
+      // Nome della cartella del modello: "Dust", "Neko", come nelle versioni precedenti.
+      const name = path.basename(path.dirname(file))
+      models.push({
+        id: name, name, kind: 'vrm', builtin: true, private: true,
+        capabilities: ['animation', 'expressions', 'walk'], url: privateUrl(relative),
+      })
+    }
+  }
+  const byName = (a, b) => a.name.localeCompare(b.name)
+  return { sprites: sprites.sort(byName), models: models.sort(byName) }
+}
+
+/**
+ * @param {string} appRoot cartella che contiene src/, modelli-3d/ ed eventualmente private-assets/
  * @returns {BuiltinAvatar[]}
  */
 function builtinAvatars(appRoot) {
+  const priv = privateAvatars(appRoot)
   /** @type {BuiltinAvatar[]} */
-  const list = []
+  const list = [...priv.sprites]
   const sprites = readBuiltinSprites(appRoot)
   if (sprites) {
     list.push({
@@ -62,8 +125,14 @@ function builtinAvatars(appRoot) {
       capabilities: ['animation', 'expressions', 'walk'], url: 'vrm://' + model.file,
     })
   }
-  if (list.length) list[0] = { ...list[0], default: true }
-  return list
+  list.push(...priv.models)
+
+  // Un id ripetuto (due pacchetti con lo stesso nome) renderebbe ambigua la
+  // scelta salvata: vince il primo.
+  const seen = new Set()
+  const unique = list.filter(a => (seen.has(a.id) ? false : seen.add(a.id)))
+  if (unique.length) unique[0] = { ...unique[0], default: true }
+  return unique
 }
 
-module.exports = { builtinAvatars, readBuiltinSprites }
+module.exports = { builtinAvatars, readBuiltinSprites, PRIVATE_DIR }

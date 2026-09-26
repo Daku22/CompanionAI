@@ -132,6 +132,21 @@ async function main() {
     assert.deepEqual(builtinAvatars(path.join(base, 'vuota')), [], 'senza file nessun avatar integrato')
     scenari++
 
+    // Copia privata: private-assets/ aggiunge i suoi pacchetti 2D in testa
+    // (quindi il predefinito) e i suoi VRM in coda, con gli id di sempre
+    // ("yanineko", "Dust") cosi' le configurazioni salvate li ritrovano.
+    const priv = path.join(app, 'private-assets')
+    await file(path.join(priv, 'yanineko', 'sprite-pack', 'sprites.json'),
+      JSON.stringify({ format: 'companion-sprites/1', name: 'Yanineko', animations: { idle: {} } }))
+    await file(path.join(priv, 'modelli-3d', 'Dust', 'DUST.vrm'))
+    await file(path.join(priv, 'rotto', 'sprites.json'), '{ non json')
+    builtins = builtinAvatars(app)
+    assert.deepEqual(builtins.map(a => a.id), ['yanineko', 'builtin-2d', 'Fred', 'Dust'])
+    assert.ok(builtins[0].default && builtins[0].private, 'lo sprite privato e-` il predefinito')
+    assert.equal(builtins[0].url, 'vrm://private/yanineko/sprite-pack/sprites.json')
+    assert.equal(builtins[3].url, 'vrm://private/modelli-3d/Dust/DUST.vrm')
+    scenari++
+
     console.log('=== AvatarLibrary: ' + scenari + ' scenari superati ===')
   } finally { await fs.promises.rm(base, { recursive: true, force: true }) }
 }

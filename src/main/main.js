@@ -722,30 +722,37 @@ app.whenReady().then(() => {
     })
     contents.on('render-process-gone', (_e, details) => console.error('[renderer] processo terminato:', details.reason))
   })
-  protocol.handle('vrm', (request) => {
+  // vrm:// serve gli avatar integrati: vrm://<percorso> da modelli-3d/, e
+  // vrm://private/<percorso> da private-assets/, che esiste solo nella copia
+  // privata (vedi builtin-avatars.js). Nel pacchetto pubblico quella cartella
+  // non c'e' e le richieste private rispondono 404.
+  const projectRoot = path.join(__dirname, '..', '..')
+  protocol.handle('vrm', async (request) => {
     try {
-      let relativePath = request.url.replace(/^vrm:\/\//i, '');
-      relativePath = relativePath.replace(/^modelli-3d\//i, '');
-      relativePath = decodeURIComponent(relativePath);
+      let relativePath = decodeURIComponent(request.url.replace(/^vrm:\/\//i, ''));
+      let rootDir = 'modelli-3d';
+      if (/^private\//i.test(relativePath)) { rootDir = 'private-assets'; relativePath = relativePath.slice('private/'.length); }
+      else relativePath = relativePath.replace(/^modelli-3d\//i, '');
 
-      const safeRoot = path.normalize(path.join(__dirname, '..', '..', 'modelli-3d'));
+      const safeRoot = path.normalize(path.join(projectRoot, rootDir));
       const realRelative = resolveCaseInsensitive(safeRoot, relativePath);
       const absolutePath = path.normalize(path.join(safeRoot, realRelative));
 
-      console.log('[VRM Protocol] Richiesta:', request.url, '=> File:', absolutePath);
-
-      if (absolutePath !== safeRoot && !absolutePath.startsWith(safeRoot + path.sep)) {
+      if (!absolutePath.startsWith(safeRoot + path.sep)) {
         console.error('[VRM Protocol] Accesso negato:', absolutePath);
         return new Response('Forbidden', { status: 403 });
       }
-
       if (!fs.existsSync(absolutePath)) {
         console.error('[VRM Protocol] File non trovato:', absolutePath);
         return new Response('File Not Found', { status: 404 });
       }
 
-      const fileUrl = require('url').pathToFileURL(absolutePath).toString();
-      return net.fetch(fileUrl);
+      // Le strip dei pacchetti privati diventano texture WebGL: servono
+      // l'header CORS, come per avatar://.
+      const res = await net.fetch(require('url').pathToFileURL(absolutePath).toString());
+      const headers = new Headers(res.headers);
+      headers.set('Access-Control-Allow-Origin', '*');
+      return new Response(res.body, { status: res.status, headers });
     } catch (err) {
       console.error('[VRM Protocol] Errore:', err);
       return new Response('Error', { status: 500 });

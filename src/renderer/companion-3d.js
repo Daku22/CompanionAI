@@ -175,7 +175,9 @@ async function loadVRMModel(avatar) {
 
 /** Manifest del pacchetto 2D da mostrare, con la cartella dei suoi PNG. */
 async function spriteSource(avatar) {
-  if (avatar.builtin) return { manifest: window.COMPANION_SPRITES, baseUrl: './assets/strips/' };
+  // Il 2D integrato arriva gia' caricato da sprites.js; i pacchetti privati e
+  // importati si leggono dal loro URL (vrm://private/ o avatar://).
+  if (avatar.builtin && !avatar.url) return { manifest: window.COMPANION_SPRITES, baseUrl: './assets/strips/' };
   const baseUrl = avatar.url.slice(0, avatar.url.lastIndexOf('/') + 1);
   if (avatar.kind === 'sprite') {
     // Un'immagine singola: un pacchetto con la sola idle, a immagine intera.
