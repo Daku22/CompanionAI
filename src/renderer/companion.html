@@ -5,7 +5,7 @@
   <!-- Nessuno script inline tranne l'importmap, ammesso per hash: se lo cambi,
        aggiorna l'hash (npm test lo ricalcola e dice quale mettere).
        vrm: e avatar: servono i modelli 3D; blob: le texture estratte dai .glb. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-dEBWv9sAuEpT/PIrAaxaAWeQ8RlY4DsruqyeyfWjBSM='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: vrm: avatar:; connect-src 'self' data: blob: vrm: avatar:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-ZbtU6faAuNdPdmM0BcNga30v1JmQYiPkfUDkH4n65CY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: vrm: avatar:; connect-src 'self' data: blob: vrm: avatar: motion:">
   <title>CompanionAI</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -151,7 +151,8 @@
       "imports": {
         "three": "./vendor/three.module.js",
         "three/addons/": "./vendor/three-addons/",
-        "@pixiv/three-vrm": "./vendor/three-vrm.module.js"
+        "@pixiv/three-vrm": "./vendor/three-vrm.module.js",
+        "@pixiv/three-vrm-animation": "./vendor/three-vrm-animation.module.js"
       }
     }
   </script>

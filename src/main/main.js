@@ -6,6 +6,7 @@ const os    = require('os')
 const { route, PROVIDERS, describeError, listModels, EMOTIONS } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
+const { AnimationLibrary } = require('./AnimationLibrary')
 const { builtinAvatars } = require('./builtin-avatars')
 const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, WINDOW_SCALES } = require('./guards')
 const { walkTarget } = require('./walk-target')
@@ -18,6 +19,7 @@ let chatWindow      = null
 let tray            = null
 let memoryManager   = null
 let avatarLibrary   = null
+let animationLibrary = null
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -619,7 +621,7 @@ handle('avatars:scan-import', async () => {
   const picked = await dialog.showOpenDialog({
     title: 'Importa avatar',
     properties: ['openFile', 'openDirectory'],
-    filters: [{ name: 'Avatar supportati', extensions: ['vrm', 'glb', 'gltf', 'png', 'webp', 'jpg', 'jpeg', 'json'] }],
+    filters: [{ name: 'Avatar supportati', extensions: ['vrm', 'glb', 'gltf', 'fbx', 'png', 'webp', 'jpg', 'jpeg', 'json'] }],
   })
   if (picked.canceled || !picked.filePaths[0]) return { canceled: true }
   return avatarLibrary.scan(picked.filePaths[0])
@@ -632,6 +634,34 @@ handle('avatars:commit-import', (_event, data) => {
 handle('avatars:remove', (_event, ids) => {
   if (!Array.isArray(ids) || !ids.length || ids.length > 200) throw new Error('Selezione avatar non valida')
   return avatarLibrary.remove(ids)
+})
+
+// Animazioni .vrma. Il file da importare lo sceglie e lo legge il main; la
+// conversione in .vrma la fa il renderer (motion-retarget.js), che ha three.
+const ANIMATION_IMPORT_EXTENSIONS = ['vrma', 'glb', 'gltf', 'fbx', 'bvh']
+const MAX_ANIMATION_IMPORT_BYTES = 60 * 1024 * 1024
+handle('animations:list', () => animationLibrary ? animationLibrary.list() : [])
+handle('animations:pick', async () => {
+  const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+  const options = {
+    title: 'Importa animazione',
+    properties: /** @type {('openFile')[]} */ (['openFile']),
+    filters: [{ name: 'Animazioni (VRMA, glTF, FBX, BVH)', extensions: ANIMATION_IMPORT_EXTENSIONS }],
+  }
+  const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+  if (picked.canceled || !picked.filePaths[0]) return { canceled: true }
+  const file = picked.filePaths[0]
+  const ext = path.extname(file).slice(1).toLowerCase()
+  if (!ANIMATION_IMPORT_EXTENSIONS.includes(ext)) throw new Error('Formato non supportato: .' + ext)
+  const stat = await fs.promises.stat(file)
+  if (stat.size > MAX_ANIMATION_IMPORT_BYTES) throw new Error('File oltre ' + (MAX_ANIMATION_IMPORT_BYTES / 1024 / 1024) + ' MB')
+  // Al renderer solo il nome e i dati, mai il percorso.
+  return { name: path.basename(file), ext, data: new Uint8Array(await fs.promises.readFile(file)) }
+})
+handle('animations:save', (_e, payload) => {
+  const { slot, name, data } = payload || {}
+  if (typeof slot !== 'string' || typeof name !== 'string') throw new Error('Animazione non valida')
+  return animationLibrary.save(slot, name, data instanceof Uint8Array ? data : new Uint8Array(data || []))
 })
 
 // Azioni OS — eseguite solo nel processo main, mai nel renderer
@@ -925,7 +955,23 @@ async function showCompanionMenu() {
     { label: 'Nascondi (torna dall\'icona nella barra)', click: () => { if (companionWindow) companionWindow.hide() } },
     { label: 'Esci', click: () => app.quit() },
   ]
+  template.splice(3, 0, {
+    label: 'Animazioni',
+    submenu: [
+      { label: 'Importa animazione (VRMA, glTF, FBX, BVH)…', click: () => command({ cmd: 'import-animation' }) },
+      { label: 'Apri la cartella delle animazioni', click: () => openAnimationsFolder() },
+    ],
+  })
   Menu.buildFromTemplate(template).popup({ window: companionWindow })
+}
+
+// Per togliere un'animazione importata basta cancellarne il file.
+function openAnimationsFolder() {
+  const dir = animationLibrary && animationLibrary.userDir
+  if (!dir) return
+  fs.promises.mkdir(dir, { recursive: true })
+    .then(() => shell.openPath(dir))
+    .catch(e => console.error('[animazioni] cartella non aperta:', e.message))
 }
 
 on('drag:start', () => startDrag())
@@ -1033,6 +1079,11 @@ protocol.registerSchemesAsPrivileged([
   {
     scheme: 'avatar',
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
+  },
+  // Clip .vrma: motion://builtin, motion://private, motion://user.
+  {
+    scheme: 'motion',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
   }
 ]);
 
@@ -1059,6 +1110,11 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler(() => false)
 
   avatarLibrary = new AvatarLibrary(path.join(app.getPath('userData'), 'avatars'), builtinAvatars(path.join(__dirname, '..', '..')))
+  animationLibrary = new AnimationLibrary([
+    { id: 'builtin', dir: path.join(__dirname, '..', '..', 'modelli-3d', 'animations') },
+    { id: 'private', dir: path.join(__dirname, '..', '..', 'private-assets', 'animations') },
+    { id: 'user', dir: path.join(app.getPath('userData'), 'animations') },
+  ])
   app.on('web-contents-created', (_event, contents) => {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     contents.on('will-navigate', event => event.preventDefault())
@@ -1114,6 +1170,18 @@ app.whenReady().then(() => {
       // La pagina viene da file:// e l'immagine da avatar://: senza questo
       // header WebGL la considera di un'altra origine e rifiuta di usarla come
       // texture, e un avatar 2D importato restava invisibile.
+      const res = await net.fetch(require('url').pathToFileURL(file).toString())
+      const headers = new Headers(res.headers)
+      headers.set('Access-Control-Allow-Origin', '*')
+      return new Response(res.body, { status: res.status, headers })
+    } catch (_) { return new Response('Forbidden', { status: 403 }) }
+  })
+
+  protocol.handle('motion', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const file = animationLibrary.resolve(url.hostname, decodeURIComponent(url.pathname.slice(1)))
+      if (!file) return new Response('Not found', { status: 404 })
       const res = await net.fetch(require('url').pathToFileURL(file).toString())
       const headers = new Headers(res.headers)
       headers.set('Access-Control-Allow-Origin', '*')

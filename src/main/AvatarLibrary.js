@@ -10,7 +10,7 @@ const SPRITE_PACK_FORMAT = 'companion-sprites/1'
 const SPRITE_PACK_FILE = 'sprites.json'
 // Tipi che il renderer sa mostrare. Un record di un tipo sparito (i Live2D
 // importati dalle versioni precedenti) non compare nel menu invece di rompersi.
-const SUPPORTED_KINDS = new Set(['vrm', 'gltf', 'sprite', 'sprite-pack'])
+const SUPPORTED_KINDS = new Set(['vrm', 'gltf', 'fbx', 'sprite', 'sprite-pack'])
 
 // Limiti della scansione: scegliere per sbaglio C:\ o Downloads non deve far
 // percorrere al main l'intero disco.
@@ -36,6 +36,23 @@ function spritePackReferences(json) {
     throw new Error(SPRITE_PACK_FILE + ' non e\' un pacchetto ' + SPRITE_PACK_FORMAT + ' con animazione idle')
   }
   return Object.values(json.animations).map(anim => anim && anim.file).filter(file => typeof file === 'string' && file)
+}
+
+// Un FBX non ha un indice leggibile senza un parser: le texture si cercano fra
+// le immagini accanto, e nelle cartelle vicine ("textures", "<nome>.fbm").
+const FBX_TEXTURE_DEPTH = 2
+const FBX_MAX_TEXTURES = 100
+
+async function imagesNear(base, relative = '', depth = 0, out = []) {
+  let entries = []
+  try { entries = await fs.promises.readdir(path.join(base, relative), { withFileTypes: true }) } catch (_) { return out }
+  for (const entry of entries) {
+    if (out.length >= FBX_MAX_TEXTURES) break
+    const rel = path.join(relative, entry.name)
+    if (entry.isDirectory() && depth < FBX_TEXTURE_DEPTH && !entry.name.startsWith('.')) await imagesNear(base, rel, depth + 1, out)
+    else if (entry.isFile() && IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) out.push(rel)
+  }
+  return out
 }
 
 /** URL avatar:// di un file dentro la cartella di un avatar importato. */
@@ -82,7 +99,7 @@ class AvatarLibrary {
     // avatar a se': proporle affollerebbe la scelta con pezzi del modello.
     const usedByModels = new Set(found.flatMap(c => c.files.slice(1).map(f => path.join(c.base, f))))
     const candidates = found.filter(c => !usedByModels.has(path.join(c.base, c.files[0])))
-    if (!candidates.length) throw new Error('Nessun avatar supportato: cerca .vrm, .glb, .gltf, sprites.json o immagini')
+    if (!candidates.length) throw new Error('Nessun avatar supportato: cerca .vrm, .glb, .gltf, .fbx, sprites.json o immagini')
     const token = crypto.randomUUID()
     this.pendingImports.set(token, { candidates, expiresAt: Date.now() + PENDING_TTL_MS })
     // Al renderer vanno solo i metadati: mai i percorsi reali sul disco.
@@ -170,8 +187,11 @@ class AvatarLibrary {
       name = path.basename(path.dirname(sourcePath))
     }
     else if (ext === '.vrm') { kind = 'vrm'; capabilities = ['animation', 'expressions', 'walk'] }
-    else if (ext === '.glb') { kind = 'gltf'; capabilities = ['preview'] }
-    else if (ext === '.gltf') { kind = 'gltf'; capabilities = ['preview']; references = gltfReferences }
+    // glTF e FBX si animano se hanno uno scheletro umano (humanoid-map.js):
+    // lo decide il renderer al caricamento, altrimenti restano un'anteprima.
+    else if (ext === '.glb') { kind = 'gltf'; capabilities = ['animation', 'walk'] }
+    else if (ext === '.gltf') { kind = 'gltf'; capabilities = ['animation', 'walk']; references = gltfReferences }
+    else if (ext === '.fbx') { kind = 'fbx'; capabilities = ['animation', 'walk'] }
     else if (IMAGE_EXTENSIONS.has(ext)) { kind = 'sprite'; capabilities = ['preview'] }
     else return null
 
@@ -188,6 +208,8 @@ class AvatarLibrary {
       }
       if (files.length > MAX_MODEL_FILES) throw new Error('troppi file dichiarati: ' + files.length)
     }
+
+    if (kind === 'fbx') files.push(...await imagesNear(base))
 
     let bytes = 0
     for (const file of files) bytes += (await fs.promises.stat(path.join(base, file))).size

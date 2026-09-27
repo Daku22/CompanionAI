@@ -70,11 +70,13 @@ toglie il bisogno.
 src/
   main/      main.js (finestre, IPC, azioni OS, camminata), ai-router.js, preload.js,
              guards.js (regole su azioni, config e mittenti IPC), AvatarLibrary.js,
-             builtin-avatars.js, mood.js (umore), idle-life.js (gesti a riposo),
+             builtin-avatars.js, AnimationLibrary.js (clip .vrma), mood.js (umore),
+             idle-life.js (gesti a riposo),
              write-atomic.js, logger.js
   memory/    MemoryManager.js + types.ts
   renderer/  companion.html + companion-2d.js + companion-3d.js, chat.html + chat.js,
              companion-input.js (mouse sull'avatar), sway.js (oscillazione in braccio),
+             humanoid-map.js, motion-retarget.js, clip-layer.js (clip .vrma su ogni umanoide),
              vrm-animation.js, assets/strips (avatar 2D integrato), vendor/ (generata)
 scripts/     vendor.js, make-icon.js, build.js, build-strips.js, lib/sprite-frames.js,
              smoke.mjs, check-publish.js, e le suite test-*.js
@@ -97,7 +99,8 @@ Gli avatar importati stanno in `<userData>/avatars`, serviti dal protocollo
 | Tipo | Cosa si importa |
 |---|---|
 | `vrm` | Il file `.vrm` |
-| `gltf` | `.glb`, oppure `.gltf` con i soli buffer e texture che dichiara |
+| `gltf` | `.glb`, oppure `.gltf` con i soli buffer e texture che dichiara. Con uno scheletro umano si anima come un VRM, senza resta un'anteprima statica |
+| `fbx` | Il file `.fbx` e le immagini accanto, fino a due livelli di cartelle (le texture non hanno un indice leggibile). Animato se ha uno scheletro umano |
 | `sprite-pack` | Una cartella con `sprites.json` (formato `companion-sprites/1`) e le strip che dichiara. Il campo facoltativo `bubbles` porta i fumetti del personaggio (`hello`, `wave`, `think`, `sit`, `smoke`, `happy`, `grab`, `drop`); senza, i fumetti sono neutri. `build-strips.js` lo prende da un `bubbles.json` accanto alle master |
 | `sprite` | Un'immagine singola, mostrata ferma in 2D |
 
@@ -244,6 +247,45 @@ player non dipende da Three.js e riceve le ossa da un accessor. Per ritoccare
 un movimento si cambiano i numeri della tabella `CLIPS`, che sono radianti. La
 camera è fissa.
 
+**Clip .vrma.** Sopra le pose procedurali possono girare clip vere, in un solo
+formato: `.vrma`, lo standard VRM per le animazioni umanoidi.
+- **Dove stanno.** `modelli-3d/animations` (integrate, pubblicabili),
+  `private-assets/animations` (solo nella copia privata) e
+  `<userData>/animations` (importate). Il protocollo `motion://` le serve.
+- **Il nome del file dice il gesto:** `wave.vrma`, `idle-2.vrma`,
+  `sit-bordo.vrma`. La parte prima del trattino è uno dei nomi di `CLIPS`, il
+  resto distingue le varianti, scelte a caso (`AnimationLibrary.js`).
+- **Riproduzione.** `clip-layer.js` segue la clip del player: se per quel
+  nome c'è un .vrma lo campiona e lo fonde con la posa procedurale, con
+  dissolvenze in entrata, in uscita e fra clip. Il player torna a idle quando
+  finisce la clip vera. Lo sguardo verso il mouse si applica sopra.
+  - Le tracce si campionano a mano: `AnimationMixer` riscrive un osso solo
+    quando il valore cambia, e una clip ferma sull'ultimo fotogramma veniva
+    cancellata dalla posa procedurale del frame dopo.
+- **Import dal menu** (tasto destro, "Animazioni"): `.vrma`, oppure `.glb`,
+  `.gltf`, `.fbx`, `.bvh` (le esportazioni di Kimodo), convertiti nel renderer
+  e poi salvati. Si sceglie il gesto, con un suggerimento dal nome del file.
+  Per toglierne una si cancella il file ("Apri la cartella delle animazioni").
+
+**Uno scheletro per tutti i modelli.** Clip e modelli si incontrano
+nell'umanoide VRM normalizzato: ogni osso a riposo ha rotazione nulla, con il
+corpo in T-pose, rivolto verso +Z e in piedi lungo +Y.
+- `humanoid-map.js` riconosce le ossa dai nomi di Mixamo, VRoid, Unreal,
+  Blender Rigify, 3ds Max Biped e Kimodo (SOMA). La colonna e le falangi si
+  assegnano per posizione nella gerarchia, perché la numerazione cambia da un
+  programma all'altro. Sui VRM veri il risultato coincide con l'abbinamento che
+  dichiarano (lo verifica il test).
+- `motion-retarget.js` raddrizza lo scheletro: in piedi, rivolto alla camera,
+  in metri e con i piedi a terra. Poi porta braccia e gambe in T-pose. Da lì:
+  - per un modello glTF o FBX costruisce un `VRMHumanoid` di three-vrm, e il
+    modello si anima come un VRM (pose, clip, sguardo, oscillazione);
+  - per una clip calcola la rotazione di ogni osso rispetto alla T-pose e la
+    scrive in un .vrma con scheletro di riposo neutro. Il bacino perde lo
+    spostamento orizzontale, perché la camminata la fa la finestra.
+
+Un modello senza scheletro umano resta un'anteprima statica. I file OBJ non
+sono supportati: non hanno ossa da animare.
+
 `walk-to` e `run-to` spostano la finestra vera sull'area di lavoro dello
 schermo su cui sta il companion. Il main sceglie la destinazione
 (`walk-target.js`) e comunica al renderer il verso, così l'avatar si gira
@@ -334,7 +376,7 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 
 ## Test
 
-`npm test` esegue undici suite senza chiavi API né finestre:
+`npm test` esegue quattordici suite senza chiavi API né finestre:
 
 | Suite | Cosa verifica |
 |---|---|
@@ -349,6 +391,9 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | Ritaglio sprite | Rilevamento automatico dei fotogrammi su fogli costruiti nel test |
 | Strip | Avatar 2D integrato: manifest e PNG coerenti, oppure assente senza PNG orfani |
 | CSP | Policy delle pagine, hash dell'importmap, niente script o gestori inline |
+| Ossa umanoidi | Riconoscimento su Fred e sui VRM privati (contro ciò che dichiarano), Mixamo, Unreal, Rigify, Biped, SOMA; scheletri non umani rifiutati |
+| Conversione .vrma | Sorgente Mixamo in centimetri, A-pose, girata: il .vrma riletto dal lettore di three-vrm muove le braccia giuste su VRM 1.0 e 0.x; BVH; livello delle clip con dissolvenze |
+| Libreria animazioni | Nome del file e gesto, varianti, salvataggio solo di glTF binari validi |
 
 `npm run check` aggiunge il controllo dei tipi. Il progetto è JavaScript, ma
 `allowJs` e `checkJs` lo sottopongono comunque a TypeScript, con i tipi
@@ -373,6 +418,10 @@ se punta a `127.0.0.1` o `localhost`. Lo script verifica:
 - nel 3D, che la testa segua il cursore a sinistra, a destra, in alto e in
   basso;
 - le dimensioni scelte dal menu;
+- una clip .vrma, convertita da uno scheletro Mixamo, che alza il braccio sul
+  VRM e su una copia di Fred senza dati VRM (un glTF qualsiasi), e la posa di
+  riposo quando finisce;
+- la conversione di un glb dentro l'app e il salvataggio nella libreria;
 - il saluto in 3D, l'umore, la memoria, l'eliminazione di un avatar e la
   console.
 
@@ -408,6 +457,8 @@ Fatto:
 - mouse alla Mate Engine: clic che passano sul vuoto, presa in braccio con
   oscillazione e capelli che si muovono, sguardo che segue il cursore, menu
   col tasto destro;
+- clip .vrma su VRM, glTF e FBX con scheletro umano, import da VRMA, glTF,
+  FBX e BVH;
 - router a sette provider con output vincolato ed elenchi dal vivo;
 - memoria persistente riletta nel prompt;
 - umore che decade nel tempo, gesti autonomi a riposo, ciglia e sguardo nel 3D;
@@ -419,8 +470,10 @@ Da fare:
 - interfaccia in inglese;
 - firma del codice e aggiornamenti automatici;
 - taratura a occhio delle pose 3D;
-- clip 3D generate con Kimodo (Fase C), che sostituiranno anche la posa
-  `dangle`;
+- le clip vere: generate con Kimodo e convertite con l'import (Fase C),
+  che sostituiranno anche la posa `dangle`;
+- prova con un FBX vero (Mixamo): il percorso è lo stesso del glTF, ma i test
+  non hanno un file FBX;
 - seduta su finestre e taskbar (resto della Fase B, con koffi);
 - Fase D: nascondersi ai bordi, chibi, danza con l'audio, mano verso il
   cursore;

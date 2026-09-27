@@ -268,6 +268,7 @@ export function createVRMAnimator(getBone) {
     (vrm && vrm.humanoid) ? vrm.humanoid.getNormalizedBoneNode(name) : null)
 
   let clipName     = 'idle'
+  let clipDuration = null   // durata della clip .vrma, se c'e': prevale su CLIPS
   let clipElapsed  = 0
   let clipWeight   = 0
   let clipEnding   = false
@@ -303,11 +304,21 @@ export function createVRMAnimator(getBone) {
   }
 
   return {
-    /** Avvia una clip per nome o alias. Sconosciuto significa idle. */
-    play(name) {
+    /** Nome della clip per un nome o alias, senza avviarla. */
+    resolve(name) { return CLIP_ALIAS[name] || 'idle' },
+
+    /**
+     * Avvia una clip per nome o alias. Sconosciuto significa idle.
+     * @param {string} name
+     * @param {{ duration?: number }} [options] durata della clip .vrma che la
+     *        riproduce (clip-layer.js): il player torna a idle quando finisce lei
+     */
+    play(name, options = {}) {
+      const duration = options.duration
       const resolved = CLIP_ALIAS[name] || 'idle'
       if (resolved === clipName && !clipEnding) return resolved
       clipName    = resolved
+      clipDuration = Number.isFinite(duration) && duration > 0 ? duration : null
       clipElapsed = 0
       clipEnding  = false
       // Il peso riparte da zero: senza, la clip nuova entrerebbe di scatto al
@@ -336,24 +347,31 @@ export function createVRMAnimator(getBone) {
 
     /** Riporta l'avatar alla sola posa di riposo. */
     reset(vrm) {
-      clipName = 'idle'; clipElapsed = 0; clipWeight = 0; clipEnding = false
+      clipName = 'idle'; clipElapsed = 0; clipWeight = 0; clipEnding = false; clipDuration = null
       facingYaw = 0; facingTarget = 0
       look = { yaw: 0, pitch: 0 }; lookWeight = 0
       applyPose(vrm, {})
     },
 
-    /** Avanza di delta secondi e scrive la posa sulle ossa. */
-    update(vrm, delta) {
+    /**
+     * Avanza di delta secondi e scrive la posa sulle ossa.
+     * @param {{ applyLook?: boolean }} [options] applyLook false: lo sguardo
+     *        non entra nella posa ma torna in lookParts, per applicarlo sopra
+     *        una clip .vrma (clip-layer.js)
+     */
+    update(vrm, delta, options = {}) {
+      const applyLook = options.applyLook !== false
       const clip = CLIPS[clipName] || CLIPS.idle
+      const duration = clipDuration !== null ? clipDuration : clip.duration
       clipElapsed += delta
-      if (clip.duration > 0 && clipElapsed >= clip.duration) clipEnding = true
+      if (duration > 0 && clipElapsed >= duration) clipEnding = true
 
       const target = clipEnding ? 0 : 1
       const rate   = target > clipWeight ? delta / BLEND_IN_S : delta / BLEND_OUT_S
       clipWeight  += Math.sign(target - clipWeight) * Math.min(rate, Math.abs(target - clipWeight))
 
       if (clipEnding && clipWeight <= 0.001) {
-        clipName = 'idle'; clipElapsed = 0; clipEnding = false; clipWeight = 0
+        clipName = 'idle'; clipElapsed = 0; clipEnding = false; clipWeight = 0; clipDuration = null
       }
 
       const active   = CLIPS[clipName] || CLIPS.idle
@@ -368,8 +386,9 @@ export function createVRMAnimator(getBone) {
       look.pitch += (lookTarget.pitch - look.pitch) * lookRate
       const wTarget = lookEnabled ? (LOOK_WEIGHT[clipName] || 0) : 0
       lookWeight += (wTarget - lookWeight) * Math.min(1, delta * LOOK_WEIGHT_RATE)
-      if (lookWeight > 0.001) {
-        const parts = distributeLook(look.yaw * lookWeight, look.pitch * lookWeight)
+      const lookParts = lookWeight > 0.001 ? distributeLook(look.yaw * lookWeight, look.pitch * lookWeight) : null
+      if (lookParts && applyLook) {
+        const parts = lookParts
         for (const [name, add] of Object.entries(parts)) {
           const p = pose[name] = pose[name] || {}
           p.x = (p.x || 0) + add.x
@@ -382,7 +401,7 @@ export function createVRMAnimator(getBone) {
       facingYaw += (facingTarget - facingYaw) * Math.min(1, delta * 6)
       if (vrm && vrm.scene) vrm.scene.rotation.y = baseYaw(vrm) + facingYaw
 
-      return { clip: clipName, weight: clipWeight, yaw: facingYaw, pose, lookWeight }
+      return { clip: clipName, ending: clipEnding, weight: clipWeight, yaw: facingYaw, pose, lookWeight, lookParts }
     },
 
     /** Stato interno, per i test. */

@@ -54,11 +54,17 @@ chat. Anything that touches your system shows a confirmation dialog first.
 | Avatar | Type | Notes |
 |---|---|---|
 | **Fred** | 3D, VRM 1.0 | Built in. By Swampazzo, redistributable ([details](ASSETS-LICENSE.md)) |
-| Your own | VRM, GLB/glTF | Menu → "Importa avatar". VRM models are animated. GLB/glTF models are shown as a static preview |
+| Your own | VRM, GLB/glTF, FBX | Menu → "Importa avatar". VRM models are animated, and so are GLB/glTF and FBX models with a human skeleton (Mixamo, VRoid, Unreal, Blender Rigify, 3ds Max). Others are shown as a static preview |
 | Your own | 2D sprite pack | A folder with `sprites.json` and one PNG per animation. Create one with `npm run strips` (see [docs/avatar-brief.md](docs/avatar-brief.md)) |
 
 To remove imported avatars: Menu → "Elimina importati", tick the ones to delete
 and confirm. Built-in avatars cannot be deleted.
+
+**Animations.** Right-click the avatar → "Animazioni" → "Importa animazione" to
+add a clip for a gesture (idle, greeting, sitting, being carried…). It accepts
+`.vrma` and converts `.glb`/`.gltf`, `.fbx` and `.bvh` clips to `.vrma`, so the
+same clip plays on every 3D avatar. Where there is no clip, the built-in
+procedural poses are used.
 
 The companion has a mood that fades over time and colours its replies, and it
 lives a little when you are not chatting: it looks around, takes a few steps,

@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
+import { VRMLoaderPlugin, VRMUtils, VRMHumanoid } from '@pixiv/three-vrm';
+import { VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import {
-  createVRMAnimator, baseYaw, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS,
+  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS,
 } from './vrm-animation.js';
+import { createClipLayer, applyLook } from './clip-layer.js';
+import { prepareHumanoid, retargetClip, writeVRMA } from './motion-retarget.js';
 
 
 window.__threeVisible = false;
@@ -78,10 +83,19 @@ const clock = new THREE.Clock();
 // La logica vive in vrm-animation.js: dentro questo HTML non sarebbe
 // verificabile, e il player va tenuto separato dai numeri delle pose.
 const animator = createVRMAnimator();
-const playClip = (name) => animator.play(name);
+// Le clip .vrma (clip-layer.js) si sovrappongono alle pose procedurali: il
+// player sa quanto dura la clip vera, e torna a idle quando finisce lei.
+const clips = createClipLayer();
+const playClip = (name) => animator.play(name, { duration: clips.prepare(animator.resolve(name)) });
 const applyVRMIdlePose = (vrm) => animator.reset(vrm);
-const updateAnimation = (vrm, delta) => animator.update(vrm, delta);
 const setFacing = (dir) => animator.setFacing(dir);
+
+function updateAnimation(vrm, delta) {
+  const info = animator.update(vrm, delta, { applyLook: false });
+  clips.update(delta, info.clip);
+  // Lo sguardo va sopra la posa finale, clip compresa.
+  applyLook(vrm, info.lookParts, isVRM0(vrm) ? 1 : -1);
+}
 
 // ─── Volto: ciglia, sguardo, umore e reazioni ──────────────────────────────
 // Ogni frame il peso di un'espressione e' il massimo fra quello dell'umore
@@ -144,7 +158,22 @@ if (api && api.onCursor) api.onCursor((c) => { if (!window.__companionTest) hand
 if (api && api.onDragMotion) api.onDragMotion((v) => { if (v) dragVel = { vx: +v.vx || 0, vy: +v.vy || 0 }; });
 // Per audit.mjs: simula il cursore senza muovere quello vero (con
 // window.__companionTest = true il cursore vero viene ignorato).
-window.__companion3DTest = { cursor: handleCursor, animator: () => animator.debug() };
+window.__companion3DTest = {
+  cursor: handleCursor,
+  animator: () => animator.debug(),
+  clips: () => clips.debug(),
+  humanoid: () => !!(currentVrm && currentVrm.humanoid),
+  /** Converte in .vrma come l'import dal menu, senza la finestra di scelta. */
+  convert: async (ext, data) => convertToVRMA(ext, data),
+  /** Direzione nel mondo da un osso all'altro, sulle ossa vere del modello. */
+  boneDir: (from, to) => {
+    const h = currentVrm && currentVrm.humanoid;
+    const a = h && h.getRawBoneNode(from);
+    const b = h && h.getRawBoneNode(to);
+    if (!a || !b) return null;
+    return b.getWorldPosition(new THREE.Vector3()).sub(a.getWorldPosition(new THREE.Vector3())).normalize().toArray();
+  },
+};
 
 if (api && api.onWindowDragState) {
   api.onWindowDragState(({ dragging: on }) => {
@@ -268,7 +297,49 @@ function startLoop() {
 // al nuovo, senza essere mai liberato.
 let loadSeq = 0;
 
-/** Carica un avatar 3D: VRM animato, oppure glTF come anteprima statica. */
+// Altezza della testa per i modelli senza VRM: quella di un VRM tipico, cosi'
+// la camera li inquadra allo stesso modo.
+const HEAD_HEIGHT_M = 1.42;
+
+/**
+ * Un glTF o FBX con scheletro umano diventa un "VRM" minimo: stesso umanoide
+ * normalizzato, quindi stesse pose, clip, sguardo e oscillazione. null se lo
+ * scheletro non e' umano.
+ */
+function humanoidFromObject(object) {
+  const root = new THREE.Group();
+  root.add(object);
+  let nodes;
+  try { nodes = prepareHumanoid(root); } catch (error) {
+    console.warn('Modello senza scheletro umano:', error.message);
+    return null;
+  }
+  const head = nodes.head.getWorldPosition(new THREE.Vector3()).y;
+  if (head > 0.01) root.scale.multiplyScalar(HEAD_HEIGHT_M / head);
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  if (Number.isFinite(box.min.y)) root.position.y -= box.min.y;
+  const hips = nodes.hips.getWorldPosition(new THREE.Vector3());
+  root.position.x -= hips.x;
+  root.position.z -= hips.z;
+  root.updateMatrixWorld(true);
+  const humanoid = new VRMHumanoid(/** @type {any} */ (Object.fromEntries(Object.entries(nodes).map(([k, node]) => [k, { node }]))));
+  root.add(humanoid.normalizedHumanBonesRoot);
+  return {
+    scene: root, humanoid, meta: { metaVersion: '1' },
+    expressionManager: null, lookAt: null, springBoneManager: null,
+    update() { humanoid.update(); },
+  };
+}
+
+/** Legge il file del modello: { vrm } per un VRM, { object } per il resto. */
+async function readModel(avatar) {
+  if (avatar.kind === 'fbx') return { vrm: null, object: await new FBXLoader().loadAsync(avatar.url) };
+  const gltf = await loader.loadAsync(avatar.url);
+  return { vrm: gltf.userData.vrm || null, object: gltf.scene };
+}
+
+/** Carica un avatar 3D: VRM, glTF o FBX. Senza scheletro umano resta statico. */
 async function loadVRMModel(avatar) {
   console.log("Caricamento modello 3D:", avatar.name);
   ensureThree();
@@ -279,53 +350,176 @@ async function loadVRMModel(avatar) {
     currentVrm = null;
   }
   if (currentGltf) { body.remove(currentGltf); VRMUtils.deepDispose(currentGltf); currentGltf = null; }
+  clips.attach(null);
   windActive = false;
   sway.reset();
 
-  loader.load(
-    avatar.url,
-    (gltf) => {
-      if (seq !== loadSeq) { VRMUtils.deepDispose(gltf.scene); return; }
-      const vrm = gltf.userData.vrm;
-      if (avatar.kind === 'gltf' || !vrm) {
-        // GLB/GLTF senza rig VRM: anteprima statica, mai animazioni finte.
-        currentGltf = gltf.scene;
-        body.add(currentGltf);
-        showBubble('Modello statico: pose ed espressioni non disponibili', 3600);
-        return;
-      }
-      VRMUtils.removeUnnecessaryVertices(gltf.scene);
-      // combineSkeletons sostituisce removeUnnecessaryJoints, deprecato in three-vrm 3.
-      VRMUtils.combineSkeletons(gltf.scene);
+  let model;
+  try { model = await readModel(avatar); } catch (err) {
+    console.error("Errore nel caricamento del modello 3D:", err);
+    if (seq === loadSeq) showBubble('Modello 3D non caricato', 3000);
+    return;
+  }
+  if (seq !== loadSeq) { VRMUtils.deepDispose(model.vrm ? model.vrm.scene : model.object); return; }
 
-      // I VRM 0.x guardano verso -Z, i 1.0 gia' verso la fotocamera: baseYaw
-      // sceglie in base alla versione. updateAnimation la riapplica a ogni
-      // frame, insieme all'orientamento verso la direzione di marcia.
-      vrm.scene.rotation.y = baseYaw(vrm);
-
-      // La Y del bacino e' la base dei sobbalzi di camminata e corsa: va letta
-      // una volta sola, prima che una clip la modifichi.
-      const hipsNode = vrm.humanoid && vrm.humanoid.getNormalizedBoneNode('hips');
-      if (hipsNode) hipsNode.userData.__baseY = hipsNode.position.y;
-
-      // Posa iniziale a riposo: reset() riporta anche il player a idle,
-      // altrimenti il modello nuovo erediterebbe la clip di quello vecchio.
-      applyVRMIdlePose(vrm);
-
-      // Lo sguardo segue la fotocamera, con i piccoli salti di createGaze.
-      if (!gazeTarget) gazeTarget = new THREE.Object3D();
-      if (vrm.lookAt) vrm.lookAt.target = gazeTarget;
-      clearReactions();
-
-      currentVrm = vrm;
-      body.add(vrm.scene);
-    },
-    undefined,
-    (err) => {
-      console.error("Errore nel caricamento del modello 3D:", err);
-      if (seq === loadSeq) showBubble('Modello 3D non caricato', 3000);
+  let vrm = model.vrm;
+  if (vrm) {
+    VRMUtils.removeUnnecessaryVertices(vrm.scene);
+    // combineSkeletons sostituisce removeUnnecessaryJoints, deprecato in three-vrm 3.
+    VRMUtils.combineSkeletons(vrm.scene);
+  } else {
+    vrm = humanoidFromObject(model.object);
+    if (!vrm) {
+      // Nessuno scheletro umano: anteprima statica, mai animazioni finte.
+      currentGltf = model.object;
+      body.add(currentGltf);
+      showBubble('Modello statico: nessuno scheletro umano da animare', 3600);
+      return;
     }
-  );
+  }
+
+  // I VRM 0.x guardano verso -Z, i 1.0 (e i modelli ricostruiti) gia' verso
+  // la fotocamera: baseYaw sceglie in base alla versione. updateAnimation la
+  // riapplica a ogni frame, insieme all'orientamento verso la direzione di marcia.
+  vrm.scene.rotation.y = baseYaw(vrm);
+
+  // La Y del bacino e' la base dei sobbalzi di camminata e corsa: va letta
+  // una volta sola, prima che una clip la modifichi.
+  const hipsNode = vrm.humanoid && vrm.humanoid.getNormalizedBoneNode('hips');
+  if (hipsNode) hipsNode.userData.__baseY = hipsNode.position.y;
+
+  // Posa iniziale a riposo: reset() riporta anche il player a idle,
+  // altrimenti il modello nuovo erediterebbe la clip di quello vecchio.
+  applyVRMIdlePose(vrm);
+
+  // Lo sguardo segue la fotocamera, con i piccoli salti di createGaze.
+  if (!gazeTarget) gazeTarget = new THREE.Object3D();
+  if (vrm.lookAt) vrm.lookAt.target = gazeTarget;
+  clearReactions();
+
+  currentVrm = vrm;
+  clips.attach(vrm);
+  body.add(vrm.scene);
+}
+
+// ─── Animazioni .vrma ──────────────────────────────────────────────────────
+// Le clip integrate e quelle importate, caricate una volta e date al livello
+// delle clip. Il nome del file dice il gesto (AnimationLibrary.js nel main).
+
+const vrmaLoader = new GLTFLoader();
+vrmaLoader.register(parser => new VRMAnimationLoaderPlugin(parser));
+
+async function loadAnimationLibrary() {
+  if (!api || !api.listAnimations) return;
+  const list = await api.listAnimations();
+  const library = new Map();
+  for (const item of list) {
+    try {
+      const gltf = await vrmaLoader.loadAsync(item.url);
+      const animation = gltf.userData.vrmAnimations && gltf.userData.vrmAnimations[0];
+      if (!animation) throw new Error('nessuna animazione VRMA nel file');
+      if (!library.has(item.slot)) library.set(item.slot, []);
+      library.get(item.slot).push({ name: item.name, animation });
+    } catch (error) {
+      console.warn('Animazione ' + item.name + ' scartata:', error.message);
+    }
+  }
+  clips.setLibrary(library);
+}
+loadAnimationLibrary().catch(e => console.warn('Animazioni non caricate:', e.message));
+
+// Etichette dei gesti, nell'ordine in cui si propongono all'import.
+const SLOT_LABELS = {
+  idle: 'A riposo', wave: 'Saluto', happy: 'Contento', think: 'Pensa', sit: 'Seduto',
+  dangle: 'In braccio', 'walk-to': 'Camminata', 'run-to': 'Corsa', search: 'Cerca',
+  smoke: 'Fuma', click: 'Clic',
+};
+const SLOT_HINTS = [
+  [/(wave|hello|greet|salut|ciao)/, 'wave'], [/(think|pens|ponder)/, 'think'],
+  [/(walk|cammin)/, 'walk-to'], [/(run|jog|corr)/, 'run-to'], [/(sit|seat|sedu|sied)/, 'sit'],
+  [/(hang|dangl|drag|carr|brac)/, 'dangle'], [/(happy|cheer|joy|clap|content)/, 'happy'],
+  [/(search|look|cerc)/, 'search'], [/(smok|fum)/, 'smoke'], [/(click|type|typing)/, 'click'],
+];
+const guessSlot = (name) => (SLOT_HINTS.find(([re]) => re.test(name.toLowerCase())) || [null, 'idle'])[1];
+
+// Pixel trasparente al posto delle texture: una clip FBX le cita, ma per
+// convertirla servono solo le ossa, e senza questo il loader le cercherebbe.
+const NO_TEXTURE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+/** Converte una clip glTF, FBX o BVH in .vrma. */
+async function convertToVRMA(ext, data) {
+  const root = new THREE.Group();
+  let clip;
+  if (ext === 'glb' || ext === 'gltf') {
+    const gltf = await new GLTFLoader().parseAsync(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), '');
+    root.add(gltf.scene);
+    clip = gltf.animations[0];
+  } else if (ext === 'fbx') {
+    const manager = new THREE.LoadingManager();
+    manager.setURLModifier(() => NO_TEXTURE);
+    const object = new FBXLoader(manager).parse(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), '');
+    root.add(object);
+    clip = object.animations[0];
+  } else if (ext === 'bvh') {
+    const result = new BVHLoader().parse(new TextDecoder().decode(data));
+    root.add(result.skeleton.bones[0]);
+    clip = result.clip;
+  }
+  if (!clip) throw new Error('il file non contiene animazioni');
+  return new Uint8Array(writeVRMA(retargetClip(root, clip)));
+}
+
+/** Chiede per quale gesto usare la clip, nel menu della finestra. */
+function chooseSlot(suggested) {
+  const order = [suggested, ...Object.keys(SLOT_LABELS).filter(k => k !== suggested)];
+  return new Promise(resolve => {
+    const menu = document.getElementById('model-menu');
+    const host = document.getElementById('avatar-list');
+    const title = document.createElement('div');
+    title.className = 'menu-item menu-note';
+    title.textContent = 'Usala per:';
+    const items = order.map(slot => {
+      const item = document.createElement('div');
+      item.className = 'menu-item' + (slot === suggested ? ' active' : '');
+      item.textContent = SLOT_LABELS[slot];
+      item.addEventListener('click', () => resolve(slot));
+      return item;
+    });
+    const cancel = document.createElement('div');
+    cancel.className = 'menu-item menu-note';
+    cancel.textContent = 'Annulla';
+    cancel.addEventListener('click', () => resolve(null));
+    setMenuFooter(false, false);
+    host.replaceChildren(title, ...items, cancel);
+    menu.style.display = 'block';
+    document.body.classList.add('menu-open');
+  });
+}
+
+async function importAnimation() {
+  let picked;
+  try {
+    picked = await api.pickAnimation();
+    if (!picked || picked.canceled) return;
+    const data = picked.data instanceof Uint8Array ? picked.data : new Uint8Array(picked.data);
+    if (picked.ext !== 'vrma') showBubble('Converto l\'animazione…', 8000);
+    const vrma = picked.ext === 'vrma' ? data : await convertToVRMA(picked.ext, data);
+    // Prima di salvarla la si rilegge: un file che il player non capisce non
+    // deve finire nella cartella.
+    const check = await vrmaLoader.parseAsync(vrma.buffer.slice(vrma.byteOffset, vrma.byteOffset + vrma.byteLength), '');
+    if (!check.userData.vrmAnimations || !check.userData.vrmAnimations[0]) throw new Error('nessuna animazione VRMA nel file');
+    const slot = await chooseSlot(guessSlot(picked.name));
+    renderAvatarMenu(await api.listAvatars());
+    closeMenu();
+    if (!slot) return;
+    await api.saveAnimation({ slot, name: picked.name, data: vrma });
+    await loadAnimationLibrary();
+    showBubble('Animazione aggiunta: ' + SLOT_LABELS[slot], 3000);
+    if (window.__threeVisible && currentVrm) playClip(slot);
+  } catch (error) {
+    console.error('Importazione animazione fallita:', error);
+    showBubble('Animazione non importata: ' + error.message, 4500);
+  }
 }
 
 /** Manifest del pacchetto 2D da mostrare, con la cartella dei suoi PNG. */
@@ -582,6 +776,7 @@ if (api && api.onMenuCommand) {
     if (!data) return;
     if (data.cmd === 'avatar' && typeof data.id === 'string') switchModel(data.id);
     else if (data.cmd === 'import') importAvatar();
+    else if (data.cmd === 'import-animation') importAnimation();
   });
 }
 

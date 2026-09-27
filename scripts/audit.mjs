@@ -23,6 +23,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import * as THREE from 'three'
+import { retargetClip, writeVRMA } from '../src/renderer/motion-retarget.js'
+import { mixamoSource, dir, v } from './lib/skeletons.mjs'
 
 const require = createRequire(import.meta.url)
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -91,6 +94,41 @@ fs.copyFileSync(path.join(ROOT, 'src', 'renderer', 'assets', 'icon.png'), png)
 const library = new AvatarLibrary(path.join(USER_DATA, 'avatars'))
 const scan = await library.scan(png)
 const imported = await library.commit(scan.token, scan.candidates[0].id)
+
+// Una clip "wave" in .vrma, convertita da uno scheletro Mixamo in A-pose: il
+// braccio sinistro si alza dritto e resta su per quattro secondi.
+const src = mixamoSource()
+const up = new THREE.Quaternion().setFromUnitVectors(dir(src.bones.mixamorigLeftArm, src.bones.mixamorigLeftForeArm), v(0, 1, 0))
+const waveClip = new THREE.AnimationClip('audit-wave', 4, [
+  new THREE.QuaternionKeyframeTrack('mixamorigLeftArm.quaternion', [0, 0.4, 4], [0, 0, 0, 1, ...up.toArray(), ...up.toArray()]),
+])
+fs.mkdirSync(path.join(USER_DATA, 'animations'), { recursive: true })
+fs.writeFileSync(path.join(USER_DATA, 'animations', 'wave-audit.vrma'), Buffer.from(writeVRMA(retargetClip(src.root, waveClip))))
+
+// Fred senza le estensioni VRM: un glTF qualsiasi con scheletro umano, come
+// quelli esportati da Blender. Deve animarsi lo stesso.
+function stripVrm(file, out) {
+  const b = fs.readFileSync(file)
+  const jsonLength = b.readUInt32LE(12)
+  const json = JSON.parse(b.subarray(20, 20 + jsonLength).toString())
+  const binStart = 20 + jsonLength
+  const bin = b.subarray(binStart + 8, binStart + 8 + b.readUInt32LE(binStart))
+  const noVrm = (ext) => { if (ext) for (const k of Object.keys(ext)) if (k.startsWith('VRMC_') || k === 'VRM') delete ext[k] }
+  noVrm(json.extensions)
+  for (const item of [...(json.materials || []), ...(json.nodes || [])]) noVrm(item.extensions)
+  for (const key of ['extensionsUsed', 'extensionsRequired']) if (json[key]) json[key] = json[key].filter(e => !e.startsWith('VRMC_') && e !== 'VRM')
+  let text = Buffer.from(JSON.stringify(json))
+  text = Buffer.concat([text, Buffer.alloc((4 - (text.length % 4)) % 4, 0x20)])
+  const pad = Buffer.alloc((4 - (bin.length % 4)) % 4)
+  const header = Buffer.alloc(12)
+  header.writeUInt32LE(0x46546c67, 0); header.writeUInt32LE(2, 4); header.writeUInt32LE(12 + 8 + text.length + 8 + bin.length + pad.length, 8)
+  const chunk = (len, type) => { const c = Buffer.alloc(8); c.writeUInt32LE(len, 0); c.writeUInt32LE(type, 4); return c }
+  fs.writeFileSync(out, Buffer.concat([header, chunk(text.length, 0x4e4f534a), text, chunk(bin.length + pad.length, 0x004e4942), bin, pad]))
+}
+const plainGlb = path.join(WORK, 'umanoide-gltf.glb')
+stripVrm(path.join(ROOT, 'modelli-3d', 'Fred', 'Fred_optimized.vrm'), plainGlb)
+const gltfScan = await library.scan(plainGlb)
+const gltfAvatar = await library.commit(gltfScan.token, gltfScan.candidates[0].id)
 
 const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA], {
   cwd: ROOT, stdio: 'ignore',
@@ -296,6 +334,42 @@ try {
   await comp.evaluate('window.companion.endDrag(); true')
   await sleep(800)
   check((await comp.evaluate('window.__companion3DTest.animator()')).clipName === 'idle', '3D: posato torna a riposo')
+
+  // 4c. Le clip .vrma: su questo VRM e su un glTF senza dati VRM.
+  const armUp = () => comp.evaluate("window.__companion3DTest.boneDir('leftUpperArm', 'leftLowerArm')")
+  await sleep(1000)
+  await say('salutami')
+  await sleep(1200)
+  let clipState = await comp.evaluate('window.__companion3DTest.clips()')
+  let arm = await armUp()
+  check(clipState.clip === 'wave-audit.vrma' && arm && arm[1] > 0.8,
+    VRM + ': "salutami" usa la clip .vrma (' + clipState.clip + ', braccio y ' + (arm ? arm[1].toFixed(2) : '?') + ')')
+  await shot('3-clip-vrma-' + VRM)
+  await sleep(4500)
+  arm = await armUp()
+  check((await comp.evaluate('window.__companion3DTest.clips()')).clip === null && arm && arm[1] < 0, 'finita la clip torna la posa a riposo (braccio y ' + (arm ? arm[1].toFixed(2) : '?') + ')')
+
+  await pickAvatar(gltfAvatar.name)
+  await sleep(8000)
+  check(await comp.evaluate('window.__companion3DTest.humanoid()') === true, 'glTF senza VRM: scheletro umano riconosciuto e animabile')
+  await shot('3b-gltf-riposo')
+  await say('salutami')
+  await sleep(1200)
+  arm = await armUp()
+  check(arm && arm[1] > 0.8, 'glTF senza VRM: la stessa clip .vrma alza il braccio (y ' + (arm ? arm[1].toFixed(2) : '?') + ')')
+  await shot('3c-gltf-clip')
+  const [wg, hg] = await size()
+  check(await hover(wg / 2, hg * 0.45) === true, 'glTF senza VRM: il mouse lo prende')
+
+  // 4d. Import di una clip dentro l'app: conversione da glb e salvataggio.
+  const glbBytes = JSON.stringify([...fs.readFileSync(path.join(USER_DATA, 'animations', 'wave-audit.vrma'))])
+  const saved = await comp.evaluate(`(async () => {
+    const data = await window.__companion3DTest.convert('glb', new Uint8Array(${glbBytes}))
+    const entry = await window.companion.saveAnimation({ slot: 'happy', name: 'convertita.glb', data })
+    return entry.name
+  })()`)
+  const listed = await comp.evaluate('window.companion.listAnimations()')
+  check(saved === 'happy-convertita.vrma' && listed.some(a => a.slot === 'happy' && a.name === saved), 'import: glb convertito in .vrma e salvato (' + saved + ')')
 
   // 5. Umore, memoria.
   const chip = await chat.evaluate(`document.getElementById('mood-chip').textContent`)

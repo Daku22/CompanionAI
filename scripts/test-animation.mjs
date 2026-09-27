@@ -6,6 +6,7 @@
 // idle, e che nessuna posa lasci residui sull'osso di un'altra.
 
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import {
   createVRMAnimator, CLIPS, CLIP_ALIAS, TOUCHED_BONES, REST_POSE, mergePose,
   createBlinker, createGaze, nextSaccade, moodExpressions, MOOD_MAX, MOOD_EXPRESSIONS,
@@ -49,6 +50,11 @@ test('ogni alias punta a una clip che esiste', () => {
   for (const [alias, target] of Object.entries(CLIP_ALIAS)) {
     assert.ok(CLIPS[target], 'alias "' + alias + '" punta a "' + target + '", che non esiste')
   }
+})
+
+test('la libreria delle clip .vrma conosce gli stessi gesti del player', () => {
+  const { ANIMATION_SLOTS } = createRequire(process.argv[1])('../src/main/AnimationLibrary.js')
+  assert.deepEqual([...ANIMATION_SLOTS].sort(), Object.keys(CLIPS).sort())
 })
 
 test('le animazioni del contratto AI sono tutte gestite', () => {

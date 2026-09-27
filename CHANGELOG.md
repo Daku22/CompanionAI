@@ -30,6 +30,15 @@
   - right-click menu: chat, avatars, window size, follow the mouse, idle life,
     always on top, hide, quit.
 - The window starts in the right place when the taskbar is on the top or left.
+- Animations in one format, `.vrma`, on every humanoid model:
+  - GLB/glTF and FBX avatars with a human skeleton are now animated like VRM
+    ones. Bones are recognized from the names used by Mixamo, VRoid, Unreal,
+    Blender Rigify, 3ds Max Biped and Kimodo (SOMA). A-pose and centimetre
+    rigs are handled;
+  - import clips from the right-click menu: `.vrma`, or `.glb`/`.gltf`,
+    `.fbx` and `.bvh` converted to `.vrma`;
+  - clips blend with the procedural poses and with each other; the gaze
+    toward the mouse stays on top.
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.

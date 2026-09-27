@@ -13,7 +13,7 @@
     "start": "electron .",
     "predev": "npm run assets",
     "dev": "electron . --dev",
-    "test": "node src/memory/test-memory.js && node scripts/test-router.js && node scripts/test-mood.js && node scripts/test-idle-life.js && node scripts/test-guards.js && node scripts/test-animation.mjs && node scripts/test-sway.mjs && node scripts/test-avatar-library.js && node scripts/test-sprite-frames.js && node scripts/test-strips.js && node scripts/test-csp.js",
+    "test": "node src/memory/test-memory.js && node scripts/test-router.js && node scripts/test-mood.js && node scripts/test-idle-life.js && node scripts/test-guards.js && node scripts/test-animation.mjs && node scripts/test-sway.mjs && node scripts/test-humanoid-map.mjs && node scripts/test-motion-retarget.mjs && node scripts/test-animation-library.js && node scripts/test-avatar-library.js && node scripts/test-sprite-frames.js && node scripts/test-strips.js && node scripts/test-csp.js",
     "test:memory": "node src/memory/test-memory.js",
     "test:router": "node scripts/test-router.js",
     "test:guards": "node scripts/test-guards.js",
@@ -32,6 +32,7 @@
   "devDependencies": {
     "@pixi/unsafe-eval": "^7.4.3",
     "@pixiv/three-vrm": "^3.5.5",
+    "@pixiv/three-vrm-animation": "^3.5.5",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
     "pixi.js": "^7.4.2",

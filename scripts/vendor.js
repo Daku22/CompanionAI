@@ -32,6 +32,15 @@ const FILES = {
   'three/examples/jsm/loaders/GLTFLoader.js':        'three-addons/loaders/GLTFLoader.js',
   // Importato da GLTFLoader: senza, il caricamento dei .vrm fallisce.
   'three/examples/jsm/utils/BufferGeometryUtils.js': 'three-addons/utils/BufferGeometryUtils.js',
+  // Animazioni .vrma, l'unico formato di clip che il player conosce.
+  '@pixiv/three-vrm-animation/lib/three-vrm-animation.module.js': 'three-vrm-animation.module.js',
+  // Modelli FBX e clip da convertire (FBX, BVH di Kimodo). FBXLoader importa
+  // fflate e le curve NURBS.
+  'three/examples/jsm/loaders/FBXLoader.js':         'three-addons/loaders/FBXLoader.js',
+  'three/examples/jsm/libs/fflate.module.js':        'three-addons/libs/fflate.module.js',
+  'three/examples/jsm/curves/NURBSCurve.js':         'three-addons/curves/NURBSCurve.js',
+  'three/examples/jsm/curves/NURBSUtils.js':         'three-addons/curves/NURBSUtils.js',
+  'three/examples/jsm/loaders/BVHLoader.js':         'three-addons/loaders/BVHLoader.js',
 }
 
 function copyOne(from, to) {

@@ -268,6 +268,43 @@ Da provare a mano, perché l'automazione non muove il mouse vero:
 - il trascinamento vero, anche fra due schermi;
 - il menu nativo.
 
+## Animazioni in un solo formato: .vrma (2026-09-27)
+
+Richiesta: una stessa animazione deve funzionare su modelli glTF, FBX e VRM,
+e deve potersi importare anche da file .vrma. OBJ è stato escluso: non ha
+scheletro.
+- **Formato unico per le clip:** `.vrma`, letto da `@pixiv/three-vrm-animation`
+  (MIT). Tutto il resto (glTF, FBX, BVH di Kimodo) viene convertito una volta
+  sola, all'import.
+- **Scheletro unico per i modelli:** l'umanoide normalizzato di three-vrm. Un
+  glTF o FBX con scheletro umano riceve un `VRMHumanoid` costruito dalle sue
+  ossa, dopo averlo raddrizzato e messo in T-pose (`motion-retarget.js`).
+- **Riconoscimento delle ossa** (`humanoid-map.js`): nomi di Mixamo, VRoid,
+  Unreal, Rigify, Biped e SOMA; colonna e falangi per gerarchia. I nomi SOMA
+  vengono da `kimodo/skeleton/definitions.py` (somaskel77): sono in stile
+  Mixamo, con il metacarpo come prima falange delle dita.
+- **Il lettore .vrma** converte le rotazioni rispetto allo scheletro di riposo
+  del file. Scrivendo il .vrma con rotazioni di riposo nulle e la gerarchia di
+  `VRMHumanBoneParentMap`, le tracce sono già le rotazioni normalizzate.
+
+Difetti trovati dai test durante il lavoro:
+- three toglie i due punti dai nomi (`mixamorig:LeftArm` diventa
+  `mixamorigLeftArm`), quindi il riconoscitore deve accettare anche quella forma;
+- un'altezza di 147 cm veniva presa per millimetri (soglia sbagliata);
+- un'azione in loop, portata all'ultimo istante, torna al primo fotogramma:
+  la conversione usa LoopOnce;
+- le ossa che la clip non muove restavano nella T-pose di lavoro invece che
+  nella posa originale della sorgente;
+- `AnimationMixer` riscrive un osso solo quando il valore cambia: una clip
+  ferma sull'ultimo fotogramma spariva sotto la posa procedurale. Il livello
+  delle clip ora campiona le tracce da sé.
+
+Verifica nell'app (audit, 44 controlli): una clip convertita da uno scheletro
+Mixamo in A-pose alza il braccio giusto su Fred (VRM 1.0), su Neko (VRM 0.x)
+e su una copia di Fred senza dati VRM, trattata come un glTF qualsiasi. Senza
+un file FBX vero il percorso FBX non è ancora provato: il loader è diverso, la
+conversione è la stessa.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

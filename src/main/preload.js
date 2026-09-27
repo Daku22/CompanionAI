@@ -43,6 +43,12 @@ contextBridge.exposeInMainWorld('companion', {
   // Solo gli id: il main elimina unicamente avatar importati, mai gli integrati.
   removeAvatars:    (ids)    => ipcRenderer.invoke('avatars:remove', ids),
 
+  // Animazioni .vrma: elenco, scelta di un file da importare (il main lo legge e
+  // manda solo nome e dati), salvataggio del .vrma convertito dal renderer.
+  listAnimations:   ()       => ipcRenderer.invoke('animations:list'),
+  pickAnimation:    ()       => ipcRenderer.invoke('animations:pick'),
+  saveAnimation:    (data)   => ipcRenderer.invoke('animations:save', data),
+
   // ─── Azioni OS (solo main le esegue) ───────────────────────────────────────
   executeAction: (action)    => ipcRenderer.send('os:execute', action),
 
