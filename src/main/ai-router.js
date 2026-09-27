@@ -8,6 +8,7 @@
 
 const https = require('https')
 const http  = require('http')
+const { REPLY_EMOTIONS } = require('./mood')
 
 // ─── Provider definitions ────────────────────────────────────────────────────
 // reasoning: il modello ragiona prima di rispondere, e quei token si contano
@@ -114,6 +115,12 @@ const ANIMATIONS = [
   'click', 'happy', 'scroll', 'open-file', 'search',
 ]
 const ACTION_TYPES = ['none', 'open-desktop-item', 'open-url', 'open-path', 'run-command']
+// Emozioni che il modello puo' dichiarare: le stesse che mood.js sa gestire.
+const EMOTIONS = REPLY_EMOTIONS
+// Verso e distanza di walk-to / run-to. Senza, la meta' era sempre a caso e
+// "cammina verso destra" poteva andare a sinistra.
+const DIRECTIONS = ['left', 'right', 'toward-cursor']
+const DISTANCES = ['short', 'medium', 'edge']
 
 // Schema JSON usato dai provider che sanno vincolare l'output (Anthropic).
 // Vincolare lo schema lato API elimina la classe di bug "il modello ha risposto
@@ -122,6 +129,8 @@ const COMPANION_SCHEMA = {
   type: 'object',
   properties: {
     reply: { type: 'string', description: "Testo della risposta all'utente" },
+    // Facoltativa: un provider che non la manda non rompe nulla, l'umore resta com'e'.
+    emotion: { type: 'string', enum: EMOTIONS, description: 'Emozione che provi rispondendo' },
     action: {
       type: 'object',
       properties: {
@@ -131,6 +140,8 @@ const COMPANION_SCHEMA = {
         url:       { type: 'string', description: 'URL completo con https://' },
         path:      { type: 'string', description: 'percorso assoluto' },
         cmd:       { type: 'string', description: 'comando in allowlist' },
+        direction: { type: 'string', enum: DIRECTIONS, description: 'verso di walk-to / run-to' },
+        distance:  { type: 'string', enum: DISTANCES, description: 'quanto lontano: short, medium, edge (fino al bordo)' },
       },
       required: ['type', 'animation'],
       additionalProperties: false,
@@ -146,21 +157,35 @@ Sei utile, amichevole e conciso. Puoi eseguire azioni reali sul computer dell'ut
 Rispondi SEMPRE e SOLO con un oggetto JSON valido in questo formato, senza testo aggiuntivo:
 {
   "reply": "Testo della risposta all'utente (stringa, obbligatorio)",
+  "emotion": ${EMOTIONS.map(e => `"${e}"`).join(' | ')},
   "action": {
     "type": ${ACTION_TYPES.map(t => `"${t}"`).join(' | ')},
     "animation": ${ANIMATIONS.map(a => `"${a}"`).join(' | ')},
     "name": "nome file/cartella sul Desktop (solo per open-desktop-item)",
     "url": "URL completo con https:// (solo per open-url)",
     "path": "percorso assoluto (solo per open-path)",
-    "cmd": "comando shell (solo per run-command)"
+    "cmd": "comando shell (solo per run-command)",
+    "direction": ${DIRECTIONS.map(d => `"${d}"`).join(' | ')} (solo per walk-to / run-to),
+    "distance": ${DISTANCES.map(d => `"${d}"`).join(' | ')} (solo per walk-to / run-to)
   }
 }
 
 Esempi:
 - "apri la cartella Documenti" -> type: "open-desktop-item", name: "Documenti", animation: "open-file"
 - "cerca notizie AI su Google" -> type: "open-url", url: "https://google.com/search?q=notizie+AI", animation: "search"
-- "ciao" -> type: "none", animation: "wave"
-- "cosa puoi fare?" -> type: "none", animation: "idle"
+- "ciao" -> type: "none", animation: "wave", emotion: "joy"
+- "cosa puoi fare?" -> type: "none", animation: "idle", emotion: "curiosity"
+- "oggi è andata male" -> type: "none", animation: "idle", emotion: "sadness"
+- "cammina verso destra" -> type: "none", animation: "walk-to", direction: "right", distance: "medium"
+- "corri fino al bordo sinistro" -> type: "none", animation: "run-to", direction: "left", distance: "edge"
+- "vieni qui" / "vieni dal mouse" -> type: "none", animation: "walk-to", direction: "toward-cursor"
+- "siediti" / "siediti qui" -> type: "none", animation: "sit"
+
+Le animazioni e gli spostamenti del tuo avatar non sono azioni sul sistema:
+usa sempre type "none" e scegli l'animazione che corrisponde alla richiesta.
+
+"emotion" è ciò che provi tu rispondendo, coerente con il tuo stato attuale se
+te lo viene indicato: "neutral" se nulla in particolare.
 
 Solo i comandi in allowlist (notepad, calc, mspaint, explorer) vengono eseguiti,
 chiamati per nome e senza percorso: non proporne altri con run-command.
@@ -178,15 +203,21 @@ const REASONING_TIMEOUT_MS = 90000
  * spendono token prima di rispondere: servono piu' spazio e piu' tempo. Dove
  * si puo' scegliere, lo sforzo e' basso: un companion che chiacchiera deve
  * rispondere in fretta, non risolvere problemi.
- * @returns {{ maxTokens: number, timeoutMs: number, effort: string|null }}
+ * I modelli dell'elenco dal vivo di OpenRouter non stanno in PROVIDERS: le
+ * loro capacita' (caps) dicono se ragionano. Prima ricevevano 1024 token e 20 s
+ * anche quando ragionavano, e il JSON arrivava troncato o non arrivava.
+ * @param {{ reasoning?: boolean } | null} [caps]
+ * @returns {{ maxTokens: number, timeoutMs: number, effort: string|null, reasoning: boolean }}
  */
-function requestBudget(provider, model, maxTokens) {
+function requestBudget(provider, model, maxTokens, caps = null) {
   const entry = PROVIDERS[provider] && PROVIDERS[provider].models.find(m => m.id === model)
-  if (!entry || !entry.reasoning) return { maxTokens, timeoutMs: REQUEST_TIMEOUT_MS, effort: null }
+  const reasoning = !!((entry && entry.reasoning) || (caps && caps.reasoning))
+  if (!reasoning) return { maxTokens, timeoutMs: REQUEST_TIMEOUT_MS, effort: null, reasoning: false }
   return {
     maxTokens: Math.max(maxTokens, REASONING_MIN_TOKENS),
     timeoutMs: REASONING_TIMEOUT_MS,
-    effort: entry.effort ? 'low' : null,
+    effort: entry && entry.effort ? 'low' : null,
+    reasoning: true,
   }
 }
 const MAX_BODY_BYTES = 5 * 1024 * 1024
@@ -282,13 +313,58 @@ function describeError(err, provider) {
 
 const MODEL_CACHE_MS = 60 * 60 * 1000
 const modelCache = new Map()
+// Capacita' dei modelli OpenRouter, per id: tutti, non solo i gratuiti, perche'
+// la config puo' contenere un modello a pagamento scritto a mano.
+const openRouterCaps = new Map()
+let openRouterCapsAt = 0
+
+/**
+ * Cosa sa fare un modello, dai supported_parameters di OpenRouter. Laguna S 2.1,
+ * per esempio, ha tools e reasoning ma non response_format: mandargli solo
+ * response_format faceva rispondere il modello in prosa, senza azione.
+ * @param {unknown} params
+ * @returns {{ schema: boolean, json: boolean, tools: boolean, reasoning: boolean }}
+ */
+function capsFromParams(params) {
+  const list = Array.isArray(params) ? params : []
+  return {
+    schema: list.includes('structured_outputs'),
+    json: list.includes('response_format'),
+    tools: list.includes('tools'),
+    reasoning: list.includes('reasoning'),
+  }
+}
 
 function parseOpenRouterModels(body) {
   const data = body && Array.isArray(body.data) ? body.data : []
   return data
     .filter(m => m && typeof m.id === 'string' && m.id.endsWith(':free'))
-    .map(m => ({ id: m.id, label: String(m.name || m.id).replace(/\s*\(free\)\s*$/i, '') + ' (free)' }))
+    .map(m => ({ id: m.id, label: String(m.name || m.id).replace(/\s*\(free\)\s*$/i, '') + ' (free)', caps: capsFromParams(m.supported_parameters) }))
     .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+function rememberOpenRouterCaps(body) {
+  const data = body && Array.isArray(body.data) ? body.data : []
+  for (const m of data) if (m && typeof m.id === 'string') openRouterCaps.set(m.id, capsFromParams(m.supported_parameters))
+  if (data.length) openRouterCapsAt = Date.now()
+}
+
+/**
+ * Capacita' note di un modello, o null se sconosciute. Per OpenRouter le si
+ * chiede al servizio una volta l'ora; per gli altri provider valgono i flag di
+ * PROVIDERS.
+ * @returns {Promise<{ schema: boolean, json: boolean, tools: boolean, reasoning: boolean } | null>}
+ */
+async function modelCaps(provider, model) {
+  if (provider === 'openrouter') {
+    if (!openRouterCaps.has(model) || Date.now() - openRouterCapsAt > MODEL_CACHE_MS) {
+      modelCache.delete('openrouter')
+      await listModels('openrouter')
+    }
+    if (openRouterCaps.has(model)) return openRouterCaps.get(model)
+  }
+  const entry = PROVIDERS[provider] && PROVIDERS[provider].models.find(m => m.id === model)
+  return entry ? { schema: false, json: true, tools: false, reasoning: !!entry.reasoning } : null
 }
 
 function parseOllamaTags(body) {
@@ -314,8 +390,9 @@ async function listModels(provider) {
   try {
     let models
     if (provider === 'openrouter') {
-      const res = await requestJSON('https://openrouter.ai/api/v1/models', { method: 'GET' }, null, 10000)
+      const res = await requestJSON(openRouterUrl('/models'), { method: 'GET' }, null, 10000)
       if (res.status !== 200) throw httpError('OpenRouter', res)
+      rememberOpenRouterCaps(res.body)
       models = parseOpenRouterModels(res.body)
     } else {
       const { host, port } = ollamaAddress()
@@ -385,39 +462,55 @@ function openaiPayload(model, messages, maxTokens, jsonMode) {
 
 // ─── Parser risposta (fallback per i provider senza vincolo di schema) ───────
 
+/**
+ * via dice come e' arrivata la risposta: 'json' se il testo era JSON valido con
+ * una reply, 'fallback' se e' servito il recupero (niente azione affidabile),
+ * 'text' in modalita' prosa. Chi chiama lo sostituisce con 'schema' o 'tool'
+ * quando il vincolo l'ha imposto l'API.
+ */
 function parseResponse(raw, jsonMode = true) {
-  if (!jsonMode) return { reply: String(raw || '').trim(), action: { type: 'none', animation: 'idle' } }
+  if (!jsonMode) return { reply: String(raw || '').trim(), action: { type: 'none', animation: 'idle' }, via: 'text' }
+  const parsed = parseJSONReply(raw)
+  if (parsed) return { ...parsed, via: 'json' }
+  return { ...recoverReply(raw), via: 'fallback', raw: String(raw || '').slice(0, 300) }
+}
+
+/** Il JSON della risposta, se c'e' ed e' fatto bene; altrimenti null. */
+function parseJSONReply(raw) {
   try {
     const clean = String(raw).replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const start = clean.indexOf('{')
     const end   = clean.lastIndexOf('}')
-    if (start !== -1 && end !== -1) return JSON.parse(clean.slice(start, end + 1))
-    return JSON.parse(clean)
-  } catch (_) {
-    const text = String(raw)
-    const unescape = (v) => v.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\//g, '/')
-    const idle = { type: 'none', animation: 'idle' }
+    const value = JSON.parse(start !== -1 && end !== -1 ? clean.slice(start, end + 1) : clean)
+    return value && typeof value === 'object' && typeof value.reply === 'string' ? value : null
+  } catch (_) { return null }
+}
 
-    // Caso comune: il JSON e' troncato ma il campo reply e' completo.
-    const chiuso = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/)
-    if (chiuso) return { reply: unescape(chiuso[1]), action: idle }
+/** Recupero per le risposte che non sono JSON: si salva almeno il testo. */
+function recoverReply(raw) {
+  const text = String(raw)
+  const unescape = (v) => v.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\//g, '/')
+  const idle = { type: 'none', animation: 'idle' }
 
-    // Troncato a meta' della stringa: prendi tutto quello che segue.
-    const aperto = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)$/)
-    if (aperto) return { reply: unescape(aperto[1]).trim(), action: idle }
+  // Caso comune: il JSON e' troncato ma il campo reply e' completo.
+  const chiuso = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+  if (chiuso) return { reply: unescape(chiuso[1]), action: idle }
 
-    // Ultima risorsa: togli l'impalcatura JSON rimasta, graffe comprese.
-    // Senza toglierle una parentesi finisce nel testo mostrato all'utente.
-    const ripulito = text
-      .replace(/\{[^}]*"action"[^}]*\}/g, '')
-      .replace(/"reply"\s*:\s*"/, '')
-      .replace(/"\s*,\s*"action"[^]*$/, '')
-      .replace(/"\s*\}\s*$/, '')
-      .replace(/^[\s{[]+/, '')
-      .replace(/[\s}\]]+$/, '')
-      .trim()
-    return { reply: ripulito || text, action: idle }
-  }
+  // Troncato a meta' della stringa: prendi tutto quello che segue.
+  const aperto = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)$/)
+  if (aperto) return { reply: unescape(aperto[1]).trim(), action: idle }
+
+  // Ultima risorsa: togli l'impalcatura JSON rimasta, graffe comprese.
+  // Senza toglierle una parentesi finisce nel testo mostrato all'utente.
+  const ripulito = text
+    .replace(/\{[^}]*"action"[^}]*\}/g, '')
+    .replace(/"reply"\s*:\s*"/, '')
+    .replace(/"\s*,\s*"action"[^]*$/, '')
+    .replace(/"\s*\}\s*$/, '')
+    .replace(/^[\s{[]+/, '')
+    .replace(/[\s}\]]+$/, '')
+    .trim()
+  return { reply: ripulito || text, action: idle }
 }
 
 // ─── Call per provider ───────────────────────────────────────────────────────
@@ -437,7 +530,9 @@ async function callClaude(apiKey, model, history, opts) {
   if (res.body?.stop_reason === 'refusal') throw new Error('Claude ha rifiutato la richiesta')
 
   const text = (res.body.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
-  return parseResponse(text, opts.jsonMode)
+  const result = parseResponse(text, opts.jsonMode)
+  if (result.via === 'json') result.via = 'schema'
+  return result
 }
 
 async function callOpenAICompatible(url, headers, model, history, opts, label) {
@@ -500,33 +595,134 @@ async function callOllama(model, history, opts) {
 
 const RETRYABLE = new Set([408, 429, 500, 503, 529])
 
+// Indirizzo di OpenRouter. OPENROUTER_URL serve solo alle prove dal vivo con un
+// server finto, ed e' accettato solo su questo PC: la chiave non deve poter
+// essere dirottata altrove da una variabile d'ambiente.
+function openRouterUrl(pathname) {
+  const override = process.env.OPENROUTER_URL
+  if (override && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(override)) return override + '/api/v1' + pathname
+  return 'https://openrouter.ai/api/v1' + pathname
+}
+
+const REPLY_TOOL = 'rispondi_companion'
+const REMINDER = 'Ripeti la stessa risposta nel formato del companion: un solo oggetto JSON con "reply", '
+  + '"emotion" e "action" (oppure la funzione ' + REPLY_TOOL + ' se disponibile), senza altro testo.'
+
+function sendHeaders(apiKey) {
+  return {
+    Authorization: 'Bearer ' + apiKey,
+    // OpenRouter mostra le statistiche per app a partire da questi due header.
+    'HTTP-Referer': 'https://github.com/Daku22/CompanionAI',
+    'X-Title': 'CompanionAI',
+  }
+}
+
+/**
+ * Come chiedere la risposta a un modello, da cio' che sa fare: schema JSON se
+ * lo supporta, poi modalita' JSON, poi una tool call forzata, e solo alla fine
+ * il prompt da solo. Capacita' sconosciute: modalita' JSON, come prima.
+ * @returns {'schema'|'json'|'tool'|'prompt'|'text'}
+ */
+function outputMode(caps, jsonMode) {
+  if (!jsonMode) return 'text'
+  if (!caps) return 'json'
+  if (caps.schema) return 'schema'
+  if (caps.json) return 'json'
+  if (caps.tools) return 'tool'
+  return 'prompt'
+}
+
+/**
+ * Corpo della richiesta a OpenRouter. require_parameters fa scegliere solo i
+ * fornitori che rispettano il vincolo: senza, OpenRouter lo scarta in silenzio.
+ */
+function openRouterBody(model, messages, opts, mode, { strictRouting = true } = {}) {
+  /** @type {any} */
+  const body = openaiPayload(model, messages, opts.maxTokens, false)
+  if (mode === 'schema') {
+    body.response_format = { type: 'json_schema', json_schema: { name: 'companion_reply', strict: false, schema: COMPANION_SCHEMA } }
+  } else if (mode === 'json') {
+    body.response_format = { type: 'json_object' }
+  } else if (mode === 'tool') {
+    body.tools = [{ type: 'function', function: {
+      name: REPLY_TOOL,
+      description: "Rispondi all'utente e scegli animazione, emozione ed eventuale azione del companion.",
+      parameters: COMPANION_SCHEMA,
+    } }]
+    body.tool_choice = { type: 'function', function: { name: REPLY_TOOL } }
+  }
+  if (strictRouting && (mode === 'schema' || mode === 'json' || mode === 'tool')) body.provider = { require_parameters: true }
+  // I token del ragionamento contano nel budget: poco sforzo e nessun testo di
+  // ragionamento nella risposta, che il companion non mostrerebbe comunque.
+  if (opts.reasoning) body.reasoning = { effort: 'low', exclude: true }
+  return body
+}
+
+/** Legge la risposta di un modello compatibile OpenAI secondo la strategia usata. */
+function readChoice(body, mode, jsonMode) {
+  const message = (body && body.choices && body.choices[0] && body.choices[0].message) || {}
+  if (mode === 'tool') {
+    const call = (message.tool_calls || []).find(c => c && c.function && c.function.name === REPLY_TOOL)
+    const parsed = call ? parseJSONReply(call.function.arguments) : null
+    if (parsed) return { ...parsed, via: 'tool' }
+  }
+  const result = parseResponse(message.content || '', jsonMode)
+  if (mode === 'schema' && result.via === 'json') result.via = 'schema'
+  if (mode === 'prompt' && result.via === 'json') result.via = 'prompt'
+  return result
+}
+
+// OpenRouter risponde cosi' quando nessun fornitore rispetta i parametri chiesti.
+function noEndpointForParams(res) {
+  if (res.status !== 400 && res.status !== 404) return false
+  const text = JSON.stringify(res.body || '')
+  return /endpoint|support|parameter/i.test(text)
+}
+
 async function callOpenRouter(apiKey, model, history, opts) {
   // I modelli free sono spesso saturi: il modello scelto viene ritentato con
   // backoff, poi si passa agli altri della lista come scorta.
   const candidates = [model, ...PROVIDERS.openrouter.models.map(m => m.id).filter(id => id !== model)]
   const { system, messages } = prepare(history, opts.systemPrompt)
-  const base = openaiPayload(model, [{ role: 'system', content: system }, ...messages], opts.maxTokens, opts.jsonMode)
+  const chat = [{ role: 'system', content: system }, ...messages]
   let lastRes = null
 
   for (const candidate of candidates) {
-    const body = { ...base, model: candidate }
-    const send = () => requestJSON('https://openrouter.ai/api/v1/chat/completions', {
-      headers: {
-        Authorization: 'Bearer ' + apiKey,
-        // OpenRouter mostra le statistiche per app a partire da questi due header.
-        'HTTP-Referer': 'https://github.com/Daku22/CompanionAI',
-        'X-Title': 'CompanionAI',
-      },
-    }, body, opts.timeoutMs)
+    const isPrimary = candidate === model
+    // Ogni candidato ha le sue capacita': una scorta senza JSON va trattata a parte.
+    const caps = isPrimary ? opts.caps : await modelCaps('openrouter', candidate)
+    const mode = outputMode(caps, opts.jsonMode)
+    const budget = isPrimary ? opts : { ...opts, ...requestBudget('openrouter', candidate, opts.maxTokens, caps) }
+    let body = { ...openRouterBody(candidate, chat, budget, mode) }
+    const send = () => requestJSON(openRouterUrl('/chat/completions'), { headers: sendHeaders(apiKey) }, body, budget.timeoutMs)
 
     let res = await send()
-    const isPrimary = candidate === model
+    if (noEndpointForParams(res) && body.provider) {
+      // Nessun fornitore garantisce il vincolo: meglio una risposta senza
+      // garanzia, recuperata dal parser, che un errore.
+      body = openRouterBody(candidate, chat, budget, mode, { strictRouting: false })
+      res = await send()
+    }
     for (let attempt = 1; attempt <= (isPrimary ? 3 : 0) && RETRYABLE.has(res.status); attempt++) {
       await new Promise(r => setTimeout(r, attempt * 1500))
       res = await send()
     }
 
-    if (res.status === 200) return parseResponse(res.body.choices?.[0]?.message?.content || '', opts.jsonMode)
+    if (res.status === 200) {
+      const result = readChoice(res.body, mode, opts.jsonMode)
+      if (result.via !== 'fallback' || !isPrimary) return result
+      // Fuori formato: un secondo tentativo, uno solo, con un promemoria.
+      // Laguna S 2.1 gratuito a volte ignora la tool call forzata e risponde in
+      // prosa: senza questo, la richiesta "salutami" restava senza animazione.
+      const retry = { ...body, messages: [...body.messages,
+        { role: 'assistant', content: result.reply },
+        { role: 'user', content: REMINDER },
+      ] }
+      const again = await requestJSON(openRouterUrl('/chat/completions'), { headers: sendHeaders(apiKey) }, retry, budget.timeoutMs)
+        .catch(() => null)
+      const second = again && again.status === 200 ? readChoice(again.body, mode, opts.jsonMode) : null
+      return second && second.via !== 'fallback' ? { ...second, retried: true } : result
+    }
 
     lastRes = res
     // Una key invalida o un 400 non migliorano cambiando modello: esci subito.
@@ -547,7 +743,7 @@ async function callOpenRouter(apiKey, model, history, opts) {
  * @param {string}  [req.systemPrompt]  sovrascrive il prompt del companion
  * @param {boolean} [req.jsonMode=true] false per testo libero (es. riassunti di memoria)
  * @param {number}  [req.maxTokens=1024]
- * @returns {Promise<{reply: string, action?: object}>}
+ * @returns {Promise<{reply: string, emotion?: string, action?: object, via?: string, raw?: string, retried?: boolean}>}
  */
 async function route({ provider, model, apiKey, history, systemPrompt, jsonMode = true, maxTokens = 1024 }) {
   if (!provider || !PROVIDERS[provider]) throw new Error('Provider "' + provider + '" non supportato')
@@ -562,8 +758,9 @@ async function route({ provider, model, apiKey, history, systemPrompt, jsonMode 
     console.warn('[router] key per ' + provider + ' non inizia con "' + expected + '" — procedo comunque')
   }
 
-  const budget = requestBudget(provider, model, maxTokens)
-  const opts = { systemPrompt: systemPrompt || SYSTEM_PROMPT, jsonMode, ...budget }
+  const caps = provider === 'openrouter' ? await modelCaps(provider, model) : null
+  const budget = requestBudget(provider, model, maxTokens, caps)
+  const opts = { systemPrompt: systemPrompt || SYSTEM_PROMPT, jsonMode, caps, ...budget }
 
   switch (provider) {
     case 'claude':     return callClaude(apiKey, model, clean, opts)
@@ -586,9 +783,18 @@ module.exports = {
   listModels,
   parseOpenRouterModels,
   parseOllamaTags,
+  capsFromParams,
+  outputMode,
+  openRouterBody,
+  readChoice,
+  modelCaps,
+  openRouterUrl,
+  DIRECTIONS,
+  DISTANCES,
   PROVIDERS,
   ANIMATIONS,
   ACTION_TYPES,
+  EMOTIONS,
   COMPANION_SCHEMA,
   SYSTEM_PROMPT,
   parseResponse,

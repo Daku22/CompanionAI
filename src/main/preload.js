@@ -25,11 +25,15 @@ contextBridge.exposeInMainWorld('companion', {
   memoryGetContext: ()       => ipcRenderer.invoke('memory:get-context'),
   memoryCompactNow: ()       => ipcRenderer.invoke('memory:compact-now'),
   memoryClear:      ()       => ipcRenderer.invoke('memory:clear'),
+  // Umore: solo lettura. Lo cambiano le risposte e gli eventi, mai il renderer.
+  getMood:          ()       => ipcRenderer.invoke('mood:get'),
 
   // Avatar locali: il renderer riceve solo metadati e URL avatar://, mai path reali.
   listAvatars:      ()       => ipcRenderer.invoke('avatars:list'),
   scanAvatarImport: ()       => ipcRenderer.invoke('avatars:scan-import'),
   commitAvatarImport: (data) => ipcRenderer.invoke('avatars:commit-import', data),
+  // Solo gli id: il main elimina unicamente avatar importati, mai gli integrati.
+  removeAvatars:    (ids)    => ipcRenderer.invoke('avatars:remove', ids),
 
   // ─── Azioni OS (solo main le esegue) ───────────────────────────────────────
   executeAction: (action)    => ipcRenderer.send('os:execute', action),
@@ -44,6 +48,11 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('window-drag-state', handler)
     return () => ipcRenderer.removeListener('window-drag-state', handler)
+  },
+  onMoodChanged: (cb)        => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('mood-changed', handler)
+    return () => ipcRenderer.removeListener('mood-changed', handler)
   },
   // Verso della camminata deciso dal main (che conosce l'area di lavoro reale)
   onCompanionFacing: (cb)    => {

@@ -7,7 +7,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { PROVIDERS } = require('./ai-router')
+const { PROVIDERS, DIRECTIONS, DISTANCES } = require('./ai-router')
 
 const ALLOWED_URL_PROTO = ['https:', 'http:']
 
@@ -115,6 +115,20 @@ function parseCommand(cmd, { allowUnsafe = false } = {}) {
 }
 
 /**
+ * Verso e distanza di una camminata proposta dal modello. Passano solo i
+ * valori del contratto: il resto dell'azione viene dal modello e non e' fidato.
+ * @param {any} action
+ * @returns {{ direction?: string, distance?: string }}
+ */
+function checkMotion(action) {
+  const out = {}
+  if (!action || typeof action !== 'object') return out
+  if (DIRECTIONS.includes(action.direction)) out.direction = action.direction
+  if (DISTANCES.includes(action.distance)) out.distance = action.distance
+  return out
+}
+
+/**
  * Fonde la configurazione inviata dal renderer con quella salvata.
  *
  * Solo i campi che la UI puo' davvero cambiare passano. Tutto il resto, per
@@ -128,12 +142,33 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.provider === 'string' && PROVIDERS[incoming.provider]) merged.provider = incoming.provider
   if (typeof incoming.model === 'string' && incoming.model.trim()) merged.model = incoming.model.trim()
   if (typeof incoming.avatarModel === 'string' && incoming.avatarModel.trim()) merged.avatarModel = incoming.avatarModel.trim()
+  if (typeof incoming.idleLife === 'boolean') merged.idleLife = incoming.idleLife
   if (incoming.keys && typeof incoming.keys === 'object') {
     for (const [provider, value] of Object.entries(incoming.keys)) {
       if (PROVIDERS[provider] && typeof value === 'string' && value.trim()) merged.keys[provider] = value.trim()
     }
   }
   return merged
+}
+
+/**
+ * Chiavi da scrivere su disco. Quelle che non si sono potute decifrare restano
+ * com'erano, cifrate: prima venivano tolte dalla config in memoria, e il primo
+ * salvataggio (anche solo un interruttore) le cancellava dal disco per sempre.
+ * Una chiave nuova per lo stesso provider sostituisce quella illeggibile.
+ * @param {Record<string, string>} keys chiavi in chiaro
+ * @param {Record<string, string>} unreadable chiavi cifrate non decifrabili
+ * @param {((value: string) => string) | null} encrypt null se la cifratura non e' disponibile
+ */
+function keysForDisk(keys, unreadable, encrypt) {
+  const out = {}
+  for (const [provider, value] of Object.entries(keys || {})) out[provider] = encrypt ? encrypt(value) : value
+  // Senza cifratura le chiavi illeggibili non si possono conservare accanto a
+  // quelle in chiaro: il file le segnerebbe come testo.
+  if (encrypt) {
+    for (const [provider, blob] of Object.entries(unreadable || {})) if (!(provider in out)) out[provider] = blob
+  }
+  return out
 }
 
 /**
@@ -160,4 +195,6 @@ module.exports = {
   checkDesktopItem,
   parseCommand,
   mergeConfig,
+  checkMotion,
+  keysForDisk,
 }

@@ -47,6 +47,14 @@ chat. Anything that touches your system shows a confirmation dialog first.
 | Your own | VRM, GLB/glTF | Menu → "Importa avatar". VRM models are animated. GLB/glTF models are shown as a static preview |
 | Your own | 2D sprite pack | A folder with `sprites.json` and one PNG per animation. Create one with `npm run strips` (see [docs/avatar-brief.md](docs/avatar-brief.md)) |
 
+To remove imported avatars: Menu → "Elimina importati", tick the ones to delete
+and confirm. Built-in avatars cannot be deleted.
+
+The companion has a mood that fades over time and colours its replies, and it
+lives a little when you are not chatting: it looks around, takes a few steps,
+dozes off when you are away. These gestures never call a model. Turn them off
+with "Vita autonoma" in the settings.
+
 An original built-in 2D character is in the works: a scruffy cat girl. Its
 brief is in [docs/avatar-brief.md](docs/avatar-brief.md).
 

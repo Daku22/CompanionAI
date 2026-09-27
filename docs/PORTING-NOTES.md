@@ -171,23 +171,103 @@ Terza parte, stesso giorno:
   - Bugfix UI: `config:set` ora ri-inietta `providers` nella risposta al renderer (prima il dropdown modelli si svuotava dopo il primo salvataggio)
 - Prossimi passi: integrare emotion tracking, implementare Hebbian connections
 
+## Umore e vita a riposo (2026-09-26)
+
+Fase 1 del piano delle migliorie. Idee da tre repository MIT, codice riscritto:
+
+- **Umore** (`src/main/mood.js`): decadimento esponenziale con un'emivita per
+  emozione ed emozioni identitarie che non decadono, da companion-emergence
+  (`brain/emotion/decay.py`, `vocabulary.py`). Qui sei emozioni invece di
+  ventisei, e un'energia al posto del "corpo".
+- **Contratto**: campo facoltativo `emotion` nella risposta, con i valori di
+  `mood.REPLY_EMOTIONS`; il main scarta quelli estranei.
+- **Contesto nel prompt**: ora del giorno e tempo dall'ultimo messaggio, da
+  Kokoro-Engine (`src-tauri/src/ai/heartbeat.rs`).
+- **Gesti a riposo** (`src/main/idle-life.js`): soglia di quiete, pausa fra i
+  gesti e probabilità crescente da Kokoro-Engine (`idle_behaviors.rs`). Sonno
+  con l'utente assente via `powerMonitor.getSystemIdleTime()`. Tolto il "fuma"
+  a tempo fisso del 2D, contato in frame: a 30 fps partiva dopo 36 s, non 18.
+- **Occhi 3D**: ciglia a tempo (1–6 s, 0,2 s, seno) e salti dello sguardo, da
+  airi (`packages/stage-ui-three/src/composables/vrm/animation.ts`). Prima era
+  un `Math.random()` per frame, quindi a 144 Hz quasi cinque volte più spesso
+  che a 30.
+- **Difetto trovato scrivendo i test**: l'affetto cresce di 0,005 a scambio, sotto
+  la soglia di rumore di 0,01, e partendo da zero veniva cancellato subito. La
+  soglia ora vale solo per il decadimento.
+- `writeAtomic` spostato in `src/main/write-atomic.js`, condiviso da
+  MemoryManager e umore: importarlo da MemoryManager creava un ciclo di require
+  con ai-router.
+
+## Fase A: modelli senza JSON e verifica reale (2026-09-26)
+
+Con Yanineko 2D e Laguna S 2.1 (OpenRouter) "cammina verso destra" e "siediti
+qui" non facevano nulla. Le cause:
+- **Formato:** Laguna dichiara `tools` e `reasoning` ma non `response_format`.
+  Il router mandava solo `response_format`, OpenRouter lo scartava, il modello
+  rispondeva in prosa e il parser ripiegava su idle. Ora la strategia dipende
+  dai `supported_parameters`: schema, JSON, tool call forzata o solo prompt,
+  con `provider.require_parameters`.
+- **Budget:** i modelli dell'elenco dal vivo non avevano il flag `reasoning` e
+  ricevevano 1024 token e 20 s. Ora le capacità arrivano da OpenRouter.
+- **Direzione:** `walk-to` non aveva verso. Sono stati aggiunti `direction` e
+  `distance`, in `walk-target.js`.
+- **Parametri persi:** `chat.js` inoltrava solo l'animazione, e ora inoltra
+  l'azione intera.
+
+Altri difetti corretti:
+- trascinamento che finiva a tasto ancora premuto;
+- fumetti di Yanineko mostrati da ogni avatar 2D;
+- camera 3D libera di perdere di vista il modello.
+
+Nuovo `scripts/audit.mjs`.
+
+**Prova con il modello vero (Laguna S 2.1 gratuito):**
+- "vai a sinistra di corsa" è arrivato come `run-to` verso sinistra, e la
+  finestra si è spostata di 400 px;
+- "salutami" è tornato in prosa nonostante la tool call forzata. Da qui il
+  secondo tentativo con promemoria.
+
+**Chiavi API illeggibili**, trovate durante la stessa prova:
+- le chiavi nel `config.json` dell'utente non si decifrano con nessuna delle
+  cartelle dati di Electron presenti sul PC;
+- il metodo di verifica è stato provato su un segreto finto;
+- a ogni avvio l'app le vedeva assenti e mostrava la configurazione;
+- il primo salvataggio le avrebbe cancellate.
+
+Ora restano nel file (`keysForDisk` in `guards.js`) e la chat chiede di
+reinserirle. Un ciclo salva, riavvia, rileggi con una chiave finta funziona.
+
+## Mate Engine
+- Stato: solo idee (confronto e piano nel file di piano del 26 settembre 2026)
+- Cosa portato: nessuna riga di codice
+- Licenza verificata: AGPL-3.0 più "MateProv2" (README del progetto), quindi
+  niente codice
+- Note: letti `AvatarWindowHandler`, `AvatarTaskbarController`,
+  `AvatarGravityController`, `AvatarSwayController`, `AvatarMouseTracking`,
+  `HandHolder` e altri per capire come si siede sulle finestre, segue il mouse
+  e reagisce al trascinamento. Anche Mate Engine sposta la propria finestra
+  (`MoveWindow`) invece di usare un overlay a schermo intero.
+
 ## Agentic-Desktop-Pet
-- Stato: non iniziato
-- Cosa portato: ...
-- Licenza verificata: ...
-- Note: ...
+- Stato: solo idee (umore che decade, legame che cresce)
+- Cosa portato: nessuna riga di codice
+- Licenza verificata: nessun file di licenza, quindi niente codice
+- Note: backend Python con Cognee; troppo pesante per il vincolo "hardware modesto"
 
 ## Kokoro-Engine
-- Stato: non iniziato
-- Cosa portato: ...
-- Licenza verificata: ...
-- Note: ...
+- Stato: idee portate nella Fase 1 (vedi sopra)
+- Cosa portato: soglie dei gesti a riposo, contesto dell'ora del giorno
+- Licenza verificata: MIT (LICENSE, Copyright 2026 chyinan)
+- Note: da riprendere per la Fase 2 (`initiative.rs`, confidenza che cresce con
+  le conversazioni) e la Fase 3 (`memory_extractor.rs`, fatti con importanza)
 
 ## airi
-- Stato: non iniziato
-- Cosa portato: ...
-- Licenza verificata: ...
-- Note: ...
+- Stato: idee portate nella Fase 1 (ciglia e sguardo)
+- Cosa portato: tempi del battito di ciglia e dei salti dello sguardo
+- Licenza verificata: MIT (LICENSE, Copyright 2024-PRESENT Neko Ayaka)
+- Note: `idle_loop.vrma` non si porta, perché la provenienza non è chiara. Le 7
+  animazioni VRoid citate nei loro documenti vietano la ridistribuzione. Per la
+  Fase 4 c'è `hit-test.ts` (clic attraverso i pixel trasparenti).
 
 ## Open-LLM-VTuber
 - Stato: non iniziato

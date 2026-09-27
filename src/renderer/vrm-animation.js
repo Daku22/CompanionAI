@@ -303,3 +303,94 @@ export function createVRMAnimator(getBone) {
     },
   }
 }
+
+// ─── Occhi e volto ─────────────────────────────────────────────────────────
+// Prima il battito di ciglia era un Math.random() < 0.015 a ogni frame: a
+// 144 Hz l'avatar sbatteva le palpebre quasi cinque volte piu' spesso che a
+// 30. Qui tutto dipende dal tempo trascorso, non dal numero di frame. I tempi
+// (un battito ogni 1-6 s, lungo 0,2 s, a forma di seno) vengono da airi
+// (packages/stage-ui-three, MIT); il codice e' riscritto.
+
+const BLINK_MIN_S      = 1
+const BLINK_MAX_S      = 6
+const BLINK_DURATION_S = 0.2
+
+/**
+ * Battito di ciglia a tempo. update(delta) restituisce il peso di "blink".
+ * @param {() => number} [rand]
+ */
+export function createBlinker(rand = Math.random) {
+  const nextWait = () => BLINK_MIN_S + rand() * (BLINK_MAX_S - BLINK_MIN_S)
+  let wait = nextWait()
+  let progress = -1   // -1 = occhi aperti, 0..1 = battito in corso
+  return {
+    update(delta) {
+      if (progress < 0) {
+        wait -= delta
+        if (wait > 0) return 0
+        // Il tempo avanzato oltre la scadenza conta gia' come battito.
+        progress = -wait / BLINK_DURATION_S
+      } else {
+        progress += delta / BLINK_DURATION_S
+      }
+      if (progress >= 1) { progress = -1; wait = nextWait(); return 0 }
+      return Math.sin(Math.PI * progress)
+    },
+  }
+}
+
+// Micro-movimenti dello sguardo: lo sguardo fisso sulla camera sembra vuoto.
+// Intervalli esponenziali da 0,6 s in su, spostamenti di pochi centimetri
+// attorno al bersaglio (la camera sta a circa 2,7 m).
+const SACCADE_MIN_S  = 0.6
+const SACCADE_MEAN_S = 1.2
+const SACCADE_MAX_S  = 4
+const GAZE_X_M = 0.12
+const GAZE_Y_M = 0.06
+
+/** Intervallo in secondi prima del prossimo spostamento dello sguardo. */
+export function nextSaccade(rand = Math.random) {
+  return Math.min(SACCADE_MAX_S, SACCADE_MIN_S - Math.log(1 - rand()) * SACCADE_MEAN_S)
+}
+
+/**
+ * Sguardo che salta ogni tanto. update(delta) restituisce lo scostamento del
+ * bersaglio in metri, costante fra un salto e l'altro.
+ * @param {() => number} [rand]
+ */
+export function createGaze(rand = Math.random) {
+  let wait = nextSaccade(rand)
+  let offset = { x: 0, y: 0 }
+  return {
+    update(delta) {
+      wait -= delta
+      if (wait <= 0) {
+        wait = nextSaccade(rand)
+        offset = { x: (rand() - 0.5) * 2 * GAZE_X_M, y: (rand() - 0.5) * 2 * GAZE_Y_M }
+      }
+      return offset
+    },
+  }
+}
+
+// L'umore colora il volto sotto le reazioni: pesi bassi, mai piu' di MOOD_MAX,
+// cosi' un'espressione di reazione a 1.0 resta ben distinguibile.
+export const MOOD_MAX = 0.3
+export const MOOD_EXPRESSIONS = ['happy', 'relaxed', 'sad', 'angry', 'surprised']
+
+/**
+ * Pesi delle espressioni VRM per lo stato d'animo (publicMood del main).
+ * @param {{ emotions?: Record<string, number> } | null | undefined} mood
+ * @returns {Record<string, number>}
+ */
+export function moodExpressions(mood) {
+  const e = (mood && mood.emotions) || {}
+  const w = (v) => Math.max(0, Math.min(MOOD_MAX, v))
+  return {
+    happy:     w(MOOD_MAX * (e.joy || 0) + 0.1 * (e.affection || 0)),
+    relaxed:   w(MOOD_MAX * (e.calm || 0)),
+    sad:       w(MOOD_MAX * (e.sadness || 0)),
+    angry:     w(0.25 * (e.annoyance || 0)),
+    surprised: w(0.15 * (e.curiosity || 0)),
+  }
+}

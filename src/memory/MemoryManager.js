@@ -6,6 +6,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { route, PROVIDERS } = require('../main/ai-router')
+const { writeAtomic } = require('../main/write-atomic')
 
 // Default allineato al router: mai un id di modello inventato qui dentro.
 const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
@@ -29,23 +30,6 @@ const MAX_ARCHIVE_IN_RAM = 200
 const ROUTER_MESSAGE_CHARS = 8000
 // Lunghezza massima del riassunto di ripiego, usato senza chiave o se il modello fallisce.
 const FALLBACK_SUMMARY_CHARS = 2000
-
-// Scrittura atomica: un crash a meta' scrittura lascia il file vecchio intatto
-// invece di un JSON troncato che al reload farebbe perdere tutto lo stato.
-// Il nome temporaneo e' unico perche' un turno e una compattazione possono
-// salvare lo stesso file nello stesso momento.
-async function writeAtomic(file, data) {
-  const tmp = file + '.' + crypto.randomUUID() + '.tmp'
-  await fs.promises.writeFile(tmp, data, 'utf-8')
-  try {
-    await fs.promises.rename(tmp, file)
-  } catch (_) {
-    // Su Windows rename fallisce se un altro processo (antivirus, indicizzatore)
-    // tiene aperto il file: meglio una scrittura diretta che perdere il dato.
-    await fs.promises.writeFile(file, data, 'utf-8')
-    await fs.promises.rm(tmp, { force: true })
-  }
-}
 
 class MemoryManager {
   /**

@@ -8,9 +8,10 @@
 const assert = require('node:assert/strict')
 const http = require('http')
 const {
-  prepare, sanitizeHistory, parseResponse, PROVIDERS, ANIMATIONS, ACTION_TYPES,
+  prepare, sanitizeHistory, parseResponse, PROVIDERS, ANIMATIONS, ACTION_TYPES, EMOTIONS,
   COMPANION_SCHEMA, SYSTEM_PROMPT, route, fetchJSON, requestBudget,
   describeError, parseOpenRouterModels, parseOllamaTags,
+  capsFromParams, outputMode, openRouterBody, readChoice, openRouterUrl, DIRECTIONS, DISTANCES,
 } = require('../src/main/ai-router')
 
 let passed = 0
@@ -136,6 +137,18 @@ test('il system prompt elenca le stesse animazioni dello schema', () => {
   }
 })
 
+test('il system prompt elenca le emozioni dello schema', () => {
+  assert.deepEqual(COMPANION_SCHEMA.properties.emotion.enum, EMOTIONS)
+  for (const e of EMOTIONS) assert.ok(SYSTEM_PROMPT.includes('"' + e + '"'), 'emozione "' + e + '" assente dal prompt')
+})
+
+test('l-emozione della risposta arriva al main', () => {
+  const r = parseResponse('{"reply":"ciao","emotion":"joy","action":{"type":"none","animation":"wave"}}')
+  assert.equal(r.emotion, 'joy')
+  // Senza il campo la risposta resta valida: e' facoltativo.
+  assert.equal(parseResponse('{"reply":"ciao"}').emotion, undefined)
+})
+
 test('una risposta JSON pulita viene letta cosi-` com-e-`', () => {
   const r = parseResponse('{"reply":"ciao","action":{"type":"none","animation":"wave"}}')
   assert.equal(r.reply, 'ciao')
@@ -189,8 +202,8 @@ test('i modelli che ragionano ricevono spazio e tempo in piu-`', () => {
 })
 
 test('i modelli normali restano con il budget richiesto', () => {
-  assert.deepEqual(requestBudget('openai', 'gpt-4o-mini', 1024), { maxTokens: 1024, timeoutMs: 20000, effort: null })
-  assert.deepEqual(requestBudget('inventato', 'x', 500), { maxTokens: 500, timeoutMs: 20000, effort: null })
+  assert.deepEqual(requestBudget('openai', 'gpt-4o-mini', 1024), { maxTokens: 1024, timeoutMs: 20000, effort: null, reasoning: false })
+  assert.deepEqual(requestBudget('inventato', 'x', 500), { maxTokens: 500, timeoutMs: 20000, effort: null, reasoning: false })
 })
 
 test('effort solo dove l-API lo accetta', () => {
@@ -230,7 +243,7 @@ test('dall-elenco di OpenRouter restano solo i modelli gratuiti', () => {
     { id: 'c/alfa:free', name: 'Alfa' },
     { name: 'senza id' },
   ] })
-  assert.deepEqual(models, [{ id: 'c/alfa:free', label: 'Alfa (free)' }, { id: 'b/zeta:free', label: 'Zeta (free)' }])
+  assert.deepEqual(models.map(({ id, label }) => ({ id, label })), [{ id: 'c/alfa:free', label: 'Alfa (free)' }, { id: 'b/zeta:free', label: 'Zeta (free)' }])
   assert.deepEqual(parseOpenRouterModels(null), [])
 })
 
@@ -246,6 +259,81 @@ test('nessun id di modello Anthropic con suffisso di data', () => {
   for (const m of PROVIDERS.claude.models) {
     assert.ok(!/-20\d{6}$/.test(m.id), 'id con data: ' + m.id)
   }
+})
+
+// ── Modelli che non sanno fare JSON (Laguna S 2.1) ─────────────────────────
+// Laguna dichiara tools e reasoning ma non response_format: mandargli solo
+// response_format lo faceva rispondere in prosa, e l'avatar restava fermo.
+
+const LAGUNA_PARAMS = ['include_reasoning', 'max_tokens', 'reasoning', 'temperature', 'tool_choice', 'tools']
+
+test('le capacita-` si leggono dai supported_parameters di OpenRouter', () => {
+  assert.deepEqual(capsFromParams(LAGUNA_PARAMS), { schema: false, json: false, tools: true, reasoning: true })
+  assert.deepEqual(capsFromParams(['response_format', 'structured_outputs']), { schema: true, json: true, tools: false, reasoning: false })
+  assert.deepEqual(capsFromParams(undefined), { schema: false, json: false, tools: false, reasoning: false })
+  const models = parseOpenRouterModels({ data: [{ id: 'poolside/laguna-s-2.1:free', name: 'Laguna', supported_parameters: LAGUNA_PARAMS }] })
+  assert.equal(models[0].caps.tools, true)
+})
+
+test('la strategia di uscita segue cio-` che il modello sa fare', () => {
+  const caps = (list) => capsFromParams(list)
+  assert.equal(outputMode(caps(['structured_outputs', 'response_format', 'tools']), true), 'schema')
+  assert.equal(outputMode(caps(['response_format', 'tools']), true), 'json')
+  assert.equal(outputMode(caps(LAGUNA_PARAMS), true), 'tool')
+  assert.equal(outputMode(caps([]), true), 'prompt')
+  assert.equal(outputMode(null, true), 'json', 'capacita-` sconosciute: come prima')
+  assert.equal(outputMode(caps(LAGUNA_PARAMS), false), 'text', 'i riassunti restano testo libero')
+})
+
+test('a un modello con soli tools si chiede una tool call forzata', () => {
+  const opts = { maxTokens: 8192, reasoning: true }
+  const body = openRouterBody('poolside/laguna-s-2.1:free', [{ role: 'user', content: 'ciao' }], opts, 'tool')
+  assert.equal(body.response_format, undefined, 'niente response_format: il fornitore lo ignorerebbe')
+  assert.equal(body.tools[0].function.name, 'rispondi_companion')
+  assert.deepEqual(body.tools[0].function.parameters, COMPANION_SCHEMA)
+  assert.deepEqual(body.tool_choice, { type: 'function', function: { name: 'rispondi_companion' } })
+  assert.deepEqual(body.provider, { require_parameters: true })
+  assert.deepEqual(body.reasoning, { effort: 'low', exclude: true })
+  assert.equal(openRouterBody('m', [], opts, 'tool', { strictRouting: false }).provider, undefined)
+  assert.equal(openRouterBody('m', [], { maxTokens: 10 }, 'schema').response_format.type, 'json_schema')
+  assert.equal(openRouterBody('m', [], { maxTokens: 10 }, 'json').response_format.type, 'json_object')
+  assert.equal(openRouterBody('m', [], { maxTokens: 10 }, 'prompt').provider, undefined)
+})
+
+test('la risposta arriva dalla tool call, con l-azione intatta', () => {
+  const args = JSON.stringify({ reply: 'Vado!', emotion: 'joy', action: { type: 'none', animation: 'walk-to', direction: 'right', distance: 'medium' } })
+  const r = readChoice({ choices: [{ message: { content: null, tool_calls: [{ function: { name: 'rispondi_companion', arguments: args } }] } }] }, 'tool', true)
+  assert.equal(r.via, 'tool')
+  assert.equal(r.action.direction, 'right')
+  // Tool ignorata ma JSON nel testo: si prende comunque.
+  const t = readChoice({ choices: [{ message: { content: '{"reply":"ok","action":{"type":"none","animation":"sit"}}' } }] }, 'tool', true)
+  assert.equal(t.via, 'json')
+  assert.equal(t.action.animation, 'sit')
+  // Prosa: niente azione, e il testo grezzo per il log.
+  const p = readChoice({ choices: [{ message: { content: 'Certo, cammino verso destra!' } }] }, 'tool', true)
+  assert.equal(p.via, 'fallback')
+  assert.equal(p.action.animation, 'idle')
+  assert.equal(p.raw, 'Certo, cammino verso destra!')
+})
+
+test('un JSON senza reply non passa per una risposta valida', () => {
+  const r = parseResponse('{"text":"ciao","action":{"type":"none","animation":"wave"}}')
+  assert.equal(r.via, 'fallback')
+  assert.equal(typeof r.reply, 'string')
+})
+
+test('un modello che ragiona, dall-elenco dal vivo, riceve spazio e tempo', () => {
+  const b = requestBudget('openrouter', 'poolside/laguna-s-2.1:free', 1024, capsFromParams(LAGUNA_PARAMS))
+  assert.deepEqual(b, { maxTokens: 8192, timeoutMs: 90000, effort: null, reasoning: true })
+})
+
+test('il contratto sa dire verso e distanza della camminata', () => {
+  const props = COMPANION_SCHEMA.properties.action.properties
+  assert.deepEqual(props.direction.enum, DIRECTIONS)
+  assert.deepEqual(props.distance.enum, DISTANCES)
+  assert.ok(!COMPANION_SCHEMA.properties.action.required.includes('direction'))
+  assert.match(SYSTEM_PROMPT, /cammina verso destra.*direction: "right"/)
+  assert.match(SYSTEM_PROMPT, /siediti.*animation: "sit"/)
 })
 
 // ── Guardie di route() ──────────────────────────────────────────────────────
@@ -287,6 +375,103 @@ async function main() {
       const res = await fetchJSON('http://127.0.0.1:' + port + '/', { method: 'GET' }, null)
       assert.equal(res.body.reply, 'perché')
     } finally { server.close() }
+  })
+
+  await testAsync('route con un modello a soli tools: tool call, verso e budget giusti', async () => {
+    const seen = []
+    const server = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', c => { body += c })
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        if (req.url === '/api/v1/models') {
+          res.end(JSON.stringify({ data: [{ id: 'finto/laguna:free', name: 'Laguna finto', supported_parameters: LAGUNA_PARAMS }] }))
+          return
+        }
+        seen.push(JSON.parse(body))
+        const args = JSON.stringify({ reply: 'Vado a destra!', emotion: 'joy', action: { type: 'none', animation: 'walk-to', direction: 'right', distance: 'medium' } })
+        res.end(JSON.stringify({ choices: [{ message: { content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'rispondi_companion', arguments: args } }] } }] }))
+      })
+    })
+    await new Promise(r => server.listen(0, '127.0.0.1', () => r(null)))
+    const previous = process.env.OPENROUTER_URL
+    try {
+      const { port } = /** @type {import('net').AddressInfo} */ (server.address())
+      process.env.OPENROUTER_URL = 'http://127.0.0.1:' + port
+      const r = await route({ provider: 'openrouter', model: 'finto/laguna:free', apiKey: 'sk-or-test',
+        history: [{ role: 'user', content: 'cammina verso destra' }] })
+      assert.equal(r.via, 'tool')
+      assert.equal(r.action.animation, 'walk-to')
+      assert.equal(r.action.direction, 'right')
+      assert.equal(seen.length, 1)
+      assert.ok(seen[0].tools && !seen[0].response_format, 'tool call, non response_format')
+      assert.equal(seen[0].max_tokens, 8192, 'modello che ragiona: budget pieno')
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_URL; else process.env.OPENROUTER_URL = previous
+      server.close()
+    }
+  })
+
+  await testAsync('una risposta in prosa viene richiesta di nuovo, una volta sola', async () => {
+    const seen = []
+    let alwaysProse = false   // true: anche il secondo tentativo risponde in prosa
+    const server = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', c => { body += c })
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        if (req.url === '/api/v1/models') {
+          res.end(JSON.stringify({ data: [{ id: 'finto/prosa-poi-tool:free', name: 'x', supported_parameters: LAGUNA_PARAMS }] }))
+          return
+        }
+        seen.push(JSON.parse(body))
+        if (seen.length === 1 || alwaysProse) {
+          res.end(JSON.stringify({ choices: [{ message: { content: 'Ciao! Ti saluto con la mano.' } }] }))
+          return
+        }
+        const args = JSON.stringify({ reply: 'Ciao!', action: { type: 'none', animation: 'wave' } })
+        res.end(JSON.stringify({ choices: [{ message: { content: null, tool_calls: [{ function: { name: 'rispondi_companion', arguments: args } }] } }] }))
+      })
+    })
+    await new Promise(r => server.listen(0, '127.0.0.1', () => r(null)))
+    const previous = process.env.OPENROUTER_URL
+    try {
+      const { port } = /** @type {import('net').AddressInfo} */ (server.address())
+      process.env.OPENROUTER_URL = 'http://127.0.0.1:' + port
+      const ask = () => route({ provider: 'openrouter', model: 'finto/prosa-poi-tool:free', apiKey: 'sk-or-test',
+        history: [{ role: 'user', content: 'salutami' }] })
+      const r = await ask()
+      assert.equal(r.via, 'tool')
+      assert.equal(r.action.animation, 'wave')
+      assert.equal(seen.length, 2, 'un solo secondo tentativo')
+      assert.match(seen[1].messages.at(-1).content, /formato del companion/)
+      assert.equal(seen[1].messages.at(-2).role, 'assistant', 'il modello rivede la propria risposta')
+      // Se anche il secondo tentativo e' in prosa, resta la prima risposta.
+      seen.length = 0
+      alwaysProse = true
+      const again = await ask()
+      assert.equal(again.via, 'fallback')
+      assert.equal(again.reply, 'Ciao! Ti saluto con la mano.')
+      assert.equal(seen.length, 2)
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_URL; else process.env.OPENROUTER_URL = previous
+      server.close()
+    }
+  })
+
+  await testAsync('OPENROUTER_URL vale solo verso questo PC', async () => {
+    const previous = process.env.OPENROUTER_URL
+    try {
+      process.env.OPENROUTER_URL = 'http://127.0.0.1:9999'
+      assert.equal(openRouterUrl('/models'), 'http://127.0.0.1:9999/api/v1/models')
+      // Un indirizzo esterno viene ignorato: la chiave non si dirotta con una variabile.
+      for (const evil of ['http://evil.example.com', 'https://127.0.0.1.evil.com', 'http://localhost.evil.com:80']) {
+        process.env.OPENROUTER_URL = evil
+        assert.equal(openRouterUrl('/models'), 'https://openrouter.ai/api/v1/models', evil)
+      }
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_URL; else process.env.OPENROUTER_URL = previous
+    }
   })
 
   await testAsync('route pretende una key tranne che per ollama', async () => {

@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict'
 import {
   createVRMAnimator, CLIPS, CLIP_ALIAS, TOUCHED_BONES, REST_POSE, mergePose,
+  createBlinker, createGaze, nextSaccade, moodExpressions, MOOD_MAX, MOOD_EXPRESSIONS,
 } from '../src/renderer/vrm-animation.js'
 
 let passed = 0
@@ -222,6 +223,62 @@ test('il player regge un vrm senza ossa senza esplodere', () => {
   anim.play('wave')
   assert.doesNotThrow(() => anim.update(vuoto, 1 / 60))
   assert.doesNotThrow(() => anim.reset(vuoto))
+})
+
+// Dado ripetibile: stessa sequenza per ogni frame rate.
+function seeded(seed) {
+  return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
+}
+function countBlinks(fps, seconds = 120) {
+  const blinker = createBlinker(seeded(42))
+  let blinks = 0
+  let prev = 0
+  for (let i = 0; i < fps * seconds; i++) {
+    const v = blinker.update(1 / fps)
+    if (v > 0 && prev === 0) blinks++
+    prev = v
+  }
+  return blinks
+}
+
+test('il battito di ciglia ha lo stesso ritmo a 30 e a 144 fps', () => {
+  const slow = countBlinks(30)
+  const fast = countBlinks(144)
+  assert.ok(Math.abs(slow - fast) <= 1, slow + ' battiti a 30 fps, ' + fast + ' a 144')
+  // Da 1 a 6 secondi fra un battito e l'altro: fra 17 e 120 in due minuti.
+  assert.ok(slow >= 17 && slow <= 120, slow + ' battiti in due minuti')
+})
+
+test('il battito resta fra 0 e 1 e dura circa 0,2 s', () => {
+  const blinker = createBlinker(() => 0)   // attesa minima: 1 s
+  let closed = 0
+  for (let i = 0; i < 60 * 1.5; i++) {
+    const v = blinker.update(1 / 60)
+    assert.ok(v >= 0 && v <= 1)
+    if (v > 0) closed++
+  }
+  assert.ok(closed >= 10 && closed <= 13, closed + ' frame a occhi chiusi')
+})
+
+test('lo sguardo salta di pochi centimetri e resta fermo fra un salto e l-altro', () => {
+  const gaze = createGaze(seeded(3))
+  const seen = new Set()
+  for (let i = 0; i < 600; i++) {
+    const o = gaze.update(1 / 60)
+    assert.ok(Math.abs(o.x) <= 0.12 && Math.abs(o.y) <= 0.06)
+    seen.add(o.x + ',' + o.y)
+  }
+  assert.ok(seen.size >= 2 && seen.size <= 20, seen.size + ' posizioni in 10 s')
+  const r = seeded(9)
+  for (let i = 0; i < 1000; i++) { const s = nextSaccade(r); assert.ok(s >= 0.6 && s <= 4) }
+})
+
+test('l-umore colora il volto senza superare il tetto', () => {
+  const full = moodExpressions({ emotions: { joy: 1, calm: 1, sadness: 1, annoyance: 1, curiosity: 1, affection: 1 } })
+  for (const name of MOOD_EXPRESSIONS) assert.ok(full[name] >= 0 && full[name] <= MOOD_MAX, name + ' = ' + full[name])
+  assert.ok(full.happy > 0 && full.sad > 0)
+  const none = moodExpressions(null)
+  for (const name of MOOD_EXPRESSIONS) assert.equal(none[name], 0)
 })
 
 console.log('\n=== ' + passed + ' test superati ===')

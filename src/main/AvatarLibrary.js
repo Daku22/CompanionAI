@@ -120,6 +120,26 @@ class AvatarLibrary {
     }
   }
 
+  /**
+   * Elimina avatar importati: il record e la loro cartella. Gli integrati non
+   * stanno nel manifest, quindi un loro id viene ignorato invece di cancellare
+   * qualcosa fuori dalla libreria. Restituisce gli id davvero rimossi.
+   */
+  async remove(ids) {
+    const wanted = new Set(ids.filter(id => typeof id === 'string' && /^[a-zA-Z0-9-]+$/.test(id)))
+    const all = await this._readManifest()
+    const removed = all.filter(record => wanted.has(record.id)).map(record => record.id)
+    if (!removed.length) return []
+    // Prima il manifest: se una cartella non si cancella (file aperto altrove)
+    // resta un avanzo su disco, non una voce di menu che non carica.
+    await this._writeManifest(all.filter(record => !wanted.has(record.id)))
+    for (const id of removed) {
+      await fs.promises.rm(path.join(this.root, id), { recursive: true, force: true })
+        .catch(error => console.warn('[avatar] cartella ' + id + ' non eliminata:', error.message))
+    }
+    return removed
+  }
+
   async resolve(id, relative = '') {
     if (!/^[a-zA-Z0-9-]+$/.test(id)) return null
     const base = path.resolve(this.root, id)

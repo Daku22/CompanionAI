@@ -142,6 +142,13 @@
     .menu-item:hover { background: rgba(180, 140, 255, 0.15); border-radius: 6px; }
     .menu-item.active { color: #d9c4ff; }
     .menu-item .kind { opacity: 0.5; margin-left: 6px; }
+    /* La finestra e' piccola: con molti avatar l'elenco scorre invece di uscire. */
+    #avatar-list { max-height: calc(100vh - 110px); overflow-y: auto; }
+    .menu-item.menu-note { opacity: 0.6; }
+    .menu-item.check { display: flex; align-items: center; gap: 5px; }
+    .menu-item.check input { margin: 0; accent-color: #b48cff; cursor: pointer; }
+    .menu-item.danger { color: #ff9a9a; }
+    .menu-item.disabled { opacity: 0.4; pointer-events: none; }
 
     /* Dynamic window border glow on hover / near edge */
     #window-border {
@@ -190,6 +197,7 @@
   <div id="model-menu" style="display: none; position: absolute; top: 35px; left: 8px; background: rgba(14, 11, 22, 0.94); border: 1px solid rgba(180,140,255,0.2); border-radius: 10px; padding: 5px; z-index: 30; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; color: white; -webkit-app-region: no-drag;">
     <div id="avatar-list"></div>
     <div id="btn-import-avatar" class="menu-item" style="color: #d9c4ff;">+ Importa avatar…</div>
+    <div id="btn-manage-avatars" class="menu-item" style="color: #d9c4ff; display: none;">− Elimina importati…</div>
   </div>
 </div>
 

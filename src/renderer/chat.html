@@ -223,6 +223,10 @@
       font-size: 10px; color: rgba(200,168,255,0.35);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    #mood-chip {
+      font-size: 10px; color: rgba(220,200,255,0.6);
+      white-space: nowrap; cursor: default;
+    }
     #compact-btn {
       font-size: 10px; padding: 3px 8px;
       border-radius: 8px; border: 1px solid rgba(180,140,255,0.2);
@@ -295,6 +299,10 @@
       <div class="setup-label">API Key</div>
       <input class="setup-input" id="api-key-input" type="password" autocomplete="off" spellcheck="false">
       <button class="link-btn" id="key-help" type="button">Come ottengo una chiave? ↗</button>
+      <div class="ollama-note" id="key-unreadable" style="display:none">
+        La chiave salvata per questo provider non si può più leggere su questo PC:
+        è stata cifrata da un'altra installazione. Inseriscila di nuovo.
+      </div>
       <div class="ollama-note" id="ollama-note" style="display:none">
         Ollama non richiede API key. Avvia il server con <code>ollama serve</code> prima di usarlo.
       </div>
@@ -302,6 +310,9 @@
 
     <label class="setup-check hidden" id="login-row">
       <input type="checkbox" id="login-item"> Avvia con Windows
+    </label>
+    <label class="setup-check" id="idle-row" title="Quando non gli scrivi si guarda attorno, fa due passi, sonnecchia. Nessuna chiamata al modello.">
+      <input type="checkbox" id="idle-life"> Vita autonoma quando non scrivi
     </label>
 
     <button class="setup-save" id="save-btn">Salva e avvia</button>
@@ -341,6 +352,7 @@
 
   <!-- ── Footer memoria ───────────────────────────────────────────────────── -->
   <div id="memory-footer" class="hidden">
+    <span id="mood-chip" title="Umore del companion">·</span>
     <div id="memory-info">Memoria: —</div>
     <button id="compact-btn">Compatta</button>
     <button id="forget-btn" title="Cancella riassunto, turni e archivio">Dimentica tutto</button>

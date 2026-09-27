@@ -1,14 +1,17 @@
-const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, protocol, net, dialog, safeStorage, session } = require('electron')
+const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, protocol, net, dialog, safeStorage, session, powerMonitor } = require('electron')
 const path  = require('path')
 const { spawn } = require('child_process')
 const fs    = require('fs')
 const os    = require('os')
-const { route, PROVIDERS, describeError, listModels } = require('./ai-router')
+const { route, PROVIDERS, describeError, listModels, EMOTIONS } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
 const { builtinAvatars } = require('./builtin-avatars')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk } = require('./guards')
+const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
+const moodLib = require('./mood')
+const { decideIdle } = require('./idle-life')
 
 let companionWindow = null
 let chatWindow      = null
@@ -35,7 +38,8 @@ const ENV_KEY_MAP = {
 // GET https://openrouter.ai/api/v1/models il 2026-09-13.
 const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 // avatarModel vuoto = l'avatar predefinito, scelto da builtin-avatars.js.
-const DEFAULT_CONFIG = { provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', keys: {} }
+// idleLife: gesti autonomi quando nessuno scrive (idle-life.js).
+const DEFAULT_CONFIG = { provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true, keys: {} }
 
 function loadEnvFile() {
   // .env leggero, senza dipendenze: solo per chi lavora sul sorgente.
@@ -71,14 +75,23 @@ function loadConfig() {
     cfg = null
   }
   if (!cfg || typeof cfg !== 'object') cfg = { ...DEFAULT_CONFIG }
+  // Chiavi che questa installazione non sa decifrare: cifrate da un'altra
+  // cartella dati di Electron, o dopo che la sua chiave principale e' cambiata.
+  // Restano da parte, non si perdono, e la chat chiede di reinserirle.
+  cfg.unreadableKeys = {}
   if (cfg.keysEncrypted && cfg.keys && typeof cfg.keys === 'object') {
     for (const [provider, value] of Object.entries(cfg.keys)) {
-      try { cfg.keys[provider] = safeStorage.decryptString(Buffer.from(value, 'base64')) } catch (_) { delete cfg.keys[provider] }
+      try { cfg.keys[provider] = safeStorage.decryptString(Buffer.from(value, 'base64')) } catch (e) {
+        console.warn('[config] chiave di ' + provider + ' non decifrabile, va reinserita: ' + e.message)
+        cfg.unreadableKeys[provider] = value
+        delete cfg.keys[provider]
+      }
     }
   }
   cfg.provider = typeof cfg.provider === 'string' ? cfg.provider : DEFAULT_CONFIG.provider
   cfg.model = typeof cfg.model === 'string' ? cfg.model : DEFAULT_CONFIG.model
   cfg.avatarModel = typeof cfg.avatarModel === 'string' ? cfg.avatarModel : DEFAULT_CONFIG.avatarModel
+  cfg.idleLife = cfg.idleLife !== false
   if (!PROVIDERS[cfg.provider]) { cfg.provider = DEFAULT_CONFIG.provider; cfg.model = DEFAULT_CONFIG.model }
 
   // Fallback: se manca la key salvata per il provider attivo, usa l'env var
@@ -94,20 +107,24 @@ function saveConfig(cfg) {
   try {
     const dir = path.dirname(CONFIG_PATH)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    const stored = { ...cfg, keys: { ...(cfg.keys || {}) } }
-    if (safeStorage.isEncryptionAvailable()) {
-      for (const [provider, value] of Object.entries(stored.keys)) {
-        stored.keys[provider] = safeStorage.encryptString(value).toString('base64')
-      }
-      stored.keysEncrypted = true
-    }
+    const { unreadableKeys, ...stored } = cfg
+    const encrypt = safeStorage.isEncryptionAvailable() ? (value) => safeStorage.encryptString(value).toString('base64') : null
+    stored.keys = keysForDisk(cfg.keys, unreadableKeys, encrypt)
+    if (encrypt) stored.keysEncrypted = true
+    else delete stored.keysEncrypted
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(stored, null, 2))
   } catch (e) { console.error('[config] salvataggio fallito:', e.message) }
 }
 
 function publicConfig(cfg) {
-  const { keys, ...safe } = cfg
-  return { ...safe, keyConfigured: Object.fromEntries(Object.entries(keys || {}).map(([name, value]) => [name, !!value])), providers: PROVIDERS }
+  const { keys, unreadableKeys, ...safe } = cfg
+  return {
+    ...safe,
+    keyConfigured: Object.fromEntries(Object.entries(keys || {}).map(([name, value]) => [name, !!value])),
+    // Solo i nomi dei provider: la chat spiega perche' la chiave va reinserita.
+    keyUnreadable: Object.fromEntries(Object.keys(unreadableKeys || {}).filter(name => !(keys || {})[name]).map(name => [name, true])),
+    providers: PROVIDERS,
+  }
 }
 
 // ─── Memoria (fading memory + lossless archive) ──────────────────────────────
@@ -125,6 +142,36 @@ function memoryModelFrom(cfg) {
     model: cfg.model || DEFAULT_MODEL,
     apiKey: cfg.keys?.[cfg.provider] || null,
   }
+}
+
+// ─── Umore ───────────────────────────────────────────────────────────────────
+// Lo stato d'animo vive accanto alla memoria e sparisce con "Dimentica tutto".
+// Le regole stanno in mood.js; qui si carica, si salva e si avvisano le finestre.
+
+const MOOD_PATH = path.join(MEMORY_PATH, 'mood.json')
+let mood = moodLib.createMood()
+let moodSave = Promise.resolve()
+
+async function initMood() {
+  mood = await moodLib.loadMood(MOOD_PATH)
+  broadcastMood()
+}
+
+function broadcastMood() {
+  const data = moodLib.publicMood(mood)
+  for (const win of [companionWindow, chatWindow]) {
+    if (win && !win.isDestroyed()) try { win.webContents.send('mood-changed', data) } catch (_) {}
+  }
+}
+
+/** Applica una trasformazione pura all'umore, poi salva e avvisa. */
+function updateMood(change) {
+  mood = change(mood)
+  // In coda: due salvataggi ravvicinati non devono superarsi a vicenda.
+  const snapshot = mood
+  moodSave = moodSave.then(() => moodLib.saveMood(MOOD_PATH, snapshot))
+    .catch(e => console.error('[mood] salvataggio fallito:', e.message))
+  broadcastMood()
 }
 
 function initMemory() {
@@ -192,6 +239,15 @@ async function buildHistoryWithMemory(rendererHistory) {
   return [...preface, ...history]
 }
 
+// Umore, ora del giorno e tempo dall'ultimo messaggio entrano come messaggio di
+// sistema subito dopo la memoria: prepare() nel router li unisce in ordine.
+function withMoodLine(history) {
+  const line = { role: 'system', content: moodLib.promptLine(mood) }
+  const firstDialog = history.findIndex(m => m.role !== 'system')
+  if (firstDialog === -1) return [...history, line]
+  return [...history.slice(0, firstDialog), line, ...history.slice(firstDialog)]
+}
+
 // ─── Companion Window ────────────────────────────────────────────────────────
 
 function createCompanionWindow() {
@@ -223,19 +279,34 @@ function createCompanionWindow() {
     companionWindow.webContents.openDevTools({ mode: 'detach' })
   }
 
+  // Trascinamento dell'utente: inizia al primo 'move' e finisce con 'moved',
+  // che su Windows arriva al rilascio del tasto (fine del ciclo di spostamento).
+  // Prima finiva 200 ms dopo l'ultimo 'move': tenendo fermo l'avatar in mano
+  // compariva "Phew..." come se fosse stato posato.
+  let dragging = false
   let moveTimeout = null
+  const endDrag = () => {
+    if (moveTimeout) { clearTimeout(moveTimeout); moveTimeout = null }
+    if (!dragging) return
+    dragging = false
+    if (!companionWindow || companionWindow.isDestroyed()) return
+    try { companionWindow.webContents.send('window-drag-state', { dragging: false }) } catch (_) {}
+  }
   companionWindow.on('move', () => {
     if (!companionWindow || companionWindow.isDestroyed()) return
     // Durante una camminata autonoma il movimento lo genera il main: non e' un
     // trascinamento dell'utente e non deve mettere in pausa l'animazione.
     if (walkTimer) return
-    try { companionWindow.webContents.send('window-drag-state', { dragging: true }) } catch (_) {}
+    onDragged()
+    if (!dragging) {
+      dragging = true
+      try { companionWindow.webContents.send('window-drag-state', { dragging: true }) } catch (_) {}
+    }
+    // Ripiego dove 'moved' non esiste (Linux): fine dopo 1,5 s di quiete.
     if (moveTimeout) clearTimeout(moveTimeout)
-    moveTimeout = setTimeout(() => {
-      if (!companionWindow || companionWindow.isDestroyed()) return
-      try { companionWindow.webContents.send('window-drag-state', { dragging: false }) } catch (_) {}
-    }, 200)
+    moveTimeout = setTimeout(endDrag, 1500)
   })
+  companionWindow.on('moved', endDrag)
 }
 
 // ─── Camminata sul desktop ───────────────────────────────────────────────────
@@ -246,7 +317,6 @@ function createCompanionWindow() {
 const WALK_TICK_MS  = 33          // ~30 fps, abbastanza fluido e leggero sulla CPU
 const WALK_SPEED    = 55          // px al secondo
 const RUN_SPEED     = 150
-const MIN_WALK_DIST = 120         // sotto questa soglia lo spostamento non si nota
 
 let walkTimer = null
 
@@ -271,25 +341,21 @@ function sendIdle() {
   try { companionWindow.webContents.send('trigger-animation', { type: 'none', animation: 'idle' }) } catch (_) {}
 }
 
-function startWalk({ run = false } = {}) {
+// La meta' la sceglie walk-target.js: verso e distanza chiesti dal modello, o
+// a caso. maxDistance limita i gesti a riposo a due passi.
+/** @param {{ run?: boolean, direction?: string, distance?: string, maxDistance?: number }} [opts] */
+function startWalk({ run = false, direction, distance, maxDistance = Infinity } = {}) {
   if (!companionWindow || companionWindow.isDestroyed()) return
   stopWalk()
 
   const area = companionWorkArea()
   const [x, y] = companionWindow.getPosition()
   const [w]    = companionWindow.getSize()
-  const minX = area.x
-  const maxX = area.x + area.width - w
-  if (maxX <= minX) { sendIdle(); return }
-
-  // Sceglie una meta' lontana almeno MIN_WALK_DIST, restando nell'area di lavoro.
-  let targetX
-  let guard = 0
-  do {
-    targetX = Math.round(minX + Math.random() * (maxX - minX))
-    guard++
-  } while (Math.abs(targetX - x) < MIN_WALK_DIST && guard < 12)
-  if (Math.abs(targetX - x) < 8) { sendIdle(); return }
+  const cursorX = direction === 'toward-cursor' ? screen.getCursorScreenPoint().x : undefined
+  const targetX = walkTarget({ x, width: w, area, direction, distance, cursorX, maxDistance })
+  if (targetX === null) { sendIdle(); return }
+  const minX = Math.min(x, targetX)
+  const maxX = Math.max(x, targetX)
 
   const dir   = targetX > x ? 1 : -1
   const speed = run ? RUN_SPEED : WALK_SPEED
@@ -437,6 +503,7 @@ handle('config:set', (_e, newCfg) => {
   // La chiave inserita adesso deve servire anche ai riassunti, non solo dal
   // prossimo avvio. loadConfig riapplica il fallback sulle variabili d'ambiente.
   if (memoryManager) memoryManager.setModel(memoryModelFrom(loadConfig()))
+  idleLifeEnabled = merged.idleLife !== false
   return publicConfig(merged)
 })
 
@@ -449,13 +516,17 @@ handle('ai:send-message', async (_e, { history }) => {
   if (cfg.provider !== 'ollama' && !apiKey) return { ok: false, error: `Manca API key per ${cfg.provider}` }
   console.log('[Main] Ricevuta richiesta sendMessage, provider:', cfg.provider)
 
+  // Mentre si aspetta la risposta il companion non fa gesti per conto suo.
+  awaitingReply = true
+  markActivity()
+  updateMood(m => moodLib.onUserMessage(m))
   try {
     const lastUser = [...(history || [])].reverse().find(m => m.role === 'user')
     if (lastUser?.content && memoryManager) {
       await memoryManager.addTurn(lastUser.content, 'user').catch(() => {})
     }
 
-    const historyWithMemory = await buildHistoryWithMemory(safeHistory)
+    const historyWithMemory = withMoodLine(await buildHistoryWithMemory(safeHistory))
 
     console.log('[Main] Chiamata route...')
     const result = await route({
@@ -465,6 +536,16 @@ handle('ai:send-message', async (_e, { history }) => {
       history: historyWithMemory,
     })
     console.log('[Main] route() completato, reply length:', result?.reply?.length)
+
+    // Da che strada e' arrivata la risposta: con 'fallback' il modello non ha
+    // rispettato il formato e l'azione non c'e'. Il testo grezzo resta nel log.
+    console.log('[Main] risposta via ' + (result?.via || '?') + (result?.retried ? ' (secondo tentativo)' : '') + (result?.action?.animation ? ', animazione ' + result.action.animation : ''))
+    if (result?.via === 'fallback') console.warn('[Main] risposta fuori formato da ' + cfg.model + ': ' + JSON.stringify(result.raw || ''))
+    if (result) delete result.raw
+
+    // Il campo arriva da un modello: solo i valori del contratto passano.
+    if (result && !EMOTIONS.includes(result.emotion)) delete result.emotion
+    if (result?.emotion) updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
 
     if (result?.reply && memoryManager) {
       await memoryManager.addTurn(result.reply, 'assistant').catch(() => {})
@@ -479,6 +560,9 @@ handle('ai:send-message', async (_e, { history }) => {
   } catch(err) {
     console.error('[Main] Errore in route():', err)
     return { ok: false, error: describeError(err, cfg.provider) }
+  } finally {
+    awaitingReply = false
+    markActivity()
   }
 })
 
@@ -516,6 +600,8 @@ handle('memory:get-context', async () => {
   return memoryManager ? await memoryManager.getContext() : []
 })
 
+handle('mood:get', () => moodLib.publicMood(moodLib.decay(mood)))
+
 handle('memory:compact-now', async () => {
   if (!memoryManager) return { ok: false, error: 'memory not initialized' }
   try {
@@ -530,6 +616,8 @@ handle('memory:clear', async () => {
   if (!memoryManager) return { ok: false, error: 'memory not initialized' }
   try {
     await memoryManager.clear()
+    // Dimenticare tutto vale anche per come si sentiva.
+    updateMood(() => moodLib.createMood())
     return { ok: true }
   } catch (err) { return { ok: false, error: err.message } }
 })
@@ -550,6 +638,10 @@ handle('avatars:commit-import', (_event, data) => {
   const { token, candidateId } = data || {}
   if (typeof token !== 'string' || typeof candidateId !== 'string') throw new Error('Selezione avatar non valida')
   return avatarLibrary.commit(token, candidateId)
+})
+handle('avatars:remove', (_event, ids) => {
+  if (!Array.isArray(ids) || !ids.length || ids.length > 200) throw new Error('Selezione avatar non valida')
+  return avatarLibrary.remove(ids)
 })
 
 // Azioni OS — eseguite solo nel processo main, mai nel renderer
@@ -577,17 +669,100 @@ on('os:execute', async (_e, action) => {
     plan.run()
   }
 
-  // Triggera animazione companion
+  // Triggera animazione companion. Passano solo tipo e animazione: il resto
+  // dell'oggetto arriva dal modello e non deve finire nel fumetto.
   if (action.animation) {
-    companionWindow?.webContents.send('trigger-animation', action)
-    // walk-to / run-to muovono la finestra sul desktop, non solo lo sprite
-    if (action.animation === 'walk-to' || action.animation === 'run-to') {
-      startWalk({ run: action.animation === 'run-to' })
-    } else {
-      stopWalk()
-    }
+    markActivity()
+    const motion = checkMotion(action)
+    animateCompanion({ type: action.type, animation: action.animation, ...motion }, motion)
+    // Una posa chiesta dall'utente ("siediti") resta per un po': i gesti a
+    // riposo non devono farlo alzare dopo venti secondi.
+    requestedPoseUntil = action.animation === 'sit' ? Date.now() + REQUESTED_POSE_MS : 0
   }
 })
+
+/**
+ * Un gesto, venga dalla chat o dalla vita a riposo. walk-to / run-to muovono
+ * la finestra sul desktop, non solo lo sprite.
+ * @param {any} action
+ * @param {{ maxDistance?: number, direction?: string, distance?: string }} [motion]
+ */
+function animateCompanion(action, motion = {}) {
+  const { maxDistance = Infinity, direction, distance } = motion
+  if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
+  try { companionWindow?.webContents.send('trigger-animation', action) } catch (_) {}
+  if (action.animation === 'walk-to' || action.animation === 'run-to') {
+    startWalk({ run: action.animation === 'run-to', direction, distance, maxDistance })
+  } else {
+    stopWalk()
+  }
+}
+
+// ─── Vita a riposo ───────────────────────────────────────────────────────────
+// Quando nessuno scrive, idle-life.js decide ogni IDLE_TICK_MS se fare un
+// gesto. Qui si raccolgono i segnali: da quanto non succede nulla, da quanto
+// l'utente non tocca il PC, se una risposta e' in arrivo.
+
+const IDLE_TICK_MS = 5000
+const REQUESTED_POSE_MS = 3 * 60 * 1000
+const IDLE_WALK_MAX_PX = 300
+const DRAG_MOOD_EVERY_MS = 30 * 1000
+
+let idleLifeEnabled = true
+let idleTimer = null
+let gestureTimer = null
+let awaitingReply = false
+let asleep = false
+let lastActivityAt = Date.now()
+let lastGestureAt = 0
+let lastDragMoodAt = 0
+let requestedPoseUntil = 0
+
+function markActivity() {
+  lastActivityAt = Date.now()
+  asleep = false
+}
+
+// Essere presi in braccio fa piacere, ma non a chi stava dormendo.
+function onDragged() {
+  const wasAsleep = asleep
+  markActivity()
+  const now = Date.now()
+  if (now - lastDragMoodAt < DRAG_MOOD_EVERY_MS) return
+  lastDragMoodAt = now
+  updateMood(m => moodLib.nudge(moodLib.decay(m, now), wasAsleep ? 'annoyance' : 'joy', wasAsleep ? 0.15 : 0.05))
+}
+
+function idleTick() {
+  if (!idleLifeEnabled || awaitingReply || walkTimer || Date.now() < requestedPoseUntil) return
+  if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
+  // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
+  if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused()) { markActivity(); return }
+  const now = Date.now()
+  const decision = decideIdle({
+    quietMs: now - lastActivityAt,
+    sinceGestureMs: now - lastGestureAt,
+    systemIdleMs: powerMonitor.getSystemIdleTime() * 1000,
+    asleep,
+    mood: moodLib.decay(mood, now),
+    hour: new Date(now).getHours(),
+  })
+  if (!decision) return
+  lastGestureAt = now
+  if (decision.asleep !== undefined) asleep = decision.asleep
+  // Il risveglio e' un ritorno dell'utente: i gesti ripartono dopo la quiete.
+  if (decision.name === 'wake') lastActivityAt = now
+  animateCompanion({ type: 'none', animation: decision.animation, bubble: decision.bubble, idle: true },
+    { maxDistance: IDLE_WALK_MAX_PX })
+  if (decision.holdMs > 0) gestureTimer = setTimeout(() => { gestureTimer = null; sendIdle() }, decision.holdMs)
+}
+
+function startIdleLife() {
+  idleLifeEnabled = loadConfig().idleLife
+  if (idleTimer) clearInterval(idleTimer)
+  idleTimer = setInterval(idleTick, IDLE_TICK_MS)
+  if (idleTimer.unref) idleTimer.unref()
+}
 
 // ─── OS Actions (hardened, standalone) ─────────────────────────────────────────
 // Le regole stanno in guards.js. run-command accetta solo l'allowlist; per
@@ -777,10 +952,13 @@ app.whenReady().then(() => {
   createCompanionWindow()
   createChatWindow()
   createTray()
+  initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
+  startIdleLife()
 })
 
 app.on('window-all-closed', () => {
   stopWalk()
+  if (idleTimer) clearInterval(idleTimer)
   if (global.__memoryTimer) clearInterval(global.__memoryTimer)
   if (process.platform !== 'darwin') app.quit()
 })

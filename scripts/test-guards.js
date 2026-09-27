@@ -9,7 +9,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const {
-  isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender,
+  isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -132,6 +132,32 @@ test('le chiavi vengono fuse e un campo vuoto non cancella quella salvata', () =
   const merged = mergeConfig({ provider: 'claude', model: 'm', keys: { claude: 'sk-ant-1' } },
     { keys: { claude: '', openai: 'sk-2', inventato: 'x' } })
   assert.deepEqual(merged.keys, { claude: 'sk-ant-1', openai: 'sk-2' })
+})
+
+test('verso e distanza passano solo con i valori del contratto', () => {
+  assert.deepEqual(checkMotion({ type: 'none', animation: 'walk-to', direction: 'right', distance: 'edge' }), { direction: 'right', distance: 'edge' })
+  assert.deepEqual(checkMotion({ direction: 'su', distance: 9000, bubble: 'ciao' }), {})
+  assert.deepEqual(checkMotion(null), {})
+})
+
+test('una chiave illeggibile non si perde al primo salvataggio', () => {
+  const encrypt = (v) => 'cifrata(' + v + ')'
+  // Illeggibile e nessuna nuova: resta com'era sul disco.
+  assert.deepEqual(keysForDisk({ claude: 'sk-ant-1' }, { openrouter: 'v10vecchia' }, encrypt),
+    { claude: 'cifrata(sk-ant-1)', openrouter: 'v10vecchia' })
+  // Reinserita: la nuova prende il posto di quella illeggibile.
+  assert.deepEqual(keysForDisk({ openrouter: 'sk-or-2' }, { openrouter: 'v10vecchia' }, encrypt),
+    { openrouter: 'cifrata(sk-or-2)' })
+  // Senza cifratura non si mescolano chiavi cifrate e in chiaro.
+  assert.deepEqual(keysForDisk({ claude: 'sk-ant-1' }, { openrouter: 'v10vecchia' }, null), { claude: 'sk-ant-1' })
+})
+
+test('la vita autonoma si spegne e si riaccende solo con un booleano', () => {
+  const base = { provider: 'claude', model: 'm', keys: {}, idleLife: true }
+  assert.equal(mergeConfig(base, { idleLife: false }).idleLife, false)
+  assert.equal(mergeConfig({ ...base, idleLife: false }, { idleLife: true }).idleLife, true)
+  assert.equal(mergeConfig(base, { idleLife: 'no' }).idleLife, true)
+  assert.equal(mergeConfig(base, { provider: 'openai' }).idleLife, true, 'salvare il provider non la tocca')
 })
 
 // ── Mittente dei messaggi IPC ───────────────────────────────────────────────

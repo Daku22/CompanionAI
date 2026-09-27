@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
-import { createVRMAnimator, baseYaw } from './vrm-animation.js';
+import {
+  createVRMAnimator, baseYaw, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS,
+} from './vrm-animation.js';
 
 
 window.__threeVisible = false;
@@ -38,6 +40,14 @@ function ensureThree() {
   controls.screenSpacePanning = true;
   controls.minDistance = 0.5;
   controls.maxDistance = 5.0;
+  // Rotazione limitata: libera, il mouse girava la camera dietro al modello o
+  // lo spostava fuori dal riquadro, e l'avatar sembrava sparito. Il
+  // trascinamento vero del modello arrivera' con la Fase B.
+  controls.enablePan = false;
+  controls.minAzimuthAngle = -0.7;
+  controls.maxAzimuthAngle = 0.7;
+  controls.minPolarAngle = Math.PI / 2 - 0.45;
+  controls.maxPolarAngle = Math.PI / 2 + 0.15;
 
   // Environment & Lighting
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.4);
@@ -75,6 +85,43 @@ const applyVRMIdlePose = (vrm) => animator.reset(vrm);
 const updateAnimation = (vrm, delta) => animator.update(vrm, delta);
 const setFacing = (dir) => animator.setFacing(dir);
 
+// ─── Volto: ciglia, sguardo, umore e reazioni ──────────────────────────────
+// Ogni frame il peso di un'espressione e' il massimo fra quello dell'umore
+// (basso, di fondo) e quello di una reazione in corso. Prima le reazioni
+// tornavano a 0 dopo tre secondi, cancellando qualunque stato di fondo.
+const blinker = createBlinker();
+const gaze = createGaze();
+let gazeTarget = null;
+let moodWeights = moodExpressions(null);
+const reaction = {};
+const reactionTimers = {};
+
+function react(name, weight, ms = 3000) {
+  reaction[name] = weight;
+  clearTimeout(reactionTimers[name]);
+  reactionTimers[name] = setTimeout(() => { reaction[name] = 0; }, ms);
+}
+
+function clearReactions() {
+  for (const name of Object.keys(reaction)) { reaction[name] = 0; clearTimeout(reactionTimers[name]); }
+}
+
+function updateFace(vrm, delta) {
+  const em = vrm.expressionManager;
+  if (em) {
+    for (const name of MOOD_EXPRESSIONS) em.setValue(name, Math.max(moodWeights[name] || 0, reaction[name] || 0));
+    em.setValue('blink', blinker.update(delta));
+  }
+  if (vrm.lookAt && gazeTarget) {
+    const offset = gaze.update(delta);
+    gazeTarget.position.set(camera.position.x + offset.x, camera.position.y + offset.y, camera.position.z);
+    gazeTarget.updateMatrixWorld();
+  }
+}
+
+if (api && api.onMoodChanged) api.onMoodChanged((mood) => { moodWeights = moodExpressions(mood); });
+if (api && api.getMood) api.getMood().then((mood) => { moodWeights = moodExpressions(mood); }).catch(() => {});
+
 // Il loop gira solo con il 3D visibile: tornando al 2D si ferma del tutto,
 // invece di continuare a chiedere un frame al browser per poi non disegnarlo.
 let looping = false;
@@ -88,18 +135,7 @@ function animate() {
 
   if (currentVrm) {
     updateAnimation(currentVrm, delta);
-
-    // Battito di ciglia procedurale (race-safe su switch rapido)
-    if (Math.random() < 0.015 && currentVrm.expressionManager) {
-      const ref = currentVrm;
-      ref.expressionManager.setValue('blink', 1.0);
-      setTimeout(() => {
-        if (currentVrm === ref && currentVrm.expressionManager) {
-          currentVrm.expressionManager.setValue('blink', 0.0);
-        }
-      }, 140);
-    }
-
+    updateFace(currentVrm, delta);
     currentVrm.update(delta);
   }
   renderer.render(scene, camera);
@@ -159,8 +195,10 @@ async function loadVRMModel(avatar) {
       // altrimenti il modello nuovo erediterebbe la clip di quello vecchio.
       applyVRMIdlePose(vrm);
 
-      // Tracciamento sguardo verso la fotocamera
-      if (vrm.lookAt) vrm.lookAt.target = camera;
+      // Lo sguardo segue la fotocamera, con i piccoli salti di createGaze.
+      if (!gazeTarget) gazeTarget = new THREE.Object3D();
+      if (vrm.lookAt) vrm.lookAt.target = gazeTarget;
+      clearReactions();
 
       currentVrm = vrm;
       scene.add(vrm.scene);
@@ -265,20 +303,15 @@ if (api && api.onTriggerAnimation) {
   api.onTriggerAnimation((action) => {
     if (!window.__threeVisible) return;
     const key = (action && (action.animation || action.type)) || 'idle';
-    // Il corpo si muove sempre; le espressioni solo se il modello le espone.
+    // Il corpo si muove sempre; le espressioni le applica updateFace, se il
+    // modello le espone.
     playClip(key);
-    if (!currentVrm || !currentVrm.expressionManager) return;
-    const ref = currentVrm;
-    const reset = (name) => setTimeout(() => { if (currentVrm === ref && currentVrm.expressionManager) currentVrm.expressionManager.setValue(name, 0.0); }, 3000);
-    if (key === 'wave' || key === 'happy') {
-      ref.expressionManager.setValue('happy', 1.0); reset('happy');
-    } else if (key === 'click') {
-      ref.expressionManager.setValue('happy', 0.7); reset('happy');
-    } else if (key === 'think' || key === 'search' || key === 'scroll' || key === 'relaxed') {
-      ref.expressionManager.setValue('relaxed', 1.0); reset('relaxed');
-    } else if (key === 'idle' || key === 'none') {
-      try { ref.expressionManager.setValue('happy', 0.0); ref.expressionManager.setValue('relaxed', 0.0); } catch (_) {}
-    }
+    // I gesti a riposo portano il proprio fumetto; in 3D gli altri non ne hanno.
+    if (action && typeof action.bubble === 'string' && action.bubble) showBubble(action.bubble, 3000);
+    if (key === 'wave' || key === 'happy') react('happy', 1.0);
+    else if (key === 'click') react('happy', 0.7);
+    else if (key === 'think' || key === 'search' || key === 'scroll' || key === 'relaxed') react('relaxed', 1.0);
+    else if (key === 'idle' || key === 'none') clearReactions();
   });
 }
 
@@ -294,6 +327,8 @@ if (api && api.onCompanionFacing) {
 // Menu degli avatar: generato dall'elenco del main, cosi' un modello tolto dal
 // pacchetto sparisce dal menu invece di lasciare un pulsante che non carica.
 function renderAvatarMenu(avatars) {
+  managing = false;
+  setMenuFooter(true, avatars.some(a => !a.builtin));
   const host = document.getElementById('avatar-list');
   host.replaceChildren(...avatars.map(avatar => {
     const item = document.createElement('div');
@@ -307,6 +342,83 @@ function renderAvatarMenu(avatars) {
     return item;
   }));
 }
+
+// Le voci fisse in fondo al menu: nascoste mentre si scelgono gli avatar da
+// eliminare, e "Elimina" solo se c'e' almeno un avatar importato.
+function setMenuFooter(visible, canManage) {
+  document.getElementById('btn-import-avatar').style.display = visible ? '' : 'none';
+  document.getElementById('btn-manage-avatars').style.display = visible && canManage ? '' : 'none';
+}
+
+// Eliminazione degli avatar importati: si spuntano nel menu e si conferma con
+// "Elimina". Gli integrati non compaiono, e il main li rifiuterebbe comunque.
+let managing = false;
+
+function renderManageMenu(avatars) {
+  managing = true;
+  setMenuFooter(false, false);
+  const host = document.getElementById('avatar-list');
+  const imported = avatars.filter(a => !a.builtin);
+  const selected = new Set();
+  const title = document.createElement('div');
+  title.className = 'menu-item menu-note';
+  title.textContent = 'Seleziona da eliminare:';
+  const removeBtn = document.createElement('div');
+  removeBtn.className = 'menu-item danger disabled';
+  const refresh = () => {
+    removeBtn.textContent = 'Elimina (' + selected.size + ')';
+    removeBtn.classList.toggle('disabled', selected.size === 0);
+  };
+  const items = imported.map(avatar => {
+    const item = document.createElement('label');
+    item.className = 'menu-item check';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.addEventListener('change', () => {
+      if (box.checked) selected.add(avatar.id); else selected.delete(avatar.id);
+      refresh();
+    });
+    const kind = document.createElement('span');
+    kind.className = 'kind';
+    kind.textContent = (avatar.kind === 'sprite-pack' || avatar.kind === 'sprite') ? '2D' : '3D';
+    item.append(box, avatar.name, kind);
+    return item;
+  });
+  removeBtn.addEventListener('click', async () => {
+    // Un doppio clic non deve mandare due richieste.
+    if (!selected.size || removeBtn.classList.contains('disabled')) return;
+    removeBtn.classList.add('disabled');
+    try {
+      const removed = await api.removeAvatars([...selected]);
+      const remaining = await api.listAvatars();
+      showBubble(removed.length === 1 ? 'Avatar eliminato' : removed.length + ' avatar eliminati', 2400);
+      if (removed.includes(currentAvatarId)) {
+        // Quello in scena non esiste piu': si torna al predefinito.
+        const pick = remaining.find(a => a.default) || remaining[0];
+        if (pick) await switchModel(pick.id);
+        else { currentAvatarId = null; renderAvatarMenu(remaining); window.show2DPlaceholder(); }
+      } else {
+        renderAvatarMenu(remaining);
+      }
+    } catch (error) { showBubble('Eliminazione fallita: ' + error.message, 3600); refresh(); }
+  });
+  const cancel = document.createElement('div');
+  cancel.className = 'menu-item menu-note';
+  cancel.textContent = 'Annulla';
+  cancel.addEventListener('click', async () => renderAvatarMenu(await api.listAvatars()));
+  refresh();
+  host.replaceChildren(title, ...items, removeBtn, cancel);
+}
+
+document.getElementById('btn-manage-avatars').addEventListener('click', async () => {
+  renderManageMenu(await api.listAvatars());
+});
+
+// Chiudere il menu a meta' selezione non deve riaprirlo li': alla riapertura
+// torna l'elenco normale.
+document.getElementById('switch-zone').addEventListener('click', async () => {
+  if (managing) renderAvatarMenu(await api.listAvatars());
+});
 
 // Scelta fra piu' modelli trovati nella stessa cartella. Dentro il menu:
 // window.prompt() in Electron non esiste, e con la vecchia finestra di scelta

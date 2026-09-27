@@ -40,7 +40,10 @@ const keyHelp        = document.getElementById('key-help')
 const modelNote      = document.getElementById('model-note')
 const loginRow       = document.getElementById('login-row')
 const loginItem      = document.getElementById('login-item')
+const idleLife       = document.getElementById('idle-life')
+const moodChip       = document.getElementById('mood-chip')
 const setupCancel    = document.getElementById('setup-cancel')
+const keyUnreadable  = document.getElementById('key-unreadable')
 
 // ── Init ────────────────────────────────────────────────────────────────────
 async function init() {
@@ -64,6 +67,8 @@ async function init() {
   updateBadge()
   updateMemoryFooter()
   initLoginItem()
+  idleLife.checked = config.idleLife !== false
+  if (api && api.getMood) api.getMood().then(showMood).catch(() => {})
 
   // Mostra setup solo se non c'è key per il provider attivo
   setupCancel.classList.toggle('hidden', !isConfigured())
@@ -87,6 +92,21 @@ async function initLoginItem() {
 loginItem.addEventListener('change', async () => {
   try { loginItem.checked = !!(await api.setLoginItem(loginItem.checked)).enabled } catch (_) {}
 })
+
+// Si salva subito, come "Avvia con Windows": non serve premere "Salva e avvia".
+idleLife.addEventListener('change', async () => {
+  try { config.idleLife = (await api.setConfig({ idleLife: idleLife.checked })).idleLife !== false } catch (_) {}
+  idleLife.checked = config.idleLife !== false
+})
+
+// Umore del companion accanto alla memoria. Lo decide il main: qui si mostra.
+function showMood(mood) {
+  if (!mood) return
+  moodChip.textContent = mood.icon + ' ' + mood.label
+  const energy = mood.energy >= 0.7 ? 'piena' : mood.energy >= 0.4 ? 'normale' : 'bassa'
+  moodChip.title = 'Umore del companion: ' + mood.label + ' · energia ' + energy
+}
+if (api && api.onMoodChanged) api.onMoodChanged(showMood)
 
 // La pagina della chiave la apre il main: qui si indica solo il provider.
 keyHelp.addEventListener('click', () => { api.openKeyPage(selectedProvider).catch(() => {}) })
@@ -202,6 +222,9 @@ function updateKeyField() {
     // “mantieni la chiave già salvata”, non “cancella la configurazione”.
     apiKeyInput.value = ''
   }
+  // Chiave salvata ma illeggibile: senza questa nota la schermata di
+  // configurazione ricompariva senza spiegazione, come se la chiave fosse sparita.
+  keyUnreadable.style.display = selectedProvider !== 'ollama' && config.keyUnreadable?.[selectedProvider] ? 'block' : 'none'
 }
 
 function updateBadge() {
@@ -326,6 +349,7 @@ sendBtn.addEventListener('click', sendMessage)
 
 // ── Send ─────────────────────────────────────────────────────────────────────
 let sending = false
+const warnedModels = new Set()
 async function sendMessage() {
   if (sending) return
   const text = inputEl.value.trim()
@@ -384,6 +408,12 @@ async function sendMessage() {
 
   addMessage('assistant', result.reply)
   updateMemoryFooter().catch(() => {})
+  // Il modello ha risposto fuori formato: l'azione e' andata persa. Lo si dice
+  // una volta per modello, altrimenti sembra che l'avatar ignori le richieste.
+  if (result.via === 'fallback' && !warnedModels.has(config.model)) {
+    warnedModels.add(config.model)
+    addMessage('system', 'Questo modello non ha risposto nel formato del companion, quindi niente animazione. Se succede spesso, scegline un altro nelle impostazioni (⚙).')
+  }
 
   // Esegui azione OS + animazione
   const action = result.action || { type: 'none', animation: 'idle' }
@@ -392,7 +422,9 @@ async function sendMessage() {
     api.toggleChat() // chiude la chat durante l'animazione
     setTimeout(() => api.executeAction(action), 150)
   } else {
-    api.executeAction({ type: 'none', animation: action.animation || 'idle' })
+    // L'azione intera, non solo l'animazione: verso e distanza della camminata
+    // stanno li'. Il main lascia passare solo i valori del contratto.
+    api.executeAction({ ...action, type: 'none', animation: action.animation || 'idle' })
   }
 }
 

@@ -115,6 +115,21 @@ async function main() {
     assert.ok(!listed.some(a => a.kind === 'live2d'), 'i Live2D non sono piu-` supportati')
     scenari++
 
+    // Eliminazione: sparisce il record e la cartella, e un id integrato o
+    // inventato non tocca nulla fuori dalla libreria.
+    const before = (await library.list()).map(a => a.id)
+    assert.ok(before.includes(gltf.id) && before.includes(packed.id))
+    const removed = await library.remove([gltf.id, 'Fred', '../one', packed.id])
+    assert.deepEqual(removed.sort(), [gltf.id, packed.id].sort())
+    const after = (await library.list()).map(a => a.id)
+    assert.ok(!after.includes(gltf.id) && !after.includes(packed.id), 'gli eliminati non sono piu-` nel menu')
+    assert.ok(after.includes(imported.id), 'gli altri importati restano')
+    assert.equal(fs.existsSync(path.join(base, 'library', gltf.id)), false, 'la cartella dell-`avatar va cancellata')
+    assert.equal(await library.resolve(packed.id, packed.entry), null)
+    assert.ok(fs.existsSync(path.join(base, 'one', 'hero.vrm')), 'il file originale non si tocca')
+    assert.deepEqual(await library.remove([gltf.id]), [], 'eliminare due volte non e-` un errore')
+    scenari++
+
     // Integrati: solo cio' che esiste davvero nel pacchetto. Il 2D c'e' solo se
     // sprites.js contiene un manifest, e in quel caso e' il predefinito.
     const app = path.join(base, 'app')

@@ -5,6 +5,26 @@ const api = window.companion;
 const bubbleEl = document.getElementById('bubble');
 let bubbleTimer = null;
 
+// Fumetti dell'avatar 2D. I testi di un personaggio ("Nya!") stanno nel suo
+// pacchetto (sprites.json, campo "bubbles"): prima erano scritti qui e li
+// diceva qualunque avatar 2D, anche un'immagine importata.
+const DEFAULT_BUBBLES = {
+  hello: '👋', wave: '👋', think: '…', sit: '💤', smoke: '🚬 ...',
+  happy: '✨', grab: '!?', drop: '…',
+};
+let bubbles = { ...DEFAULT_BUBBLES };
+
+function packBubbles(manifest) {
+  const out = { ...DEFAULT_BUBBLES };
+  const custom = manifest && manifest.bubbles;
+  if (custom && typeof custom === 'object') {
+    for (const key of Object.keys(DEFAULT_BUBBLES)) {
+      if (typeof custom[key] === 'string') out[key] = custom[key].slice(0, 40);
+    }
+  }
+  return out;
+}
+
 function showBubble(text, ms = 2800) {
   bubbleEl.textContent = text;
   bubbleEl.classList.add('show');
@@ -153,7 +173,6 @@ const State = {
   posX:      90,
   dir:       1,       // 1 = right, -1 = left (lo decide il main durante la camminata)
   dragging:  false,
-  idleTick:  0,
   smokeTick: 0,
 };
 
@@ -208,18 +227,9 @@ app.ticker.add((delta) => {
   const bob    = Math.sin(t * 3.2) * 1.8;
   const breath = 1 + Math.sin(t * 2.0) * 0.014;
 
-  // ── Idle tick — switch to smoke pose occasionally ─────────────────────
-  if (State.name === 'idle' && !State.dragging) {
-    State.idleTick += delta;
-    if (State.idleTick > 1080 && animations.smoke) {  // delta ~1 per frame: ~18 s a 60 fps
-      State.idleTick = 0;
-      setAnim('smoke');
-      showBubble('🚬 ...', 5000);
-      setTimeout(() => { if (State.name === 'smoke') setAnim('idle'); }, 6000);
-    }
-  } else if (State.name !== 'smoke') {
-    State.idleTick = 0;
-  }
+  // I gesti a riposo (fumare, guardarsi attorno, sonnecchiare) li decide il
+  // main in idle-life.js, uguali per il 2D e il 3D: qui c'era un "fuma" a
+  // tempo fisso, contato in frame e quindi il doppio piu' lento a 30 fps.
 
   // ── DRAG STATE ────────────────────────────────────────────────────────
   if (State.dragging) {
@@ -324,7 +334,7 @@ function startDrag() {
   }
   overlayG.clear();
   particles.length = 0;
-  showBubble('Nya?! Posami!', 3500);
+  if (bubbles.grab) showBubble(bubbles.grab, 3500);
 }
 
 function endDrag() {
@@ -332,7 +342,7 @@ function endDrag() {
   State.dragging = false;
   if (charSprite) charSprite.rotation = 0;
   setAnim('idle');
-  showBubble('Phew...', 2000);
+  if (bubbles.drop) showBubble(bubbles.drop, 2000);
 }
 
 // IPC from Electron main (window move events)
@@ -372,6 +382,12 @@ if (api && api.onTriggerAnimation) {
     // Se siamo in modalità 3D, ignora il branch 2D (lo gestisce il modulo Three)
     if (window.__threeVisible) return;
     const key = resolveAnimKey(action);
+    // I gesti a riposo portano il proprio fumetto, anche vuoto: un'occhiata in
+    // giro non e' "Sto pensando...".
+    const say = (text) => {
+      const line = typeof action.bubble === 'string' ? action.bubble : text;
+      if (line) showBubble(line);
+    };
     switch (key) {
       // Lo spostamento vero lo fa il main muovendo la finestra sul desktop:
       // qui si riproduce solo il ciclo di passo (vedi il ramo WALK del ticker).
@@ -381,23 +397,24 @@ if (api && api.onTriggerAnimation) {
         setAnim('run'); break;
       case 'wave':
         setAnim('wave');
-        showBubble('Nya! 👋');
+        say(bubbles.wave);
         setTimeout(() => setAnim('idle'), 3000); break;
       case 'think':
         setAnim('think');
-        showBubble('Sto pensando...'); break;
+        say(bubbles.think); break;
       case 'sit':
         setAnim('sit');
-        showBubble('💤'); break;
+        say(bubbles.sit); break;
       case 'smoke':
         setAnim('smoke');
-        showBubble('🚬 ...'); break;
+        // Un avatar senza la strip smoke resta in idle: niente fumo nel fumetto.
+        if (animations.smoke) say(bubbles.smoke); break;
       case 'click':
         setAnim('click');
         setTimeout(() => { if (!State.dragging) setAnim('idle'); }, 2500); break;
       case 'happy':
         setAnim('happy');
-        showBubble('Nya! ✨');
+        say(bubbles.happy);
         setTimeout(() => { if (!State.dragging) setAnim('idle'); }, 3000); break;
       case 'idle':
         setAnim('idle'); break;
@@ -480,8 +497,9 @@ window.load2DAvatar = async (manifest, baseUrl) => {
   STRIPS = next;
   names.forEach((name, i) => { stripTextures[name] = bases[i]; });
   for (const name of names) animations[name] = buildAnimation(name, STRIPS[name].fps || 0.1);
+  bubbles = packBubbles(manifest);
   setAnim('wave');
-  showBubble('Nya! 😺', 2500);
+  if (bubbles.hello) showBubble(bubbles.hello, 2500);
   setTimeout(() => { if (State.name === 'wave') setAnim('idle'); }, 2600);
 };
 

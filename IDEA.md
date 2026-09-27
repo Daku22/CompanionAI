@@ -102,5 +102,14 @@ non c'e' ancora modo di accorgersene se non leggendo l'archivio.
 ## Prossimi passi
 
 Vivere con il companion abbastanza a lungo da vedere se la memoria produce
-continuita' vera o solo un riassunto che invecchia male. Poi input vocale, e
-tracciamento delle emozioni ispirato a companion-emergence.
+continuita' vera o solo un riassunto che invecchia male.
+
+Il tracciamento delle emozioni ispirato a companion-emergence c'e' (umore con
+emivite, 26 settembre 2026), insieme ai gesti a riposo. Il piano prosegue con:
+- iniziativa con freni rigidi;
+- memoria leggibile e correggibile dall'utente, che risponde al rischio del
+  riassunto che deriva;
+- presenza sul desktop (clic attraverso i pixel trasparenti, taskbar);
+- clip 3D generate con Kimodo come strumento di sviluppo, mai dentro l'app.
+
+Voce e pubblicazione vengono dopo.

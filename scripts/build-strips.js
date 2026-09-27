@@ -175,6 +175,10 @@ app.whenReady().then(() => {
 
     fs.mkdirSync(args.out, { recursive: true })
     const manifest = { format: FORMAT, name: args.name || path.basename(args.masters), animations: {} }
+    // Fumetti del personaggio (facoltativi): bubbles.json accanto alle master,
+    // per esempio { "wave": "Nya! 👋", "grab": "Posami!" }. Chiavi in companion-2d.js.
+    const bubblesFile = path.join(args.masters, 'bubbles.json')
+    if (fs.existsSync(bubblesFile)) manifest.bubbles = JSON.parse(fs.readFileSync(bubblesFile, 'utf8'))
     let total = 0
     for (const anim of available) {
       const { entry, bytes } = buildStrip(anim, args.masters, legacy, args.out)
