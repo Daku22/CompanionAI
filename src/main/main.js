@@ -251,11 +251,13 @@ function withMoodLine(history) {
 // ─── Companion Window ────────────────────────────────────────────────────────
 
 function createCompanionWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  // workArea e non workAreaSize: con la taskbar in alto o a sinistra l'area
+  // utile non parte da 0,0 e l'avatar nasceva spostato di quanto e' larga.
+  const area = screen.getPrimaryDisplay().workArea
 
   companionWindow = new BrowserWindow({
     width: 180, height: 260,
-    x: width - 220, y: height - 300,
+    x: area.x + area.width - 220, y: area.y + area.height - 300,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -383,11 +385,11 @@ function startWalk({ run = false, direction, distance, maxDistance = Infinity } 
 // ─── Chat Window ─────────────────────────────────────────────────────────────
 
 function createChatWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  const area = screen.getPrimaryDisplay().workArea
 
   chatWindow = new BrowserWindow({
     width: 380, height: 520,
-    x: width - 420, y: height - 580,
+    x: area.x + area.width - 420, y: area.y + area.height - 580,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -853,8 +855,9 @@ protocol.registerSchemesAsPrivileged([
       secure: true,
       supportFetchAPI: true,
       corsEnabled: true,
+      // Niente bypassCSP: la CSP di companion.html ammette gia' vrm: in
+      // img-src e connect-src, e non serve che questo schema la scavalchi.
       stream: true,
-      bypassCSP: true
     }
   },
   {
