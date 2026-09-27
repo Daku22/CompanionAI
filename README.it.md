@@ -255,6 +255,16 @@ formato: `.vrma`, lo standard VRM per le animazioni umanoidi.
 - **Il nome del file dice il gesto:** `wave.vrma`, `idle-2.vrma`,
   `sit-bordo.vrma`. La parte prima del trattino è uno dei nomi di `CLIPS`, il
   resto distingue le varianti, scelte a caso (`AnimationLibrary.js`).
+- **Fasi**, per gli slot che durano finché non arriva altro (seduto, a riposo,
+  camminata):
+  - `sit-enter-*.vrma` è l'entrata: si siede, poi passa al ciclo, oppure resta
+    fermo sull'ultimo fotogramma;
+  - `sit-*.vrma` è il ciclo;
+  - `sit-exit-*.vrma` è l'uscita: si rialza prima di passare al gesto dopo.
+
+  All'import l'app chiede la fase e la propone dal nome del file.
+- **Seduto a terra** la camera abbassa lo sguardo in proporzione a quanto è
+  sceso il bacino, altrimenti le gambe uscirebbero dal fondo della finestra.
 - **Riproduzione.** `clip-layer.js` segue la clip del player: se per quel
   nome c'è un .vrma lo campiona e lo fonde con la posa procedurale, con
   dissolvenze in entrata, in uscita e fra clip. Il player torna a idle quando
@@ -276,7 +286,13 @@ corpo in T-pose, rivolto verso +Z e in piedi lungo +Y.
   programma all'altro. Sui VRM veri il risultato coincide con l'abbinamento che
   dichiarano (lo verifica il test).
 - `motion-retarget.js` raddrizza lo scheletro: in piedi, rivolto alla camera,
-  in metri e con i piedi a terra. Poi porta braccia e gambe in T-pose. Da lì:
+  in metri e con i piedi a terra. Poi porta braccia e gambe in T-pose.
+  - Nelle clip raddrizza anche la colonna.
+  - Se la posa zero non ha la forma di un corpo (`isHumanShaped`), il
+    riferimento è il primo fotogramma. È il caso dei BVH di Kimodo: ogni osso
+    punta lungo il proprio asse X e il corpo esiste solo nelle rotazioni.
+
+  Da lì:
   - per un modello glTF o FBX costruisce un `VRMHumanoid` di three-vrm, e il
     modello si anima come un VRM (pose, clip, sguardo, oscillazione);
   - per una clip calcola la rotazione di ogni osso rispetto alla T-pose e la

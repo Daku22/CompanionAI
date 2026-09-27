@@ -47,3 +47,18 @@ for (const page of PAGES) {
   passed++
 }
 console.log('=== CSP: ' + passed + ' pagine verificate ===')
+
+// Sintassi degli script delle pagine: un errore li' si vedeva solo aprendo
+// l'app (la pagina restava senza avatar), mai nei test.
+const { execFileSync } = require('child_process')
+let checked = 0
+for (const file of fs.readdirSync(DIR).filter(f => f.endsWith('.js'))) {
+  try {
+    execFileSync(process.execPath, ['--check', path.join(DIR, file)], { stdio: 'pipe' })
+    checked++
+  } catch (err) {
+    console.error('  FALLITO  sintassi di ' + file + '\n' + String(err.stderr || err.message))
+    process.exitCode = 1
+  }
+}
+console.log('=== Sintassi: ' + checked + ' script del renderer ===')

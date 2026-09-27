@@ -7,6 +7,8 @@
 // braccio nel mondo: deve essere dove puntava nella sorgente.
 
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { BVHLoader } from 'three/examples/jsm/loaders/BVHLoader.js'
@@ -143,6 +145,30 @@ async function main() {
     near(dir(b.leftUpperArm, b.leftLowerArm), v(0, -1, 0))
   })
 
+  await test('Kimodo vero (SOMA, posa zero non umana): da in piedi a seduto a terra', async () => {
+    // Estratto di un BVH esportato dalla demo di Kimodo: la posa zero ha ogni
+    // osso lungo il proprio asse X, il corpo esiste solo nei fotogrammi.
+    const text = fs.readFileSync(path.join(path.dirname(process.argv[1]), 'fixtures', 'kimodo-soma77-sit.bvh'), 'utf8')
+    const bvh = new BVHLoader().parse(text)
+    const root = new THREE.Group()
+    root.add(bvh.skeleton.bones[0])
+    const anim = await loadVRMA(writeVRMA(retargetClip(root, bvh.clip)))
+    for (const meta of ['1', '0']) {
+      const vrm = vrmTarget(meta)
+      const clip = createVRMAnimationClip(anim, vrm)
+      let b = pose(vrm, clip, 0)
+      assert.ok(wp(b.hips).y > 0.85, meta + ': all-inizio in piedi (bacino ' + wp(b.hips).y.toFixed(2) + ')')
+      assert.ok(dir(b.leftUpperLeg, b.leftLowerLeg).y < -0.95, meta + ': gamba verticale')
+      assert.ok(dir(b.leftUpperArm, b.leftLowerArm).y < -0.9, meta + ': braccia lungo i fianchi')
+      assert.ok(wp(b.leftUpperArm).sub(wp(b.rightUpperArm)).normalize().x > 0.95, meta + ': rivolto verso la camera')
+      b = pose(vrm, clip, anim.duration)
+      const knee = dir(b.leftUpperLeg, b.leftLowerLeg).angleTo(dir(b.leftLowerLeg, b.leftFoot)) * 180 / Math.PI
+      assert.ok(wp(b.hips).y < 0.25, meta + ': alla fine seduto a terra (bacino ' + wp(b.hips).y.toFixed(2) + ')')
+      assert.ok(knee > 90, meta + ': ginocchia piegate (' + knee.toFixed(0) + ' gradi)')
+      assert.ok(dir(b.hips, b.head).y > 0.85, meta + ': busto dritto')
+    }
+  })
+
   await test('livello delle clip: entra in dissolvenza, dura quanto la clip, poi lascia la posa procedurale', async () => {
     const vrm = vrmTarget('1')
     const layer = createClipLayer()
@@ -171,6 +197,39 @@ async function main() {
     assert.equal(step('idle', 0.6), 0)
     near(dir(vrm.bones.leftUpperArm, vrm.bones.leftLowerArm), v(1, 0, 0))
     assert.equal(layer.debug().clip, null)
+  })
+
+  await test('fasi: il "sedersi" di Kimodo resta seduto, e l-uscita passa prima dello slot nuovo', async () => {
+    const text = fs.readFileSync(path.join(path.dirname(process.argv[1]), 'fixtures', 'kimodo-soma77-sit.bvh'), 'utf8')
+    const bvh = new BVHLoader().parse(text)
+    const root = new THREE.Group()
+    root.add(bvh.skeleton.bones[0])
+    const sitDown = await loadVRMA(writeVRMA(retargetClip(root, bvh.clip)))
+    const vrm = vrmTarget('1')
+    const layer = createClipLayer()
+    layer.setLibrary(new Map([
+      ['sit', [{ name: 'sit-enter-kimodo.vrma', animation: sitDown, phase: 'enter' }, { name: 'sit-exit-prova.vrma', animation: vrmAnimation, phase: 'exit' }]],
+    ]))
+    layer.attach(vrm)
+    // sit e' uno slot ciclico: nessuna durata da dare al player.
+    assert.equal(layer.prepare('sit'), undefined)
+    const run = (slot, seconds) => {
+      for (let t = 0; t < seconds; t += 1 / 30) {
+        for (const n of TOUCHED_BONES) { const b = vrm.humanoid.getNormalizedBoneNode(n); if (b) b.quaternion.identity() }
+        layer.update(1 / 30, slot)
+        vrm.humanoid.update()
+        vrm.scene.updateMatrixWorld(true)
+      }
+    }
+    run('sit', sitDown.duration + 3)
+    assert.equal(layer.debug().kind, 'enter')
+    assert.ok(wp(vrm.bones.hips).y < 0.25, 'tre secondi dopo la fine deve essere ancora seduto (bacino ' + wp(vrm.bones.hips).y.toFixed(2) + ')')
+    run('idle', 0.5)
+    assert.equal(layer.debug().kind, 'exit')
+    assert.equal(layer.debug().clip, 'sit-exit-prova.vrma')
+    run('idle', vrmAnimation.duration + 1)
+    assert.equal(layer.debug().clip, null, 'finita l-uscita, idle senza clip: resta la posa procedurale')
+    assert.equal(layer.debug().weight, 0)
   })
 
   await test('livello delle clip su un modello senza umanoide: non fa nulla', async () => {

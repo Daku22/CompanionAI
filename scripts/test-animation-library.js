@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { AnimationLibrary, ANIMATION_SLOTS, slotOf, slug, isGlb } = require('../src/main/AnimationLibrary')
+const { AnimationLibrary, ANIMATION_SLOTS, slotOf, phaseOf, slug, isGlb } = require('../src/main/AnimationLibrary')
 
 let passed = 0
 async function test(name, fn) {
@@ -76,6 +76,21 @@ async function main() {
     await assert.rejects(lib.save('volare', 'x', tinyGlb()), /gesto sconosciuto/)
     await assert.rejects(lib.save('idle', 'x', new Uint8Array(Buffer.from('ciao mondo, non sono un glb'))), /non e' un .vrma/)
     assert.equal(isGlb(new Uint8Array(4)), false)
+  })
+
+  await test('fasi: entrata, uscita, e ciclo per tutto il resto', async () => {
+    assert.equal(phaseOf('sit-enter-kimodo.vrma'), 'enter')
+    assert.equal(phaseOf('sit-exit.vrma'), 'exit')
+    assert.equal(phaseOf('sit.vrma'), 'loop')
+    assert.equal(phaseOf('sit-enterprise.vrma'), 'loop')
+    assert.equal(phaseOf('walk-to-exit-2.vrma'), 'exit')
+    assert.equal(slotOf('sit-enter-kimodo.vrma'), 'sit')
+    const e = await lib.save('sit', 'output.bvh', tinyGlb(), 'enter')
+    assert.equal(e.name, 'sit-enter-output.vrma')
+    assert.equal(e.phase, 'enter')
+    await assert.rejects(lib.save('sit', 'x', tinyGlb(), 'durante'), /Fase sconosciuta/)
+    const listed = (await lib.list()).find(a => a.name === e.name)
+    assert.deepEqual([listed.slot, listed.phase], ['sit', 'enter'])
   })
 
   await test('gli slot sono tutti gesti del player', () => {

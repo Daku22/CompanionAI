@@ -38,7 +38,13 @@
   - import clips from the right-click menu: `.vrma`, or `.glb`/`.gltf`,
     `.fbx` and `.bvh` converted to `.vrma`;
   - clips blend with the procedural poses and with each other; the gaze
-    toward the mouse stays on top.
+    toward the mouse stays on top;
+  - real Kimodo BVH exports (SOMA skeleton) convert correctly: its thigh is
+    called "Leg", and its zero pose is not a body, so the first frame is used
+    as the reference;
+  - clips can have phases: an entry ("sit down", then stay seated), a loop and
+    an exit ("stand up"). Sitting on the floor lowers the camera so the legs
+    stay in view.
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.

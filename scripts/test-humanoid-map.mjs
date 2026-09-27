@@ -132,7 +132,8 @@ function soma() {
     for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) {
       pairs.push(...chain([1, 2, 3, 4].map(i => `${s}Hand${f}${i}`).concat(`${s}Hand${f}End`), `${s}Hand`))
     }
-    pairs.push(...chain([`${s}UpLeg`, `${s}Leg`, `${s}Foot`, `${s}Toe`, `${s}ToeEnd`], 'Hips'))
+    // Gambe come nei BVH veri di Kimodo: coscia Leg, stinco Shin.
+    pairs.push(...chain([`${s}Leg`, `${s}Shin`, `${s}Foot`, `${s}ToeBase`, `${s}ToeEnd`], 'Hips'))
   }
   return skel(pairs)
 }
@@ -173,7 +174,7 @@ for (const [name, build, expect] of /** @type {[string, () => any, Record<string
   ['Unreal', unreal, { hips: 'pelvis', leftUpperArm: 'upperarm_l', leftLowerLeg: 'calf_l', leftToes: 'ball_l', neck: 'neck_01', spine: 'spine_01', chest: 'spine_02', upperChest: 'spine_05', leftIndexProximal: 'index_01_l' }],
   ['Blender Rigify', rigify, { hips: 'DEF-spine', spine: 'DEF-spine.001', neck: 'DEF-spine.004', head: 'DEF-spine.006', leftUpperArm: 'DEF-upper_arm.L', leftLowerArm: 'DEF-forearm.L', leftLowerLeg: 'DEF-shin.L' }],
   ['3ds Max Biped', biped, { hips: 'Bip01 Pelvis', leftUpperArm: 'Bip01 L UpperArm', rightLowerLeg: 'Bip01 R Calf' }],
-  ['Kimodo SOMA', soma, { hips: 'Hips', spine: 'Spine1', chest: 'Spine2', upperChest: 'Chest', neck: 'Neck1', leftUpperArm: 'LeftArm', leftIndexProximal: 'LeftHandIndex2', leftIndexDistal: 'LeftHandIndex4', leftThumbDistal: 'LeftHandThumb3', leftEye: 'LeftEye' }],
+  ['Kimodo SOMA', soma, { hips: 'Hips', spine: 'Spine1', chest: 'Spine2', upperChest: 'Chest', neck: 'Neck1', leftUpperArm: 'LeftArm', leftIndexProximal: 'LeftHandIndex2', leftIndexDistal: 'LeftHandIndex4', leftThumbDistal: 'LeftHandThumb3', leftEye: 'LeftEye', leftUpperLeg: 'LeftLeg', leftLowerLeg: 'LeftShin', leftToes: 'LeftToeBase' }],
 ])) {
   test(name + ': umanoide completo e ossa giuste', () => {
     const found = mapHumanoid(build())

@@ -13,6 +13,8 @@
 //   npm run audit                    schermate nella temp di sistema
 //   npm run audit -- --out <cartella>
 //   npm run audit -- --vrm Neko      il 3D con un altro modello (predefinito Fred)
+//   npm run audit -- --bvh <file>    la clip "sedersi" da un BVH di Kimodo (predefinita:
+//                                    scripts/fixtures/kimodo-soma77-sit.bvh)
 //
 // Esce con codice 1 se un controllo fallisce.
 
@@ -25,6 +27,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as THREE from 'three'
 import { retargetClip, writeVRMA } from '../src/renderer/motion-retarget.js'
+import { BVHLoader } from 'three/examples/jsm/loaders/BVHLoader.js'
 import { mixamoSource, dir, v } from './lib/skeletons.mjs'
 
 const require = createRequire(import.meta.url)
@@ -104,6 +107,13 @@ const waveClip = new THREE.AnimationClip('audit-wave', 4, [
 ])
 fs.mkdirSync(path.join(USER_DATA, 'animations'), { recursive: true })
 fs.writeFileSync(path.join(USER_DATA, 'animations', 'wave-audit.vrma'), Buffer.from(writeVRMA(retargetClip(src.root, waveClip))))
+
+// Il "sedersi" di Kimodo come entrata dello slot sit: si siede e resta seduto.
+const sitBvh = new BVHLoader().parse(fs.readFileSync(path.resolve(opt('--bvh') || path.join(ROOT, 'scripts', 'fixtures', 'kimodo-soma77-sit.bvh')), 'utf8'))
+const sitRoot = new THREE.Group()
+sitRoot.add(sitBvh.skeleton.bones[0])
+const sitMotion = retargetClip(sitRoot, sitBvh.clip)
+fs.writeFileSync(path.join(USER_DATA, 'animations', 'sit-enter-kimodo.vrma'), Buffer.from(writeVRMA(sitMotion)))
 
 // Fred senza le estensioni VRM: un glTF qualsiasi con scheletro umano, come
 // quelli esportati da Blender. Deve animarsi lo stesso.
@@ -348,6 +358,20 @@ try {
   await sleep(4500)
   arm = await armUp()
   check((await comp.evaluate('window.__companion3DTest.clips()')).clip === null && arm && arm[1] < 0, 'finita la clip torna la posa a riposo (braccio y ' + (arm ? arm[1].toFixed(2) : '?') + ')')
+
+  // 4c'. "Siediti qui" con la clip di Kimodo: si siede a terra e ci resta.
+  const standing = await comp.evaluate('window.__companion3DTest.hipsY()')
+  await say('siediti qui')
+  for (const [label, wait] of [['inizio', 300], ['meta', sitMotion.duration * 500], ['fine', sitMotion.duration * 500 + 1500]]) {
+    await sleep(wait)
+    await shot('3a-seduta-' + label + '-' + VRM)
+  }
+  const seated = await comp.evaluate('window.__companion3DTest.hipsY()')
+  const sitState = await comp.evaluate('window.__companion3DTest.clips()')
+  check(sitState.clip === 'sit-enter-kimodo.vrma' && seated < standing * 0.45,
+    VRM + ': "siediti qui" con la clip di Kimodo, seduto a terra (bacino ' + standing.toFixed(2) + ' -> ' + seated.toFixed(2) + ' m)')
+  await sleep(2000)
+  check(await comp.evaluate('window.__companion3DTest.hipsY()') < standing * 0.45, VRM + ': resta seduto dopo la fine della clip')
 
   await pickAvatar(gltfAvatar.name)
   await sleep(8000)

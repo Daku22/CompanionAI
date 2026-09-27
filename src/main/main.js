@@ -659,9 +659,9 @@ handle('animations:pick', async () => {
   return { name: path.basename(file), ext, data: new Uint8Array(await fs.promises.readFile(file)) }
 })
 handle('animations:save', (_e, payload) => {
-  const { slot, name, data } = payload || {}
+  const { slot, name, data, phase } = payload || {}
   if (typeof slot !== 'string' || typeof name !== 'string') throw new Error('Animazione non valida')
-  return animationLibrary.save(slot, name, data instanceof Uint8Array ? data : new Uint8Array(data || []))
+  return animationLibrary.save(slot, name, data instanceof Uint8Array ? data : new Uint8Array(data || []), typeof phase === 'string' ? phase : 'loop')
 })
 
 // Azioni OS — eseguite solo nel processo main, mai nel renderer

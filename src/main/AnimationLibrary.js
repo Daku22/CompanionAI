@@ -6,8 +6,11 @@
 // - <userData>/animations: quelle importate dal menu.
 //
 // Il nome del file dice a cosa serve la clip: "wave.vrma", "idle-2.vrma",
-// "sit-bordo.vrma". La parte prima del primo trattino e' uno degli SLOT, cioe'
-// i nomi del player di vrm-animation.js; il resto distingue le varianti.
+// "sit-bordo.vrma". All'inizio c'e' uno degli SLOT, cioe' i nomi del player
+// di vrm-animation.js; il resto distingue le varianti. Una clip di passaggio
+// ha la fase subito dopo lo slot: "sit-enter-kimodo.vrma" (si siede, poi
+// resta ferma sull'ultimo fotogramma o passa al ciclo), "sit-exit.vrma" (si
+// rialza). Senza fase e' il ciclo, o il gesto intero per gli slot brevi.
 // La conversione da glTF, FBX o BVH avviene nel renderer (motion-retarget.js):
 // qui arrivano solo file .vrma, controllati e salvati.
 
@@ -27,6 +30,17 @@ function slotOf(file) {
   const base = String(file).toLowerCase().replace(/\.vrma$/, '')
   const matches = ANIMATION_SLOTS.filter(s => base === s || base.startsWith(s + '-') || base.startsWith(s + '_'))
   return matches.sort((a, b) => b.length - a.length)[0] || null
+}
+
+const PHASES = ['enter', 'loop', 'exit']
+
+/** Fase di un file: "sit-enter-x.vrma" -> "enter". Senza fase e' "loop". */
+function phaseOf(file) {
+  const slot = slotOf(file)
+  if (!slot) return null
+  const rest = String(file).toLowerCase().replace(/\.vrma$/, '').slice(slot.length)
+  const m = /^[-_](enter|exit)(?:[-_]|$)/.exec(rest)
+  return m ? m[1] : 'loop'
 }
 
 /** Parte del nome del file scelta dall'utente, ridotta a lettere e cifre. */
@@ -57,7 +71,7 @@ class AnimationLibrary {
     return s ? s.dir : null
   }
 
-  /** @returns {Promise<{ slot: string, name: string, url: string, source: string }[]>} */
+  /** @returns {Promise<{ slot: string, phase: string, name: string, url: string, source: string }[]>} */
   async list() {
     const out = []
     for (const source of this.sources) {
@@ -66,7 +80,7 @@ class AnimationLibrary {
       for (const file of files.sort()) {
         const slot = FILE_RE.test(file) ? slotOf(file) : null
         if (!slot) continue
-        out.push({ slot, name: file, url: 'motion://' + source.id + '/' + encodeURIComponent(file), source: source.id })
+        out.push({ slot, phase: phaseOf(file), name: file, url: 'motion://' + source.id + '/' + encodeURIComponent(file), source: source.id })
       }
     }
     return out
@@ -85,21 +99,23 @@ class AnimationLibrary {
    * @param {string} slot uno di ANIMATION_SLOTS
    * @param {string} name nome del file d'origine, per distinguere le varianti
    * @param {Uint8Array} data il .vrma
+   * @param {string} [phase] enter, loop (predefinita) o exit
    */
-  async save(slot, name, data) {
+  async save(slot, name, data, phase = 'loop') {
     if (!ANIMATION_SLOTS.includes(slot)) throw new Error('Animazione per un gesto sconosciuto: ' + slot)
+    if (!PHASES.includes(phase)) throw new Error('Fase sconosciuta: ' + phase)
     if (!(data instanceof Uint8Array)) throw new Error('Dati dell\'animazione non validi')
     if (data.length > MAX_ANIMATION_BYTES) throw new Error('Animazione oltre ' + (MAX_ANIMATION_BYTES / 1024 / 1024) + ' MB')
     if (!isGlb(data)) throw new Error('Il file non e\' un .vrma valido')
     const dir = this.userDir
     if (!dir) throw new Error('Cartella delle animazioni non disponibile')
     await fs.promises.mkdir(dir, { recursive: true })
-    const stem = slot + '-' + (slug(name) || 'clip')
+    const stem = slot + '-' + (phase === 'loop' ? '' : phase + '-') + (slug(name) || 'clip')
     let file = stem + '.vrma'
     for (let i = 2; fs.existsSync(path.join(dir, file)); i++) file = stem + '-' + i + '.vrma'
     await writeAtomic(path.join(dir, file), Buffer.from(data.buffer, data.byteOffset, data.byteLength))
-    return { slot, name: file, url: 'motion://' + this.userSource + '/' + encodeURIComponent(file), source: this.userSource }
+    return { slot, phase, name: file, url: 'motion://' + this.userSource + '/' + encodeURIComponent(file), source: this.userSource }
   }
 }
 
-module.exports = { AnimationLibrary, ANIMATION_SLOTS, slotOf, slug, isGlb }
+module.exports = { AnimationLibrary, ANIMATION_SLOTS, PHASES, slotOf, phaseOf, slug, isGlb }

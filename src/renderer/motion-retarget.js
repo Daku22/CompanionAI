@@ -92,7 +92,14 @@ function align(bone, child, dir) {
 }
 
 /** Porta braccia e gambe in T-pose: braccia orizzontali, gambe dritte. */
-export function autoTPose(nodes) {
+export function autoTPose(nodes, { spine = false } = {}) {
+  // Colonna dritta: solo per le clip. In un modello la curva a riposo e' il
+  // suo aspetto neutro, e il VRM normalizzato la tratta comunque come dritta.
+  if (spine) {
+    const up = new THREE.Vector3(0, 1, 0)
+    const chain = ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head'].filter(n => nodes[n])
+    for (let i = 0; i < chain.length - 1; i++) align(nodes[chain[i]], nodes[chain[i + 1]], up)
+  }
   for (const [side, sign] of [['left', 1], ['right', -1]]) {
     const out = new THREE.Vector3(sign, 0, 0)
     const down = new THREE.Vector3(0, -1, 0)
@@ -105,17 +112,38 @@ export function autoTPose(nodes) {
 }
 
 /**
+ * La posa attuale ha la forma di un corpo? Testa sopra il bacino, gambe verso
+ * il basso, braccia non lungo la colonna, spalle di lato. La posa zero di un
+ * BVH di Kimodo (SOMA) non lo e': ogni osso punta lungo il proprio asse X, e
+ * il corpo esiste solo nelle rotazioni dei fotogrammi.
+ */
+export function isHumanShaped(nodes) {
+  const up = wp(nodes.head).sub(wp(nodes.hips))
+  if (up.lengthSq() < 1e-10) return false
+  up.normalize()
+  for (const side of ['left', 'right']) {
+    const leg = wp(nodes[side + 'Foot']).sub(wp(nodes[side + 'UpperLeg'])).normalize()
+    if (leg.dot(up) > -0.7) return false
+    const arm = wp(nodes[side + 'LowerArm']).sub(wp(nodes[side + 'UpperArm'])).normalize()
+    if (Math.abs(arm.dot(up)) > 0.97) return false
+  }
+  const across = wp(nodes.leftUpperArm).sub(wp(nodes.rightUpperArm)).normalize()
+  return Math.abs(across.dot(up)) < 0.5
+}
+
+/**
  * Prepara uno scheletro alla conversione o all'animazione: trova le ossa, lo
  * raddrizza e lo mette in T-pose.
  * @param {THREE.Object3D} root contenitore dello scheletro (viene modificato)
+ * @param {{ spine?: boolean }} [options] spine: raddrizza anche la colonna
  */
-export function prepareHumanoid(root) {
+export function prepareHumanoid(root, options = {}) {
   const found = findHumanoid(root)
   if (!found.ok) {
     throw Object.assign(new Error('scheletro non umanoide, mancano: ' + found.missing.join(', ')), { missing: found.missing })
   }
   orientUpright(root, found.nodes)
-  autoTPose(found.nodes)
+  autoTPose(found.nodes, { spine: options.spine === true })
   root.updateMatrixWorld(true)
   return found.nodes
 }
@@ -128,18 +156,6 @@ export function prepareHumanoid(root) {
  *        non si sposta in orizzontale (la camminata la fa la finestra)
  */
 export function retargetClip(root, clip, { fps = 30, inPlace = true } = {}) {
-  // La posa originale serve alle ossa che la clip non muove: una sorgente in
-  // A-pose che non tocca il braccio destro lo tiene a V, non in T-pose.
-  const original = new Map()
-  root.traverse(o => original.set(o, o.quaternion.clone()))
-  const nodes = prepareHumanoid(root)
-  const names = Object.keys(nodes)
-  const rest = {}
-  const restPos = {}
-  for (const n of names) { rest[n] = wq(nodes[n]); restPos[n] = wp(nodes[n]) }
-  for (const [o, q] of original) if (o !== root) o.quaternion.copy(q)
-  root.updateMatrixWorld(true)
-
   const mixer = new THREE.AnimationMixer(root)
   // Una volta sola: in loop, all'ultimo istante il mixer tornerebbe al primo
   // fotogramma e la posa finale andrebbe persa.
@@ -147,6 +163,25 @@ export function retargetClip(root, clip, { fps = 30, inPlace = true } = {}) {
   action.setLoop(THREE.LoopOnce, 1)
   action.clampWhenFinished = true
   action.play()
+
+  // Riferimento: la posa a riposo, se ha la forma di un corpo; altrimenti il
+  // primo fotogramma (Kimodo). La T-pose si costruisce da li'.
+  const found = findHumanoid(root)
+  if (!found.ok) throw Object.assign(new Error('scheletro non umanoide, mancano: ' + found.missing.join(', ')), { missing: found.missing })
+  root.updateMatrixWorld(true)
+  if (!isHumanShaped(found.nodes)) { mixer.setTime(0); root.updateMatrixWorld(true) }
+
+  // La posa di riferimento serve anche alle ossa che la clip non muove: una
+  // sorgente in A-pose che non tocca il braccio destro lo tiene a V.
+  const original = new Map()
+  root.traverse(o => original.set(o, { q: o.quaternion.clone(), p: o.position.clone() }))
+  const nodes = prepareHumanoid(root, { spine: true })
+  const names = Object.keys(nodes)
+  const rest = {}
+  const restPos = {}
+  for (const n of names) { rest[n] = wq(nodes[n]); restPos[n] = wp(nodes[n]) }
+  for (const [o, v] of original) if (o !== root) { o.quaternion.copy(v.q); o.position.copy(v.p) }
+  root.updateMatrixWorld(true)
   const duration = Math.max(clip.duration, 1 / fps)
   const frames = Math.max(2, Math.round(duration * fps) + 1)
   const times = new Float32Array(frames)

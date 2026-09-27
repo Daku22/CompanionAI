@@ -45,12 +45,14 @@ function bindClip(clip, root) {
 }
 
 export function createClipLayer() {
-  /** @type {Map<string, { name: string, animation: any }[]>} */
+  /** @type {Map<string, { name: string, animation: any, phase?: string }[]>} */
   let library = new Map()
   let model = null
   let bound = new Map()     // entry -> clip legata
   let currentSlot = null
-  let playing = null        // { entry, clip, time, loop }
+  // Clip in corso: kind e' enter (entrata, poi next), loop, o exit (uscita,
+  // poi lo slot then). hold: ferma sull'ultimo fotogramma.
+  let playing = null
   let previous = null       // clip da cui si sta sfumando
   let crossfade = 1         // 0..1 da previous a playing
   let prepared = null
@@ -65,24 +67,39 @@ export function createClipLayer() {
     return bound.get(entry)
   }
 
-  function pick(slot) {
-    const list = library.get(slot)
-    if (!list || !list.length) return null
+  function pick(slot, phase) {
+    const list = (library.get(slot) || []).filter(e => (e.phase || 'loop') === phase)
+    if (!list.length) return null
     return list[Math.floor(Math.random() * list.length)]
   }
 
+  /** Clip scelte per uno slot: entrata e ciclo (o gesto intero). */
+  function choose(slot) {
+    if (prepared && prepared.slot === slot) { const c = prepared; prepared = null; return c }
+    return { slot, enter: pick(slot, 'enter'), loop: pick(slot, 'loop') }
+  }
+
+  function play(entry, kind, extra = {}) {
+    if (playing && !playing.fading && weight > 0) { previous = playing; crossfade = 0 } else { previous = null; crossfade = 1 }
+    playing = { entry, clip: bindingFor(entry), time: 0, kind, fading: false, loop: false, ...extra }
+  }
+
   function start(slot) {
-    const entry = prepared && prepared.slot === slot ? prepared.entry : pick(slot)
-    prepared = null
     currentSlot = slot
-    if (!entry) {
-      // Nessuna clip: si continua a mostrare quella di prima mentre il peso
-      // scende, poi resta solo la posa procedurale.
-      if (playing) playing.fading = true
-      return
-    }
-    if (playing && weight > 0) { previous = playing; crossfade = 0 } else { previous = null; crossfade = 1 }
-    playing = { entry, clip: bindingFor(entry), time: 0, loop: isLoopSlot(slot), fading: false }
+    const { enter, loop } = choose(slot)
+    if (enter) play(enter, 'enter', { next: loop, slot })
+    else if (loop) play(loop, 'loop', { loop: isLoopSlot(slot), slot })
+    // Nessuna clip: si continua a mostrare quella di prima mentre il peso
+    // scende, poi resta solo la posa procedurale.
+    else if (playing) playing.fading = true
+  }
+
+  /** Cambio di slot: prima l'uscita del vecchio, se c'e' ed e' in scena. */
+  function change(slot) {
+    const leaving = playing && !playing.fading && weight > 0 && playing.kind !== 'exit' ? playing.slot : null
+    const exit = leaving ? pick(leaving, 'exit') : null
+    if (exit) { currentSlot = slot; play(exit, 'exit', { then: slot, slot: leaving }) }
+    else start(slot)
   }
 
   function advance(state, delta) {
@@ -91,11 +108,26 @@ export function createClipLayer() {
     return state.loop && d > 0 ? state.time % d : Math.min(state.time, d)
   }
 
-  /** Valori della clip all'istante t, in una mappa nodo -> valore. */
+  /** Finita un'entrata si passa al ciclo; finita un'uscita, allo slot nuovo. */
+  function afterEnd() {
+    if (!playing || playing.loop || playing.time < playing.clip.duration) return
+    if (playing.kind === 'enter' && playing.next) {
+      play(playing.next, 'loop', { loop: isLoopSlot(playing.slot), slot: playing.slot })
+    } else if (playing.kind === 'exit') {
+      start(playing.then)
+    }
+    // Altrimenti resta fermo sull'ultimo fotogramma: seduto resta seduto.
+  }
+
+  /**
+   * Valori della clip all'istante t. La chiave e' nodo + proprieta': il bacino
+   * ha sia la rotazione sia la posizione, e per nodo ne restava una sola.
+   */
   function sample(state, t, out) {
     for (const ch of state.clip.channels) {
       const v = ch.interpolant.evaluate(t)
-      out.set(ch.node, ch.property === 'quaternion' ? new THREE.Quaternion(v[0], v[1], v[2], v[3]) : new THREE.Vector3(v[0], v[1], v[2]))
+      const value = ch.property === 'quaternion' ? new THREE.Quaternion(v[0], v[1], v[2], v[3]) : new THREE.Vector3(v[0], v[1], v[2])
+      out.set(ch.node.uuid + '.' + ch.property, { node: ch.node, value })
     }
     return out
   }
@@ -110,7 +142,7 @@ export function createClipLayer() {
   }
 
   return {
-    /** Sostituisce le clip disponibili: Map slot -> [{ name, animation }]. */
+    /** Sostituisce le clip disponibili: Map slot -> [{ name, animation, phase }]. */
     setLibrary(next) {
       library = next
       bound = new Map()
@@ -140,14 +172,15 @@ export function createClipLayer() {
     },
 
     /**
-     * Sceglie in anticipo la clip per uno slot, per dire al player quanto dura.
-     * @returns {number | undefined} durata se e' una clip a durata finita
+     * Sceglie in anticipo le clip di uno slot, per dire al player quanto dura.
+     * @returns {number | undefined} durata (entrata piu' gesto) se lo slot e'
+     *          a durata finita e ha clip
      */
     prepare(slot) {
-      const entry = pick(slot)
-      prepared = entry ? { slot, entry } : null
-      if (!entry || isLoopSlot(slot) || !model) return undefined
-      return bindingFor(entry).duration
+      const chosen = { slot, enter: pick(slot, 'enter'), loop: pick(slot, 'loop') }
+      prepared = chosen.enter || chosen.loop ? chosen : null
+      if (!prepared || isLoopSlot(slot) || !model) return undefined
+      return (chosen.enter ? bindingFor(chosen.enter).duration : 0) + (chosen.loop ? bindingFor(chosen.loop).duration : 0)
     },
 
     /**
@@ -158,7 +191,7 @@ export function createClipLayer() {
      */
     update(delta, slot) {
       if (!model) return 0
-      if (slot !== currentSlot) start(slot)
+      if (slot !== currentSlot) change(slot)
       const target = playing && !playing.fading ? 1 : 0
       const step = delta / FADE_S
       weight = target > weight ? Math.min(target, weight + step) : Math.max(target, weight - step)
@@ -174,25 +207,27 @@ export function createClipLayer() {
         crossfade = Math.min(1, crossfade + step)
         const before = sample(previous, advance(previous, delta), new Map())
         pose = new Map()
-        for (const node of new Set([...before.keys(), ...now.keys()])) {
-          const property = (now.get(node) || before.get(node)).isQuaternion ? 'quaternion' : 'position'
-          const a = before.get(node) || procedural(node, property)
-          const b = now.get(node) || procedural(node, property)
-          pose.set(node, property === 'quaternion' ? a.clone().slerp(b, crossfade) : a.clone().lerp(b, crossfade))
+        for (const key of new Set([...before.keys(), ...now.keys()])) {
+          const { node, value } = now.get(key) || before.get(key)
+          const property = value.isQuaternion ? 'quaternion' : 'position'
+          const a = before.has(key) ? before.get(key).value : procedural(node, property)
+          const b = now.has(key) ? now.get(key).value : procedural(node, property)
+          pose.set(key, { node, value: property === 'quaternion' ? a.clone().slerp(b, crossfade) : a.clone().lerp(b, crossfade) })
         }
         if (crossfade >= 1) previous = null
       }
 
-      for (const [node, value] of pose) {
+      for (const { node, value } of pose.values()) {
         if (value.isQuaternion) node.quaternion.copy(tmpQ.copy(procedural(node, 'quaternion')).slerp(value, weight))
         else node.position.copy(tmpV.copy(procedural(node, 'position')).lerp(value, weight))
       }
+      afterEnd()
       return weight
     },
 
     /** Stato, per i test e l'audit. */
     debug() {
-      return { slot: currentSlot, clip: playing && !playing.fading ? playing.entry.name : null, weight }
+      return { slot: currentSlot, clip: playing && !playing.fading ? playing.entry.name : null, kind: playing ? playing.kind : null, weight }
     },
   }
 }

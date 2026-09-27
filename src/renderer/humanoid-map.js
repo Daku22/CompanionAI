@@ -166,6 +166,15 @@ export function mapHumanoid(bones) {
     for (const part of ['Shoulder', 'UpperArm', 'LowerArm', 'Hand', 'UpperLeg', 'LowerLeg', 'Foot', 'Toes']) {
       set(side + part, first(side + part))
     }
+    // Kimodo (SOMA) chiama la coscia "Leg" e lo stinco "Shin": senza un nome
+    // da coscia, di due candidati per lo stinco in catena il primo e' la coscia.
+    for (const [upper, lower] of [['UpperLeg', 'LowerLeg'], ['UpperArm', 'LowerArm']]) {
+      const candidates = byDepth(slots.get(side + lower) || [])
+      if (!out[side + upper] && candidates.length >= 2 && isAncestor(candidates[0], candidates[1])) {
+        out[side + upper] = candidates[0]
+        out[side + lower] = candidates[1]
+      }
+    }
     set(side + 'Eye', first(side + 'Eye'))
     // Braccio e gamba devono essere catene vere: un "arm" che non contiene
     // l'avambraccio e' un osso d'aiuto, e rovinerebbe ogni clip.

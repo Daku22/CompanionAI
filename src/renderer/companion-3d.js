@@ -7,7 +7,7 @@ import { VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import {
   createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS,
 } from './vrm-animation.js';
-import { createClipLayer, applyLook } from './clip-layer.js';
+import { createClipLayer, applyLook, isLoopSlot } from './clip-layer.js';
 import { prepareHumanoid, retargetClip, writeVRMA } from './motion-retarget.js';
 
 
@@ -163,6 +163,11 @@ window.__companion3DTest = {
   animator: () => animator.debug(),
   clips: () => clips.debug(),
   humanoid: () => !!(currentVrm && currentVrm.humanoid),
+  /** Altezza del bacino nel mondo, sulle ossa vere. */
+  hipsY: () => {
+    const hips = currentVrm && currentVrm.humanoid && currentVrm.humanoid.getRawBoneNode('hips');
+    return hips ? hips.getWorldPosition(new THREE.Vector3()).y : null;
+  },
   /** Converte in .vrma come l'import dal menu, senza la finestra di scelta. */
   convert: async (ext, data) => convertToVRMA(ext, data),
   /** Direzione nel mondo da un osso all'altro, sulle ossa vere del modello. */
@@ -280,9 +285,24 @@ function animate() {
     updateFace(currentVrm, delta, lookTarget);
     updateWind(currentVrm);
     currentVrm.update(delta);
+    frameSeated(currentVrm, delta);
   }
   renderer.render(scene, camera);
   readHit();
+}
+
+// Seduto a terra le gambe vengono verso la camera e uscivano dal fondo della
+// finestra: la camera abbassa lo sguardo in proporzione a quanto e' sceso il
+// bacino, e lo rialza quando l'avatar si rimette in piedi.
+const CAMERA_LOOK_Y = 0.85;
+const SEATED_LOOK_DROP = 0.3;
+let seated = 0;
+function frameSeated(vrm, delta) {
+  const hips = vrm.humanoid && vrm.humanoid.getNormalizedBoneNode('hips');
+  const rest = hips && hips.userData.__baseY;
+  const target = rest > 0 ? Math.max(0, Math.min(1, 1 - hips.position.y / rest)) : 0;
+  seated += (target - seated) * Math.min(1, delta * 3);
+  camera.lookAt(0, CAMERA_LOOK_Y - SEATED_LOOK_DROP * seated, 0);
 }
 
 function startLoop() {
@@ -419,7 +439,7 @@ async function loadAnimationLibrary() {
       const animation = gltf.userData.vrmAnimations && gltf.userData.vrmAnimations[0];
       if (!animation) throw new Error('nessuna animazione VRMA nel file');
       if (!library.has(item.slot)) library.set(item.slot, []);
-      library.get(item.slot).push({ name: item.name, animation });
+      library.get(item.slot).push({ name: item.name, animation, phase: item.phase || 'loop' });
     } catch (error) {
       console.warn('Animazione ' + item.name + ' scartata:', error.message);
     }
@@ -441,6 +461,14 @@ const SLOT_HINTS = [
   [/(search|look|cerc)/, 'search'], [/(smok|fum)/, 'smoke'], [/(click|type|typing)/, 'click'],
 ];
 const guessSlot = (name) => (SLOT_HINTS.find(([re]) => re.test(name.toLowerCase())) || [null, 'idle'])[1];
+// Fase di una clip per uno slot ciclico (seduto, a riposo, camminata).
+const PHASE_LABELS = { loop: 'Ciclo (si ripete)', enter: 'Entrata (poi resta)', exit: 'Uscita' };
+const guessPhase = (name) => {
+  const n = name.toLowerCase();
+  if (/(sit(ting)?[ _-]?down|enter|start|begin|siede|sedersi|entrata)/.test(n)) return 'enter';
+  if (/(stand(ing)?[ _-]?up|get[ _-]?up|exit|end|rialz|alza|uscita)/.test(n)) return 'exit';
+  return 'loop';
+};
 
 // Pixel trasparente al posto delle texture: una clip FBX le cita, ma per
 // convertirla servono solo le ossa, e senza questo il loader le cercherebbe.
@@ -469,20 +497,20 @@ async function convertToVRMA(ext, data) {
   return new Uint8Array(writeVRMA(retargetClip(root, clip)));
 }
 
-/** Chiede per quale gesto usare la clip, nel menu della finestra. */
-function chooseSlot(suggested) {
-  const order = [suggested, ...Object.keys(SLOT_LABELS).filter(k => k !== suggested)];
+/** Una scelta nel menu della finestra: labels id -> testo, il suggerito in cima. */
+function chooseFrom(question, labels, suggested) {
+  const order = [suggested, ...Object.keys(labels).filter(k => k !== suggested)];
   return new Promise(resolve => {
     const menu = document.getElementById('model-menu');
     const host = document.getElementById('avatar-list');
     const title = document.createElement('div');
     title.className = 'menu-item menu-note';
-    title.textContent = 'Usala per:';
-    const items = order.map(slot => {
+    title.textContent = question;
+    const items = order.map(id => {
       const item = document.createElement('div');
-      item.className = 'menu-item' + (slot === suggested ? ' active' : '');
-      item.textContent = SLOT_LABELS[slot];
-      item.addEventListener('click', () => resolve(slot));
+      item.className = 'menu-item' + (id === suggested ? ' active' : '');
+      item.textContent = labels[id];
+      item.addEventListener('click', () => resolve(id));
       return item;
     });
     const cancel = document.createElement('div');
@@ -508,13 +536,15 @@ async function importAnimation() {
     // deve finire nella cartella.
     const check = await vrmaLoader.parseAsync(vrma.buffer.slice(vrma.byteOffset, vrma.byteOffset + vrma.byteLength), '');
     if (!check.userData.vrmAnimations || !check.userData.vrmAnimations[0]) throw new Error('nessuna animazione VRMA nel file');
-    const slot = await chooseSlot(guessSlot(picked.name));
+    const slot = await chooseFrom('Usala per:', SLOT_LABELS, guessSlot(picked.name));
+    // Solo gli slot che durano finche' non arriva altro hanno entrata e uscita.
+    const phase = slot && isLoopSlot(slot) ? await chooseFrom('Che parte è?', PHASE_LABELS, guessPhase(picked.name)) : 'loop';
     renderAvatarMenu(await api.listAvatars());
     closeMenu();
-    if (!slot) return;
-    await api.saveAnimation({ slot, name: picked.name, data: vrma });
+    if (!slot || !phase) return;
+    await api.saveAnimation({ slot, name: picked.name, data: vrma, phase });
     await loadAnimationLibrary();
-    showBubble('Animazione aggiunta: ' + SLOT_LABELS[slot], 3000);
+    showBubble('Animazione aggiunta: ' + SLOT_LABELS[slot] + (phase === 'loop' ? '' : ' (' + PHASE_LABELS[phase].split(' ')[0].toLowerCase() + ')'), 3000);
     if (window.__threeVisible && currentVrm) playClip(slot);
   } catch (error) {
     console.error('Importazione animazione fallita:', error);

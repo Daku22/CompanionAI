@@ -305,6 +305,33 @@ e su una copia di Fred senza dati VRM, trattata come un glTF qualsiasi. Senza
 un file FBX vero il percorso FBX non è ancora provato: il loader è diverso, la
 conversione è la stessa.
 
+## Fase C1: il primo BVH vero di Kimodo (2026-09-27)
+
+La prima clip generata sulla demo di Kimodo ("sedersi", 180 fotogrammi, 6 s,
+bacino da 99 a 12 cm) non si sarebbe convertita:
+- **Gambe SOMA:** coscia `LeftLeg`, stinco `LeftShin`, piede `LeftFoot`,
+  punta `LeftToeBase`. Lo scheletro SOMA scritto a mano nei test aveva nomi
+  supposti (`LeftUpLeg`), e per questo passava. Ora, se su un lato mancano nomi
+  da coscia ma ci sono due candidati da stinco in catena, il primo è la coscia.
+- **Posa zero:** ogni osso ha l'offset lungo il proprio asse X (spina,
+  braccio e gamba sinistri tutti verso +X). La T-pose costruita da lì era
+  sbagliata. `isHumanShaped` se ne accorge e il riferimento diventa il primo
+  fotogramma. Nelle clip si raddrizza anche la colonna.
+
+Altri due difetti trovati:
+- nel livello delle clip i valori erano indicizzati per nodo, e il bacino (che
+  ha rotazione e posizione) perdeva una delle due tracce;
+- un errore di sintassi nella pagina 3D si vedeva solo nell'audit: ora
+  `test-csp.js` controlla la sintassi di tutti gli script del renderer.
+
+Clip con fasi (entrata, ciclo, uscita) nei nomi dei file. File di test
+`scripts/fixtures/kimodo-soma77-sit.bvh`: un estratto di 13 fotogrammi della
+clip vera, in entrambi i repo.
+
+Verifica: su Fred e Neko "siediti qui" fa sedere a terra (bacino da 0,90 a
+0,13 m) e l'avatar resta seduto dopo la fine della clip. Seduto, la camera
+abbassa lo sguardo perché si vedano le gambe.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)
