@@ -237,9 +237,43 @@ Nuovo `scripts/audit.mjs`.
 Ora restano nel file (`keysForDisk` in `guards.js`) e la chat chiede di
 reinserirle. Un ciclo salva, riavvia, rileggi con una chiave finta funziona.
 
+## Fase B, prima parte: il mouse (2026-09-27)
+
+La parte della Fase B che non dipende dalle clip Kimodo. Resta da fare la
+seduta su finestre e taskbar, che richiede koffi.
+- **Clic che attraversano il vuoto:** `setIgnoreMouseEvents(true, { forward: true })`,
+  più una prova del pixel sotto il cursore in `companion-input.js`. Nel 2D si
+  legge il pixel dall'immagine della strip con un canvas di 1×1. Nel 3D si usa
+  `readPixels` dopo il disegno, e il risultato arriva al frame successivo.
+- **Trascinamento nostro:** il main segue il cursore a 60 Hz e manda la
+  velocità. `-webkit-app-region: drag`, la maniglia 3D e OrbitControls sono
+  stati tolti.
+- **`sway.js`:** molla smorzata con i numeri di AvatarSwayController. Nel 3D il
+  perno è alla testa grazie a due gruppi (`rig` e `body`). Le spring bone
+  ricevono una forza contraria al movimento, sommata alla loro gravità
+  (`gravityDir` e `gravityPower` sono in spazio mondo in three-vrm 3).
+- **Sguardo:** `distributeLook` e `setLook` in `vrm-animation.js`, sommati
+  alla clip con un peso che dipende da essa. Il segno dei due assi è stato
+  controllato con schermate su Fred (VRM 1.0) e Neko (VRM 0.x): +y gira il
+  volto verso la destra dello schermo, +x lo alza.
+- **Menu nativo** col tasto destro e opzioni `followMouse`, `alwaysOnTop` e
+  `scale` in config.
+
+Durante l'audit il mouse vero, mosso da chi usa il PC, sovrascriveva il cursore
+simulato: tre controlli fallivano a caso. Con `window.__companionTest` la
+pagina ignora il cursore vero.
+
+Da provare a mano, perché l'automazione non muove il mouse vero:
+- il passaggio dei clic sul vuoto con i movimenti inoltrati da Windows;
+- il trascinamento vero, anche fra due schermi;
+- il menu nativo.
+
 ## Mate Engine
-- Stato: solo idee (confronto e piano nel file di piano del 26 settembre 2026)
-- Cosa portato: nessuna riga di codice
+- Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
+  26 settembre 2026)
+- Cosa portato: limiti dello sguardo (testa ±45°/±30°, busto ±15°), molla
+  dell'oscillazione (2,6 Hz, 0,35, 25°/12°), forza sulle spring bone contraria
+  al movimento, clic che passano sui pixel vuoti. Il codice è scritto da zero
 - Licenza verificata: AGPL-3.0 più "MateProv2" (README del progetto), quindi
   niente codice
 - Note: letti `AvatarWindowHandler`, `AvatarTaskbarController`,

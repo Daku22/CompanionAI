@@ -12,6 +12,7 @@
 // Uso:
 //   npm run audit                    schermate nella temp di sistema
 //   npm run audit -- --out <cartella>
+//   npm run audit -- --vrm Neko      il 3D con un altro modello (predefinito Fred)
 //
 // Esce con codice 1 se un controllo fallisce.
 
@@ -31,6 +32,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
 const argv = process.argv.slice(2)
 const opt = (name) => { const i = argv.indexOf(name); return i === -1 ? null : argv[i + 1] }
+const VRM = opt('--vrm') || 'Fred'
 const OUT = path.resolve(opt('--out') || path.join(os.tmpdir(), 'companion-audit'))
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-audit-'))
 const HOME = path.join(WORK, 'home')
@@ -156,6 +158,13 @@ const shot = async (name) => {
   fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(s.result.data, 'base64'))
 }
 const bubble = () => comp.evaluate(`document.getElementById('bubble').textContent`)
+// Movimento del mouse finto sulla pagina: companion-input.js decide se catturarlo.
+const hover = async (x, y) => {
+  await comp.evaluate(`window.dispatchEvent(new MouseEvent('mousemove', { clientX: ${x}, clientY: ${y} })); true`)
+  await sleep(250)
+  return comp.evaluate(`document.body.classList.contains('hover-avatar')`)
+}
+const size = () => comp.evaluate('[window.innerWidth, window.innerHeight]')
 async function pickAvatar(prefix) {
   await comp.evaluate(`document.getElementById('switch-zone').click(); true`)
   await sleep(300)
@@ -173,7 +182,7 @@ try {
   chat = await connect(list.find(t => t.url.includes('chat.html')))
   for (const c of [comp, chat]) { await c.send('Runtime.enable'); await c.send('Log.enable'); await c.send('Page.enable') }
   await sleep(3500)
-  await comp.evaluate(`window.__trig = []; window.companion.onTriggerAnimation(a => window.__trig.push(a)); true`)
+  await comp.evaluate(`window.__trig = []; window.companion.onTriggerAnimation(a => window.__trig.push(a)); window.__companionTest = true; true`)
   const avatars = await comp.evaluate('window.companion.listAvatars()')
   const avatar2d = avatars.find(a => a.kind === 'sprite-pack') || avatars.find(a => a.kind === 'sprite')
   console.log('avatar: ' + avatars.map(a => a.name + ' (' + a.kind + ')').join(', ') + ' | 2D in prova: ' + avatar2d.name)
@@ -204,6 +213,28 @@ try {
   check(trig.some(a => a.animation === 'sit'), '"siediti qui" fa sedere l-avatar')
   await shot('1-seduto-2d')
 
+  // 1b. Il mouse sull'avatar 2D: pixel pieni catturano, vuoti lasciano passare.
+  await say('salutami')
+  await waitIdle(4000)
+  const [w2, h2] = await size()
+  check(await comp.evaluate(`window.hitTest2D(${w2 / 2}, ${h2 * 0.6})`) === true, '2D: il centro del corpo e-` sull-avatar')
+  check(await comp.evaluate('window.hitTest2D(3, 3)') === false, '2D: l-angolo vuoto non e-` sull-avatar')
+  check(await hover(w2 / 2, h2 * 0.6) === true, '2D: sopra l-avatar il mouse viene catturato')
+  check(await hover(3, h2 - 3) === false, '2D: sul vuoto i clic passano sotto')
+  await comp.evaluate('window.companion.startDrag(); true')
+  await sleep(1200)
+  await shot('1b-in-braccio-2d')
+  check(await bubble() !== '', '2D: preso in braccio reagisce (' + await bubble() + ')')
+  await comp.evaluate('window.companion.endDrag(); true')
+  await sleep(600)
+  const sizes = []
+  for (const scale of ['l', 'm']) {
+    await chat.evaluate(`window.companion.setConfig({ scale: '${scale}' })`)
+    await sleep(500)
+    sizes.push((await size()).join('x'))
+  }
+  check(sizes[0] === '240x346' && sizes[1] === '180x260', 'dimensione dal menu: grande e poi media (' + sizes.join(', ') + ')')
+
   // 2. Gli altri tipi di modello.
   for (const [model, expect] of [['audit/schema:free', 'json_schema'], ['audit/json:free', 'json_object']]) {
     await setModel(model)
@@ -228,13 +259,43 @@ try {
   check(!/Nya/.test(b), 'immagine importata: fumetti neutri (' + b + ')')
 
   // 4. 3D.
-  await pickAvatar('Fred')
+  await pickAvatar(VRM)
   await sleep(8000)
-  check(await comp.evaluate('window.__threeVisible') === true, '3D: Fred caricato')
+  check(await comp.evaluate('window.__threeVisible') === true, '3D: ' + VRM + ' caricato')
   trig = await say('salutami')
   check(trig.some(a => a.animation === 'wave'), '3D: "salutami" arriva al modello 3D')
   await sleep(1200)
   await shot('2-saluto-3d')
+
+  // 4b. Il mouse sul 3D: pixel del modello, sguardo, presa in braccio.
+  await waitIdle(6000)
+  const [w3, h3] = await size()
+  check(await hover(w3 / 2, h3 * 0.45) === true, '3D: sopra il modello il mouse viene catturato')
+  check(await hover(4, 4) === false, '3D: sul vuoto i clic passano sotto')
+  for (const [name, x] of [['sinistra', -600], ['destra', w3 + 600]]) {
+    await comp.evaluate(`window.__companion3DTest.cursor({ x: ${x}, y: ${h3 * 0.2}, follow: true }); true`)
+    await sleep(1800)
+    const look = await comp.evaluate('window.__companion3DTest.animator()')
+    const ok = look.lookWeight > 0.9 && (name === 'sinistra' ? look.look.yaw < -0.3 : look.look.yaw > 0.3)
+    check(ok, '3D: la testa segue il mouse a ' + name + ' (yaw ' + look.look.yaw.toFixed(2) + ')')
+    await shot('2b-guarda-' + name)
+  }
+  for (const [name, y] of [['in-alto', -800], ['in-basso', h3 + 800]]) {
+    await comp.evaluate(`window.__companion3DTest.cursor({ x: ${w3 / 2}, y: ${y}, follow: true }); true`)
+    await sleep(1800)
+    const look = await comp.evaluate('window.__companion3DTest.animator()')
+    const ok = name === 'in-alto' ? look.look.pitch > 0.3 : look.look.pitch < -0.3
+    check(ok, '3D: la testa segue il mouse ' + name + ' (pitch ' + look.look.pitch.toFixed(2) + ')')
+    await shot('2b-guarda-' + name)
+  }
+  await comp.evaluate('window.__companion3DTest.cursor({ x: 90, y: 60, follow: false }); true')
+  await comp.evaluate('window.companion.startDrag(); true')
+  await sleep(1200)
+  check((await comp.evaluate('window.__companion3DTest.animator()')).clipName === 'dangle', '3D: preso in braccio penzola')
+  await shot('2c-in-braccio-3d')
+  await comp.evaluate('window.companion.endDrag(); true')
+  await sleep(800)
+  check((await comp.evaluate('window.__companion3DTest.animator()')).clipName === 'idle', '3D: posato torna a riposo')
 
   // 5. Umore, memoria.
   const chip = await chat.evaluate(`document.getElementById('mood-chip').textContent`)

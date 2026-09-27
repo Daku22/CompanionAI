@@ -13,7 +13,7 @@
     "start": "electron .",
     "predev": "npm run assets",
     "dev": "electron . --dev",
-    "test": "node src/memory/test-memory.js && node scripts/test-router.js && node scripts/test-mood.js && node scripts/test-idle-life.js && node scripts/test-guards.js && node scripts/test-animation.mjs && node scripts/test-avatar-library.js && node scripts/test-sprite-frames.js && node scripts/test-strips.js && node scripts/test-csp.js",
+    "test": "node src/memory/test-memory.js && node scripts/test-router.js && node scripts/test-mood.js && node scripts/test-idle-life.js && node scripts/test-guards.js && node scripts/test-animation.mjs && node scripts/test-sway.mjs && node scripts/test-avatar-library.js && node scripts/test-sprite-frames.js && node scripts/test-strips.js && node scripts/test-csp.js",
     "test:memory": "node src/memory/test-memory.js",
     "test:router": "node scripts/test-router.js",
     "test:guards": "node scripts/test-guards.js",

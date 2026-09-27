@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import {
   createVRMAnimator, baseYaw, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS,
@@ -16,8 +15,14 @@ const threeMount = document.getElementById('three-mount');
 let renderer = null;
 let scene = null;
 let camera = null;
-let controls = null;
 let loader = null;
+// Il modello sta dentro due gruppi: rig ha il perno all'altezza della testa,
+// cosi' l'oscillazione in braccio lo fa penzolare invece di ribaltarlo sui
+// piedi; body lo riporta a terra e lo solleva un poco mentre e' in mano.
+let rig = null;
+let body = null;
+const PIVOT_Y = 1.45;
+const DRAG_LIFT = 0.06;
 
 function ensureThree() {
   if (renderer) return;
@@ -32,22 +37,15 @@ function ensureThree() {
   camera.position.set(0, 0.95, 2.7);
   camera.lookAt(0, 0.85, 0);
 
-  // OrbitControls per ruotare/inclinare l'avatar 3D con il mouse
-  controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 0.85, 0);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
-  controls.screenSpacePanning = true;
-  controls.minDistance = 0.5;
-  controls.maxDistance = 5.0;
-  // Rotazione limitata: libera, il mouse girava la camera dietro al modello o
-  // lo spostava fuori dal riquadro, e l'avatar sembrava sparito. Il
-  // trascinamento vero del modello arrivera' con la Fase B.
-  controls.enablePan = false;
-  controls.minAzimuthAngle = -0.7;
-  controls.maxAzimuthAngle = 0.7;
-  controls.minPolarAngle = Math.PI / 2 - 0.45;
-  controls.maxPolarAngle = Math.PI / 2 + 0.15;
+  // Camera fissa. Prima il mouse la ruotava (OrbitControls) e per spostare la
+  // finestra serviva una maniglia: ora il mouse prende l'avatar, come in Mate
+  // Engine (companion-input.js).
+  rig = new THREE.Group();
+  rig.position.y = PIVOT_Y;
+  body = new THREE.Group();
+  body.position.y = -PIVOT_Y;
+  rig.add(body);
+  scene.add(rig);
 
   // Environment & Lighting
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.4);
@@ -106,7 +104,7 @@ function clearReactions() {
   for (const name of Object.keys(reaction)) { reaction[name] = 0; clearTimeout(reactionTimers[name]); }
 }
 
-function updateFace(vrm, delta) {
+function updateFace(vrm, delta, lookTarget) {
   const em = vrm.expressionManager;
   if (em) {
     for (const name of MOOD_EXPRESSIONS) em.setValue(name, Math.max(moodWeights[name] || 0, reaction[name] || 0));
@@ -114,12 +112,121 @@ function updateFace(vrm, delta) {
   }
   if (vrm.lookAt && gazeTarget) {
     const offset = gaze.update(delta);
-    gazeTarget.position.set(camera.position.x + offset.x, camera.position.y + offset.y, camera.position.z);
+    // Con il mouse da seguire gli occhi guardano il cursore, altrimenti la camera.
+    const target = lookTarget || camera.position;
+    const jitter = lookTarget ? 0.3 : 1;
+    gazeTarget.position.set(target.x + offset.x * jitter, target.y + offset.y * jitter, target.z);
     gazeTarget.updateMatrixWorld();
   }
 }
 
 if (api && api.onMoodChanged) api.onMoodChanged((mood) => { moodWeights = moodExpressions(mood); });
+
+// ─── Mouse: sguardo, presa in braccio, pixel sotto il cursore ─────────────
+const sway = window.CompanionSway.createSway();
+let dragging = false;
+let dragVel = { vx: 0, vy: 0 };
+let windActive = false;
+let cursorPos = null;
+const LOOK_PLANE_M = 1.0;       // distanza davanti alla testa del piano del cursore
+const WIND_PER_PX = 0.0006;     // forza sulle spring bone per px/s della finestra
+const WIND_MAX = 1.5;
+
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const lookPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const lookPoint = new THREE.Vector3();
+const headPos = new THREE.Vector3();
+const windForce = new THREE.Vector3();
+
+function handleCursor(c) { cursorPos = c; }
+if (api && api.onCursor) api.onCursor((c) => { if (!window.__companionTest) handleCursor(c); });
+if (api && api.onDragMotion) api.onDragMotion((v) => { if (v) dragVel = { vx: +v.vx || 0, vy: +v.vy || 0 }; });
+// Per audit.mjs: simula il cursore senza muovere quello vero (con
+// window.__companionTest = true il cursore vero viene ignorato).
+window.__companion3DTest = { cursor: handleCursor, animator: () => animator.debug() };
+
+if (api && api.onWindowDragState) {
+  api.onWindowDragState(({ dragging: on }) => {
+    if (!window.__threeVisible) return;
+    dragging = !!on;
+    sway.reset();
+    playClip(dragging ? 'drag' : 'idle');
+    if (dragging) react('surprised', 0.6, 1200);
+  });
+}
+
+// Un clic sull'avatar: sorride.
+window.addEventListener('companion-poke', () => {
+  if (!window.__threeVisible || dragging || !currentVrm) return;
+  react('happy', 1.0, 1500);
+});
+
+/** Dove guarda: angoli dalla testa al punto del cursore, e bersaglio degli occhi. */
+function updateLook(vrm) {
+  const follow = !!(cursorPos && cursorPos.follow) && !dragging;
+  animator.setLookEnabled(follow);
+  if (!follow || !vrm.humanoid) return null;
+  const head = vrm.humanoid.getRawBoneNode('head');
+  if (!head) return null;
+  head.getWorldPosition(headPos);
+  ndc.set((cursorPos.x / window.innerWidth) * 2 - 1, -(cursorPos.y / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  lookPlane.constant = -(headPos.z + LOOK_PLANE_M);
+  if (!raycaster.ray.intersectPlane(lookPlane, lookPoint)) return null;
+  const dx = lookPoint.x - headPos.x;
+  const dy = lookPoint.y - headPos.y;
+  const dz = lookPoint.z - headPos.z;
+  animator.setLook(Math.atan2(dx, dz), Math.atan2(dy, Math.hypot(dx, dz)));
+  return lookPoint;
+}
+
+// Capelli e vestiti: la finestra si muove ma la scena no, quindi le spring
+// bone non vedrebbero niente. Si aggiunge alla gravita' di ogni giunto una
+// forza contraria al movimento, come fa Mate Engine (AvatarGravityController).
+function updateWind(vrm) {
+  const sbm = vrm.springBoneManager;
+  if (!sbm) return;
+  const moving = dragging && (dragVel.vx !== 0 || dragVel.vy !== 0);
+  if (!moving && !windActive) return;
+  windActive = moving;
+  for (const joint of sbm.joints) {
+    const st = joint.settings;
+    if (!joint.userData) joint.userData = {};
+    if (!joint.userData.baseGravity) {
+      joint.userData.baseGravity = { dir: st.gravityDir.clone(), power: st.gravityPower };
+    }
+    const base = joint.userData.baseGravity;
+    windForce.copy(base.dir).multiplyScalar(base.power);
+    if (moving) windForce.add(new THREE.Vector3(-dragVel.vx * WIND_PER_PX, dragVel.vy * WIND_PER_PX, 0).clampLength(0, WIND_MAX));
+    const len = windForce.length();
+    st.gravityPower = len;
+    if (len > 1e-6) st.gravityDir.copy(windForce).divideScalar(len);
+    else st.gravityDir.copy(base.dir);
+  }
+}
+
+// Pixel sotto il cursore: il 3D lo sa solo dopo aver disegnato, quindi la
+// domanda resta in sospeso fino al frame successivo (vedi animate).
+let hitQuery = null;
+const hitPixel = new Uint8Array(4);
+function probe3D(x, y) { hitQuery = { x, y }; return null; }
+
+function readHit() {
+  if (!hitQuery) return;
+  const q = hitQuery;
+  hitQuery = null;
+  const gl = renderer.getContext();
+  const ratio = renderer.getPixelRatio();
+  const px = Math.floor(q.x * ratio);
+  const py = Math.floor((window.innerHeight - q.y) * ratio);
+  if (px < 0 || py < 0 || px >= gl.drawingBufferWidth || py >= gl.drawingBufferHeight) {
+    window.CompanionInput.setOverModel(false);
+    return;
+  }
+  gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, hitPixel);
+  window.CompanionInput.setOverModel(hitPixel[3] > 20);
+}
 if (api && api.getMood) api.getMood().then((mood) => { moodWeights = moodExpressions(mood); }).catch(() => {});
 
 // Il loop gira solo con il 3D visibile: tornando al 2D si ferma del tutto,
@@ -131,14 +238,22 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.05);
 
-  controls.update();
+  // Oscillazione in braccio, con il perno alla testa (rig), e sollevamento.
+  const { side, forward } = sway.update(delta, dragging ? dragVel.vx : 0, dragging ? dragVel.vy : 0);
+  rig.rotation.z = -side;
+  rig.rotation.x = forward;
+  const lift = dragging ? DRAG_LIFT : 0;
+  body.position.y += (-PIVOT_Y + lift - body.position.y) * Math.min(1, delta * 10);
 
   if (currentVrm) {
+    const lookTarget = updateLook(currentVrm);
     updateAnimation(currentVrm, delta);
-    updateFace(currentVrm, delta);
+    updateFace(currentVrm, delta, lookTarget);
+    updateWind(currentVrm);
     currentVrm.update(delta);
   }
   renderer.render(scene, camera);
+  readHit();
 }
 
 function startLoop() {
@@ -159,11 +274,13 @@ async function loadVRMModel(avatar) {
   ensureThree();
   const seq = ++loadSeq;
   if (currentVrm) {
-    scene.remove(currentVrm.scene);
+    body.remove(currentVrm.scene);
     VRMUtils.deepDispose(currentVrm.scene);
     currentVrm = null;
   }
-  if (currentGltf) { scene.remove(currentGltf); VRMUtils.deepDispose(currentGltf); currentGltf = null; }
+  if (currentGltf) { body.remove(currentGltf); VRMUtils.deepDispose(currentGltf); currentGltf = null; }
+  windActive = false;
+  sway.reset();
 
   loader.load(
     avatar.url,
@@ -173,7 +290,7 @@ async function loadVRMModel(avatar) {
       if (avatar.kind === 'gltf' || !vrm) {
         // GLB/GLTF senza rig VRM: anteprima statica, mai animazioni finte.
         currentGltf = gltf.scene;
-        scene.add(currentGltf);
+        body.add(currentGltf);
         showBubble('Modello statico: pose ed espressioni non disponibili', 3600);
         return;
       }
@@ -201,7 +318,7 @@ async function loadVRMModel(avatar) {
       clearReactions();
 
       currentVrm = vrm;
-      scene.add(vrm.scene);
+      body.add(vrm.scene);
     },
     undefined,
     (err) => {
@@ -229,25 +346,21 @@ async function spriteSource(avatar) {
 function show2D() {
   const pixi = document.getElementById('pixi-mount');
   const three = document.getElementById('three-mount');
-  const dragZone = document.getElementById('drag-zone');
   window.__threeVisible = false;
+  window.CompanionInput.setProbe(window.hitTest2D);
   document.body.classList.remove('mode-3d');
   if (window.app) window.app.ticker.start();
   pixi.style.display = 'block';
   three.style.display = 'none';
   three.style.pointerEvents = 'none';
   if (renderer) renderer.domElement.style.pointerEvents = 'none';
-  // In 2D tutta la finestra si trascina.
-  dragZone.style.display = 'block';
-  dragZone.style.pointerEvents = 'auto';
-  dragZone.style.webkitAppRegion = 'drag';
 }
 
 function show3D() {
   const pixi = document.getElementById('pixi-mount');
   const three = document.getElementById('three-mount');
-  const dragZone = document.getElementById('drag-zone');
   window.unload2DAvatar();
+  window.CompanionInput.setProbe(probe3D);
   ensureThree();
   window.__threeVisible = true;
   document.body.classList.add('mode-3d');
@@ -256,14 +369,9 @@ function show3D() {
   startLoop();
   pixi.style.display = 'none';
   three.style.display = 'block';
-  three.style.zIndex = '15';
-  three.style.pointerEvents = 'auto';
-  three.style.webkitAppRegion = 'no-drag';
-  renderer.domElement.style.pointerEvents = 'auto';
-  renderer.domElement.style.touchAction = 'none';
-  // Il mouse serve a OrbitControls: la finestra si sposta dalla maniglia (#drag-handle).
-  dragZone.style.display = 'none';
-  dragZone.style.webkitAppRegion = 'no-drag';
+  // Il mouse lo riceve #drag-zone, sopra il canvas, come nel 2D.
+  three.style.pointerEvents = 'none';
+  renderer.domElement.style.pointerEvents = 'none';
 }
 
 let currentAvatarId = null;
@@ -274,7 +382,7 @@ let currentAvatarId = null;
  * ripiego usato quando l'avatar salvato non esiste piu'.
  */
 async function switchModel(avatarId, { save = true } = {}) {
-  document.getElementById('model-menu').style.display = 'none';
+  closeMenu();
   const avatars = await api.listAvatars();
   const avatar = avatars.find(a => a.id === avatarId);
   if (!avatar) { showBubble('Avatar non trovato', 3000); return; }
@@ -445,10 +553,16 @@ function chooseCandidate(choices) {
     cancel.addEventListener('click', () => resolve(null));
     host.replaceChildren(title, ...items, cancel);
     menu.style.display = 'block';
+    document.body.classList.add('menu-open');
   });
 }
 
-document.getElementById('btn-import-avatar').addEventListener('click', async () => {
+function closeMenu() {
+  document.getElementById('model-menu').style.display = 'none';
+  document.body.classList.remove('menu-open');
+}
+
+async function importAvatar() {
   try {
     const scan = await api.scanAvatarImport();
     if (scan?.canceled) return;
@@ -459,7 +573,17 @@ document.getElementById('btn-import-avatar').addEventListener('click', async () 
     if (avatar) switchModel(avatar.id);
   }
   catch (error) { showBubble('Importazione fallita: ' + error.message, 3600); }
-});
+}
+document.getElementById('btn-import-avatar').addEventListener('click', importAvatar);
+
+// Voci del menu col tasto destro (main.js, showCompanionMenu) che toccano la pagina.
+if (api && api.onMenuCommand) {
+  api.onMenuCommand((data) => {
+    if (!data) return;
+    if (data.cmd === 'avatar' && typeof data.id === 'string') switchModel(data.id);
+    else if (data.cmd === 'import') importAvatar();
+  });
+}
 
 // All'avvio: l'avatar salvato se esiste ancora, altrimenti il predefinito.
 (async () => {

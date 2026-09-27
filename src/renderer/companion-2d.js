@@ -232,11 +232,17 @@ app.ticker.add((delta) => {
   // tempo fisso, contato in frame e quindi il doppio piu' lento a 30 fps.
 
   // ── DRAG STATE ────────────────────────────────────────────────────────
+  // Penzola appeso per la testa: la rotazione ha il perno in alto, e la molla
+  // di sway.js la spinge con la velocita' della finestra. Prima era un
+  // pendolo a tempo, uguale da fermo e con uno strattone.
   if (State.dragging) {
-    const swing = Math.sin(t * 9) * 0.18;
-    charSprite.rotation = swing;
-    charSprite.x = 0;
-    charSprite.y = -22 + Math.sin(t * 5) * 3;   // float up
+    const { side } = sway.update(app.ticker.deltaMS / 1000, dragVel.vx, dragVel.vy);
+    const cur = charSprite.textures[charSprite.currentFrame] || charSprite.textures[0];
+    const H = (cur ? cur.height : 400) * baseScale * 1.05;
+    const theta = side + Math.sin(t * 5) * 0.03;
+    charSprite.rotation = theta;
+    charSprite.x = -H * Math.sin(theta);
+    charSprite.y = -H + H * Math.cos(theta) - 22 + Math.sin(t * 5) * 2;
     charSprite.scale.set(baseScale * State.dir * 1.05, baseScale * 1.05);
 
     shadowG.alpha = 0.05;
@@ -313,6 +319,7 @@ app.ticker.add((delta) => {
   }
 
   // ── DEFAULT IDLE ──────────────────────────────────────────────────────
+  faceCursor(app.ticker.deltaMS);
   charSprite.x = 0;
   charSprite.y = bob;
   charSprite.rotation = Math.sin(t * 1.6) * 0.02;
@@ -324,9 +331,16 @@ app.ticker.add((delta) => {
 });
 
 // ── Drag & Drop ─────────────────────────────────────────────────────────────
+// La finestra la muove il main (companion-input.js chiede drag:start): qui si
+// riceve solo lo stato e la velocita'.
+const sway = window.CompanionSway.createSway();
+let dragVel = { vx: 0, vy: 0 };
+if (api && api.onDragMotion) api.onDragMotion((v) => { if (v) dragVel = { vx: +v.vx || 0, vy: +v.vy || 0 }; });
+
 function startDrag() {
   if (State.dragging) return;
   State.dragging = true;
+  sway.reset();
   if (animations.idle) {
     setAnim('idle');   // use idle frame while dangling
     charSprite.stop(); // freeze frame
@@ -355,10 +369,64 @@ if (api && api.onWindowDragState) {
   });
 }
 
-// Also catch mouse events on the drag handle
-const dragZone = document.getElementById('drag-zone');
-dragZone.addEventListener('mousedown', () => startDrag());
-window.addEventListener('mouseup', () => { if (State.dragging) endDrag(); });
+// ── Segue il mouse ──────────────────────────────────────────────────────────
+// Uno sprite non gira la testa: a riposo si volta verso il lato del cursore,
+// solo se ci resta per un po', cosi' non si specchia a ogni passaggio.
+const FACE_MARGIN_PX = 60;
+const FACE_HOLD_MS = 700;
+let cursor = null;
+let faceWant = 0;
+let faceHeld = 0;
+if (api && api.onCursor) api.onCursor((c) => { if (!window.__companionTest) cursor = c; });
+
+function faceCursor(deltaMS) {
+  if (!cursor || !cursor.follow) { faceHeld = 0; return; }
+  const center = window.innerWidth / 2;
+  const want = cursor.x > center + FACE_MARGIN_PX ? 1 : cursor.x < center - FACE_MARGIN_PX ? -1 : 0;
+  if (want === 0 || want === State.dir) { faceWant = 0; faceHeld = 0; return; }
+  if (want !== faceWant) { faceWant = want; faceHeld = 0; }
+  faceHeld += deltaMS;
+  if (faceHeld >= FACE_HOLD_MS) { State.dir = want; faceHeld = 0; faceWant = 0; }
+}
+
+// ── Il mouse sull'avatar ────────────────────────────────────────────────────
+// Un punto e' sull'avatar se il pixel dello sprite li' non e' trasparente:
+// e' cio' che fa passare i clic sul resto della finestra. Si legge un pixel
+// alla volta dall'immagine della strip, senza copiarla tutta in memoria.
+const hitCanvas = document.createElement('canvas');
+hitCanvas.width = hitCanvas.height = 1;
+const hitCtx = hitCanvas.getContext('2d', { willReadFrequently: true });
+const HIT_ALPHA = 24;
+
+window.hitTest2D = (x, y) => {
+  if (!charSprite) return charC.children.length > 0 && charC.getBounds().contains(x, y);
+  const tex = charSprite.texture;
+  const local = charSprite.toLocal(new PIXI.Point(x, y));
+  const u = local.x + charSprite.anchor.x * tex.frame.width;
+  const v = local.y + charSprite.anchor.y * tex.frame.height;
+  if (u < 0 || v < 0 || u >= tex.frame.width || v >= tex.frame.height) return false;
+  const source = tex.baseTexture && tex.baseTexture.resource && tex.baseTexture.resource.source;
+  if (!source) return true;
+  try {
+    hitCtx.clearRect(0, 0, 1, 1);
+    hitCtx.drawImage(source, Math.floor(tex.frame.x + u), Math.floor(tex.frame.y + v), 1, 1, 0, 0, 1, 1);
+    return hitCtx.getImageData(0, 0, 1, 1).data[3] > HIT_ALPHA;
+  } catch (_) {
+    // Immagine di un'altra origine senza CORS: si ripiega sul riquadro.
+    return true;
+  }
+};
+
+// Finche' companion-3d.js non sceglie un avatar vale il 2D (anche la sagoma di ripiego).
+window.CompanionInput.setProbe(window.hitTest2D);
+
+// Un clic sull'avatar: una reazione breve.
+window.addEventListener('companion-poke', () => {
+  if (window.__threeVisible || State.dragging || !charSprite) return;
+  if (State.name !== 'idle' && State.name !== 'sit') return;
+  setAnim('happy');
+  setTimeout(() => { if (!State.dragging && State.name === 'happy') setAnim('idle'); }, 1500);
+});
 
 // Mappa animazioni AI (SYSTEM_PROMPT) -> animazioni 2D reali.
 // Supporta sia action.animation (nuovo) che action.type (legacy).
@@ -444,21 +512,9 @@ document.getElementById('click-zone').addEventListener('click', () => {
 // ── Model switcher ──────────────────────────────────────────────────────────
 document.getElementById('switch-zone').addEventListener('click', () => {
   const modelMenu = document.getElementById('model-menu');
-  modelMenu.style.display = modelMenu.style.display === 'none' ? 'block' : 'none';
-});
-
-// ── Mouse Edge Highlight ───────────────────────────────────────────────────
-window.addEventListener('mousemove', (e) => {
-  const margin = 20;
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-
-  const near = (e.clientX < margin || e.clientX > w - margin || e.clientY < margin || e.clientY > h - margin);
-  if (near) {
-    document.body.classList.add('near-edge');
-  } else {
-    document.body.classList.remove('near-edge');
-  }
+  const open = modelMenu.style.display === 'none';
+  modelMenu.style.display = open ? 'block' : 'none';
+  document.body.classList.toggle('menu-open', open);
 });
 
 // ── Caricamento di un avatar ─────────────────────────────────────────────────

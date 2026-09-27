@@ -136,6 +136,16 @@ function checkMotion(action) {
  * basterebbe una chiamata a setConfig dal renderer per aprire l'esecuzione di
  * comandi arbitrari. Le chiavi vengono fuse, non sostituite.
  */
+// Dimensioni della finestra del companion, scelte dal menu col tasto destro.
+// Al posto del ridimensionamento dai bordi: con i clic che attraversano i
+// pixel vuoti i bordi della finestra non si possono piu' afferrare.
+const WINDOW_SCALES = {
+  s:  { label: 'Piccola', width: 140, height: 200 },
+  m:  { label: 'Media', width: 180, height: 260 },
+  l:  { label: 'Grande', width: 240, height: 346 },
+  xl: { label: 'Molto grande', width: 320, height: 460 },
+}
+
 function mergeConfig(current, incoming) {
   const merged = { ...current, keys: { ...(current.keys || {}) } }
   if (!incoming || typeof incoming !== 'object') return merged
@@ -143,6 +153,9 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.model === 'string' && incoming.model.trim()) merged.model = incoming.model.trim()
   if (typeof incoming.avatarModel === 'string' && incoming.avatarModel.trim()) merged.avatarModel = incoming.avatarModel.trim()
   if (typeof incoming.idleLife === 'boolean') merged.idleLife = incoming.idleLife
+  if (typeof incoming.followMouse === 'boolean') merged.followMouse = incoming.followMouse
+  if (typeof incoming.alwaysOnTop === 'boolean') merged.alwaysOnTop = incoming.alwaysOnTop
+  if (typeof incoming.scale === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_SCALES, incoming.scale)) merged.scale = incoming.scale
   if (incoming.keys && typeof incoming.keys === 'object') {
     for (const [provider, value] of Object.entries(incoming.keys)) {
       if (PROVIDERS[provider] && typeof value === 'string' && value.trim()) merged.keys[provider] = value.trim()
@@ -195,6 +208,7 @@ module.exports = {
   checkDesktopItem,
   parseCommand,
   mergeConfig,
+  WINDOW_SCALES,
   checkMotion,
   keysForDisk,
 }

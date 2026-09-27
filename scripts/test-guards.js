@@ -9,7 +9,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const {
-  isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk,
+  isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, WINDOW_SCALES,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -132,6 +132,19 @@ test('le chiavi vengono fuse e un campo vuoto non cancella quella salvata', () =
   const merged = mergeConfig({ provider: 'claude', model: 'm', keys: { claude: 'sk-ant-1' } },
     { keys: { claude: '', openai: 'sk-2', inventato: 'x' } })
   assert.deepEqual(merged.keys, { claude: 'sk-ant-1', openai: 'sk-2' })
+})
+
+test('le opzioni della finestra passano solo con valori validi', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {}, scale: 'm' }
+  const ok = mergeConfig(base, { followMouse: false, alwaysOnTop: false, scale: 'xl' })
+  assert.equal(ok.followMouse, false)
+  assert.equal(ok.alwaysOnTop, false)
+  assert.equal(ok.scale, 'xl')
+  const bad = mergeConfig(base, { followMouse: 'no', alwaysOnTop: 0, scale: 'toString' })
+  assert.equal(bad.followMouse, undefined)
+  assert.equal(bad.alwaysOnTop, undefined)
+  assert.equal(bad.scale, 'm')
+  for (const size of Object.values(WINDOW_SCALES)) assert.ok(size.width >= 140 && size.height >= 200)
 })
 
 test('verso e distanza passano solo con i valori del contratto', () => {

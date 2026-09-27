@@ -7,7 +7,7 @@ const { route, PROVIDERS, describeError, listModels, EMOTIONS } = require('./ai-
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
 const { builtinAvatars } = require('./builtin-avatars')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, WINDOW_SCALES } = require('./guards')
 const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
@@ -39,7 +39,11 @@ const ENV_KEY_MAP = {
 const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 // avatarModel vuoto = l'avatar predefinito, scelto da builtin-avatars.js.
 // idleLife: gesti autonomi quando nessuno scrive (idle-life.js).
-const DEFAULT_CONFIG = { provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true, keys: {} }
+// followMouse, alwaysOnTop e scale si cambiano dal menu col tasto destro.
+const DEFAULT_CONFIG = {
+  provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true,
+  followMouse: true, alwaysOnTop: true, scale: 'm', keys: {},
+}
 
 function loadEnvFile() {
   // .env leggero, senza dipendenze: solo per chi lavora sul sorgente.
@@ -92,6 +96,9 @@ function loadConfig() {
   cfg.model = typeof cfg.model === 'string' ? cfg.model : DEFAULT_CONFIG.model
   cfg.avatarModel = typeof cfg.avatarModel === 'string' ? cfg.avatarModel : DEFAULT_CONFIG.avatarModel
   cfg.idleLife = cfg.idleLife !== false
+  cfg.followMouse = cfg.followMouse !== false
+  cfg.alwaysOnTop = cfg.alwaysOnTop !== false
+  if (typeof cfg.scale !== 'string' || !Object.prototype.hasOwnProperty.call(WINDOW_SCALES, cfg.scale)) cfg.scale = DEFAULT_CONFIG.scale
   if (!PROVIDERS[cfg.provider]) { cfg.provider = DEFAULT_CONFIG.provider; cfg.model = DEFAULT_CONFIG.model }
 
   // Fallback: se manca la key salvata per il provider attivo, usa l'env var
@@ -254,15 +261,19 @@ function createCompanionWindow() {
   // workArea e non workAreaSize: con la taskbar in alto o a sinistra l'area
   // utile non parte da 0,0 e l'avatar nasceva spostato di quanto e' larga.
   const area = screen.getPrimaryDisplay().workArea
+  const cfg = loadConfig()
+  const size = WINDOW_SCALES[cfg.scale]
 
   companionWindow = new BrowserWindow({
-    width: 180, height: 260,
-    x: area.x + area.width - 220, y: area.y + area.height - 300,
+    width: size.width, height: size.height,
+    x: area.x + area.width - size.width - 40, y: area.y + area.height - size.height,
     transparent: true,
     frame: false,
-    alwaysOnTop: true,
+    alwaysOnTop: cfg.alwaysOnTop,
     skipTaskbar: true,
-    resizable: true,
+    // Le dimensioni si scelgono dal menu: con i clic che attraversano i pixel
+    // vuoti i bordi non si possono afferrare comunque.
+    resizable: false,
     minWidth: 140,
     minHeight: 200,
     hasShadow: false,
@@ -275,40 +286,15 @@ function createCompanionWindow() {
   })
 
   companionWindow.loadFile(path.join(__dirname, '../renderer/companion.html'))
-  companionWindow.setAlwaysOnTop(true, 'screen-saver')
+  if (cfg.alwaysOnTop) companionWindow.setAlwaysOnTop(true, 'screen-saver')
+  // I clic sui pixel vuoti passano alle finestre sotto. forward: true lascia
+  // arrivare i movimenti del mouse alla pagina, che decide quando catturarli
+  // (companion-input.js).
+  companionWindow.setIgnoreMouseEvents(true, { forward: true })
 
   if (process.argv.includes('--dev')) {
     companionWindow.webContents.openDevTools({ mode: 'detach' })
   }
-
-  // Trascinamento dell'utente: inizia al primo 'move' e finisce con 'moved',
-  // che su Windows arriva al rilascio del tasto (fine del ciclo di spostamento).
-  // Prima finiva 200 ms dopo l'ultimo 'move': tenendo fermo l'avatar in mano
-  // compariva "Phew..." come se fosse stato posato.
-  let dragging = false
-  let moveTimeout = null
-  const endDrag = () => {
-    if (moveTimeout) { clearTimeout(moveTimeout); moveTimeout = null }
-    if (!dragging) return
-    dragging = false
-    if (!companionWindow || companionWindow.isDestroyed()) return
-    try { companionWindow.webContents.send('window-drag-state', { dragging: false }) } catch (_) {}
-  }
-  companionWindow.on('move', () => {
-    if (!companionWindow || companionWindow.isDestroyed()) return
-    // Durante una camminata autonoma il movimento lo genera il main: non e' un
-    // trascinamento dell'utente e non deve mettere in pausa l'animazione.
-    if (walkTimer) return
-    onDragged()
-    if (!dragging) {
-      dragging = true
-      try { companionWindow.webContents.send('window-drag-state', { dragging: true }) } catch (_) {}
-    }
-    // Ripiego dove 'moved' non esiste (Linux): fine dopo 1,5 s di quiete.
-    if (moveTimeout) clearTimeout(moveTimeout)
-    moveTimeout = setTimeout(endDrag, 1500)
-  })
-  companionWindow.on('moved', endDrag)
 }
 
 // ─── Camminata sul desktop ───────────────────────────────────────────────────
@@ -349,6 +335,8 @@ function sendIdle() {
 function startWalk({ run = false, direction, distance, maxDistance = Infinity } = {}) {
   if (!companionWindow || companionWindow.isDestroyed()) return
   stopWalk()
+  // In braccio non si cammina: la finestra la sta muovendo l'utente.
+  if (drag) { sendIdle(); return }
 
   const area = companionWorkArea()
   const [x, y] = companionWindow.getPosition()
@@ -372,7 +360,7 @@ function startWalk({ run = false, direction, distance, maxDistance = Infinity } 
     const done = dir > 0 ? current >= targetX : current <= targetX
     const next = done ? targetX : Math.round(current)
     try {
-      companionWindow.setPosition(Math.max(minX, Math.min(maxX, next)), y)
+      moveCompanion(Math.max(minX, Math.min(maxX, next)), y)
     } catch (_) { stopWalk(); return }
     if (done) {
       stopWalk()
@@ -505,7 +493,7 @@ handle('config:set', (_e, newCfg) => {
   // La chiave inserita adesso deve servire anche ai riassunti, non solo dal
   // prossimo avvio. loadConfig riapplica il fallback sulle variabili d'ambiente.
   if (memoryManager) memoryManager.setModel(memoryModelFrom(loadConfig()))
-  idleLifeEnabled = merged.idleLife !== false
+  applyWindowOptions(merged)
   return publicConfig(merged)
 })
 
@@ -693,7 +681,7 @@ function animateCompanion(action, motion = {}) {
   const { maxDistance = Infinity, direction, distance } = motion
   if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
   try { companionWindow?.webContents.send('trigger-animation', action) } catch (_) {}
-  if (action.animation === 'walk-to' || action.animation === 'run-to') {
+  if ((action.animation === 'walk-to' || action.animation === 'run-to') && !drag) {
     startWalk({ run: action.animation === 'run-to', direction, distance, maxDistance })
   } else {
     stopWalk()
@@ -736,7 +724,7 @@ function onDragged() {
 }
 
 function idleTick() {
-  if (!idleLifeEnabled || awaitingReply || walkTimer || Date.now() < requestedPoseUntil) return
+  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || Date.now() < requestedPoseUntil) return
   if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
   // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
   if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused()) { markActivity(); return }
@@ -760,11 +748,193 @@ function idleTick() {
 }
 
 function startIdleLife() {
-  idleLifeEnabled = loadConfig().idleLife
+  applyWindowOptions(loadConfig())
   if (idleTimer) clearInterval(idleTimer)
   idleTimer = setInterval(idleTick, IDLE_TICK_MS)
   if (idleTimer.unref) idleTimer.unref()
 }
+
+// ─── Mouse sull'avatar: trascinamento, cursore, menu ────────────────────────
+// Alla Mate Engine: l'avatar si prende direttamente, non da una maniglia, e il
+// main muove la finestra seguendo il cursore. Cosi' si conosce la velocita',
+// che fa oscillare l'avatar (sway.js) e muove capelli e vestiti nel 3D. Prima
+// lo spostamento lo faceva Windows con -webkit-app-region: drag, senza dire
+// niente sulla velocita', e il tasto destro apriva il menu di sistema.
+
+const DRAG_TICK_MS   = 16     // ~60 Hz, come il cursore
+const CURSOR_TICK_MS = 33     // ~30 Hz: lo sguardo e' smorzato, basta
+const VELOCITY_SMOOTHING = 0.5
+
+/** @type {{ offX: number, offY: number, x: number, y: number, t: number, vx: number, vy: number, timer: any } | null} */
+let drag = null
+let cursorTimer = null
+let lastCursorKey = ''
+let followMouse = true
+
+function sendCompanion(channel, data) {
+  if (!companionWindow || companionWindow.isDestroyed()) return
+  try { companionWindow.webContents.send(channel, data) } catch (_) {}
+}
+
+// setBounds con la dimensione fissa, non setPosition: passando fra schermi con
+// scala diversa setPosition lascia a Windows il ricalcolo della dimensione, e
+// la finestra cresceva o si stringeva a ogni passaggio.
+function moveCompanion(x, y) {
+  const [width, height] = companionWindow.getSize()
+  companionWindow.setBounds({ x: Math.round(x), y: Math.round(y), width, height })
+}
+
+/** Riporta la finestra dentro l'area di lavoro dello schermo su cui si trova. */
+function keepOnScreen() {
+  if (!companionWindow || companionWindow.isDestroyed()) return
+  const b = companionWindow.getBounds()
+  const area = screen.getDisplayMatching(b).workArea
+  const x = Math.max(area.x, Math.min(b.x, area.x + area.width - b.width))
+  const y = Math.max(area.y, Math.min(b.y, area.y + area.height - b.height))
+  if (x !== b.x || y !== b.y) moveCompanion(x, y)
+}
+
+function startDrag() {
+  if (drag || !companionWindow || companionWindow.isDestroyed()) return
+  stopWalk()
+  if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
+  const cursor = screen.getCursorScreenPoint()
+  const [x, y] = companionWindow.getPosition()
+  drag = { offX: cursor.x - x, offY: cursor.y - y, x, y, t: Date.now(), vx: 0, vy: 0, timer: null }
+  onDragged()
+  sendCompanion('window-drag-state', { dragging: true })
+  drag.timer = setInterval(dragTick, DRAG_TICK_MS)
+}
+
+function dragTick() {
+  if (!drag) return
+  if (!companionWindow || companionWindow.isDestroyed()) { endDrag(); return }
+  const cursor = screen.getCursorScreenPoint()
+  const x = cursor.x - drag.offX
+  const y = cursor.y - drag.offY
+  const now = Date.now()
+  const dt = Math.max(1, now - drag.t) / 1000
+  drag.vx = drag.vx * VELOCITY_SMOOTHING + ((x - drag.x) / dt) * (1 - VELOCITY_SMOOTHING)
+  drag.vy = drag.vy * VELOCITY_SMOOTHING + ((y - drag.y) / dt) * (1 - VELOCITY_SMOOTHING)
+  if (x !== drag.x || y !== drag.y) {
+    try { moveCompanion(x, y) } catch (_) { endDrag(); return }
+  }
+  drag.x = x; drag.y = y; drag.t = now
+  sendCompanion('drag-motion', { vx: Math.round(drag.vx), vy: Math.round(drag.vy) })
+}
+
+function endDrag() {
+  if (!drag) return
+  clearInterval(drag.timer)
+  drag = null
+  // Posato mezzo fuori dallo schermo, o dietro la taskbar, si perderebbe.
+  keepOnScreen()
+  sendCompanion('drag-motion', { vx: 0, vy: 0 })
+  sendCompanion('window-drag-state', { dragging: false })
+  markActivity()
+}
+
+// Il cursore rispetto alla finestra, anche quando e' fuori: la pagina lo usa
+// per lo sguardo e per accorgersi che il mouse se n'e' andato.
+function cursorTick() {
+  if (drag || !companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
+  const cursor = screen.getCursorScreenPoint()
+  const b = companionWindow.getBounds()
+  const msg = { x: cursor.x - b.x, y: cursor.y - b.y, follow: followMouse }
+  const key = msg.x + ',' + msg.y + ',' + msg.follow
+  if (key === lastCursorKey) return
+  lastCursorKey = key
+  sendCompanion('cursor', msg)
+}
+
+function startCursorFeed() {
+  if (cursorTimer) clearInterval(cursorTimer)
+  cursorTimer = setInterval(cursorTick, CURSOR_TICK_MS)
+  if (cursorTimer.unref) cursorTimer.unref()
+}
+
+/** Ridimensiona tenendo fermi i piedi: centro in basso della finestra. */
+function applyScale(scale) {
+  const size = WINDOW_SCALES[scale]
+  if (!size || !companionWindow || companionWindow.isDestroyed()) return
+  const b = companionWindow.getBounds()
+  if (b.width === size.width && b.height === size.height) return
+  companionWindow.setBounds({
+    x: Math.round(b.x + (b.width - size.width) / 2),
+    y: b.y + b.height - size.height,
+    width: size.width, height: size.height,
+  })
+  keepOnScreen()
+}
+
+/** Applica le opzioni della config che toccano finestra e comportamento. */
+function applyWindowOptions(cfg) {
+  idleLifeEnabled = cfg.idleLife !== false
+  followMouse = cfg.followMouse !== false
+  if (!companionWindow || companionWindow.isDestroyed()) return
+  const onTop = cfg.alwaysOnTop !== false
+  if (companionWindow.isAlwaysOnTop() !== onTop) companionWindow.setAlwaysOnTop(onTop, 'screen-saver')
+  applyScale(cfg.scale)
+}
+
+/** Cambia un'opzione dal menu e avvisa la chat, che mostra gli stessi interruttori. */
+function setOption(partial) {
+  const merged = mergeConfig(loadConfig(), partial)
+  saveConfig(merged)
+  applyWindowOptions(merged)
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    try { chatWindow.webContents.send('config-changed', publicConfig(merged)) } catch (_) {}
+  }
+}
+
+async function showCompanionMenu() {
+  if (!companionWindow || companionWindow.isDestroyed()) return
+  const cfg = loadConfig()
+  let avatars = []
+  try { avatars = avatarLibrary ? await avatarLibrary.list() : [] } catch (_) {}
+  const current = avatars.find(a => a.id === cfg.avatarModel) || avatars.find(a => a.default) || avatars[0]
+  const kind = (a) => (a.kind === 'sprite-pack' || a.kind === 'sprite') ? '2D' : '3D'
+  const command = (data) => sendCompanion('menu-command', data)
+  /** @type {Electron.MenuItemConstructorOptions[]} */
+  const template = [
+    { label: 'Apri chat', click: () => toggleChat() },
+    {
+      label: 'Avatar',
+      submenu: [
+        ...avatars.map(a => ({
+          label: a.name + '  (' + kind(a) + ')', type: /** @type {const} */ ('radio'),
+          checked: !!current && a.id === current.id,
+          click: () => command({ cmd: 'avatar', id: a.id }),
+        })),
+        { type: 'separator' },
+        { label: 'Importa avatar…', click: () => command({ cmd: 'import' }) },
+      ],
+    },
+    {
+      label: 'Dimensione',
+      submenu: Object.entries(WINDOW_SCALES).map(([id, size]) => ({
+        label: size.label, type: /** @type {const} */ ('radio'), checked: cfg.scale === id,
+        click: () => setOption({ scale: id }),
+      })),
+    },
+    { type: 'separator' },
+    { label: 'Segue il mouse', type: 'checkbox', checked: cfg.followMouse, click: (item) => setOption({ followMouse: item.checked }) },
+    { label: 'Vita autonoma', type: 'checkbox', checked: cfg.idleLife, click: (item) => setOption({ idleLife: item.checked }) },
+    { label: 'Sempre in primo piano', type: 'checkbox', checked: cfg.alwaysOnTop, click: (item) => setOption({ alwaysOnTop: item.checked }) },
+    { type: 'separator' },
+    { label: 'Nascondi (torna dall\'icona nella barra)', click: () => { if (companionWindow) companionWindow.hide() } },
+    { label: 'Esci', click: () => app.quit() },
+  ]
+  Menu.buildFromTemplate(template).popup({ window: companionWindow })
+}
+
+on('drag:start', () => startDrag())
+on('drag:end', () => endDrag())
+on('mouse:capture', (_e, capture) => {
+  if (!companionWindow || companionWindow.isDestroyed()) return
+  companionWindow.setIgnoreMouseEvents(capture !== true, { forward: true })
+})
+on('companion:menu', () => { showCompanionMenu().catch(e => console.error('[menu]', e.message)) })
 
 // ─── OS Actions (hardened, standalone) ─────────────────────────────────────────
 // Le regole stanno in guards.js. run-command accetta solo l'allowlist; per
@@ -957,10 +1127,13 @@ app.whenReady().then(() => {
   createTray()
   initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
   startIdleLife()
+  startCursorFeed()
 })
 
 app.on('window-all-closed', () => {
   stopWalk()
+  endDrag()
+  if (cursorTimer) clearInterval(cursorTimer)
   if (idleTimer) clearInterval(idleTimer)
   if (global.__memoryTimer) clearInterval(global.__memoryTimer)
   if (process.platform !== 'darwin') app.quit()

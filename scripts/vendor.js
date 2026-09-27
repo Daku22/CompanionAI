@@ -4,7 +4,7 @@
 // Perche' esiste: companion.html importava pixi, three e three-vrm con percorsi
 // relativi dentro node_modules. Nell'app impacchettata quei percorsi non sono
 // garantiti — electron-builder esclude di default le cartelle "examples" dentro
-// node_modules, quindi GLTFLoader e OrbitControls sparivano dall'asar e la
+// node_modules, quindi GLTFLoader spariva dall'asar e la
 // modalita' 3D si rompeva solo nella build, mai in sviluppo.
 //
 // Copiando i file sotto src/ entrano nel pacchetto con tutto il resto e il
@@ -30,7 +30,6 @@ const FILES = {
   'three/build/three.core.js':                       'three.core.js',
   '@pixiv/three-vrm/lib/three-vrm.module.js':        'three-vrm.module.js',
   'three/examples/jsm/loaders/GLTFLoader.js':        'three-addons/loaders/GLTFLoader.js',
-  'three/examples/jsm/controls/OrbitControls.js':    'three-addons/controls/OrbitControls.js',
   // Importato da GLTFLoader: senza, il caricamento dei .vrm fallisce.
   'three/examples/jsm/utils/BufferGeometryUtils.js': 'three-addons/utils/BufferGeometryUtils.js',
 }

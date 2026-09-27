@@ -74,6 +74,7 @@ src/
              write-atomic.js, logger.js
   memory/    MemoryManager.js + types.ts
   renderer/  companion.html + companion-2d.js + companion-3d.js, chat.html + chat.js,
+             companion-input.js (mouse sull'avatar), sway.js (oscillazione in braccio),
              vrm-animation.js, assets/strips (avatar 2D integrato), vendor/ (generata)
 scripts/     vendor.js, make-icon.js, build.js, build-strips.js, lib/sprite-frames.js,
              smoke.mjs, check-publish.js, e le suite test-*.js
@@ -240,8 +241,8 @@ per i VRM 0.x. Sui VRM 1.0, come Fred, il player specchia gli assi e non gira
 il modello, che guarda già verso la camera. Vivono in
 `src/renderer/vrm-animation.js`, tenuto fuori dall'HTML per poterlo testare: il
 player non dipende da Three.js e riceve le ossa da un accessor. Per ritoccare
-un movimento si cambiano i numeri della tabella `CLIPS`, che sono radianti. In
-3D la finestra si sposta dalla maniglia in alto, perché il mouse ruota la camera.
+un movimento si cambiano i numeri della tabella `CLIPS`, che sono radianti. La
+camera è fissa.
 
 `walk-to` e `run-to` spostano la finestra vera sull'area di lavoro dello
 schermo su cui sta il companion. Il main sceglie la destinazione
@@ -254,9 +255,63 @@ lascia passare solo quei valori.
 Una posa chiesta in chat, come "siediti", resta per tre minuti: in quel tempo i
 gesti a riposo non la interrompono.
 
-Il trascinamento finisce all'evento `moved`, cioè quando si rilascia il tasto.
-Prima finiva 200 ms dopo l'ultimo movimento, e tenendo fermo l'avatar in mano
-compariva il fumetto di quando lo si posa.
+## Mouse e finestra
+
+Il mouse funziona come in Mate Engine, da cui vengono le idee e i numeri, non
+il codice (è AGPL).
+
+**Clic che attraversano il vuoto.** La finestra parte con
+`setIgnoreMouseEvents(true, { forward: true })`: i clic passano alle finestre
+sotto, ma i movimenti del mouse arrivano comunque alla pagina.
+`companion-input.js` chiede al main di catturare il mouse solo quando il
+cursore è su un pixel pieno dell'avatar o su un pulsante:
+- nel 2D legge un pixel alla volta dall'immagine della strip, alla posizione
+  del cursore nello sprite (`hitTest2D`);
+- nel 3D legge il pixel del canvas con `readPixels` subito dopo il disegno,
+  quindi la risposta arriva al frame successivo.
+
+I pulsanti 💬 e 🔄 compaiono solo con il mouse sull'avatar.
+
+**Prenderlo in braccio.** Premendo sull'avatar e muovendo di almeno 4 px parte
+il trascinamento. La finestra la sposta il main a 60 Hz, seguendo il cursore,
+e manda la velocità alla pagina (`drag-motion`):
+- `sway.js` è una molla smorzata (2,6 Hz, smorzamento 0,35, al massimo 25° di
+  lato e 12° in avanti) spinta da quella velocità;
+- nel 2D lo sprite penzola con il perno in alto;
+- nel 3D il modello sta in due gruppi, con il perno all'altezza della testa, e
+  passa alla posa `dangle`;
+- capelli e vestiti: alla gravità di ogni spring bone si somma una forza
+  contraria al movimento.
+
+Posato, l'avatar resta dentro l'area di lavoro dello schermo. Prima lo
+spostava Windows con `-webkit-app-region: drag`: niente velocità, e il tasto
+destro apriva il menu di sistema. La finestra si muove con `setBounds` a
+dimensione fissa, perché `setPosition` fra schermi con scala diversa ne
+cambiava la dimensione.
+
+**Clic e doppio clic.** Un clic fa sorridere l'avatar, il doppio clic apre la
+chat.
+
+**Segue il mouse.** Il main manda la posizione del cursore rispetto alla
+finestra a 30 Hz, anche quando è fuori.
+- Nel 3D testa, collo e busto si girano verso il cursore: la testa fino a
+  ±45° di lato e ±30° in verticale, il busto fino a ±15°. Gli occhi lo
+  seguono con `vrm.lookAt`.
+- Il peso dipende dalla clip: pieno a riposo, parziale mentre saluta, nullo
+  mentre cammina, siede o penzola. Gli angoli li ripartisce `distributeLook`
+  in `vrm-animation.js`.
+- Nel 2D lo sprite si volta verso il lato del cursore, se ci resta per 0,7 s.
+
+**Menu col tasto destro** (`showCompanionMenu` in `main.js`):
+- chat e avatar (con "Importa avatar…");
+- dimensione: piccola, media, grande, molto grande. Sostituisce il
+  ridimensionamento dai bordi, che con i clic che passano non si potrebbero
+  afferrare;
+- interruttori: "Segue il mouse", "Vita autonoma", "Sempre in primo piano";
+- nascondi (torna dall'icona nella barra) ed esci.
+
+Le opzioni si salvano in config come `followMouse`, `alwaysOnTop` e `scale`, e
+`guards.mergeConfig` accetta solo valori validi.
 
 ## Azioni sul sistema
 
@@ -274,12 +329,12 @@ davvero, non la stringa proposta dal modello.
 
 Per togliere il blocco sui comandi si mette `"allowUnsafeCommands": true` in
 `~/.desktop-companion/config.json`, a mano: dalla UI si possono cambiare solo
-provider, modello, chiavi e avatar. È sconsigliato, perché apre l'esecuzione
+provider, modello, chiavi, avatar e le opzioni del menu col tasto destro. È sconsigliato, perché apre l'esecuzione
 arbitraria di comandi a qualunque cosa il modello decida di produrre.
 
 ## Test
 
-`npm test` esegue dieci suite senza chiavi API né finestre:
+`npm test` esegue undici suite senza chiavi API né finestre:
 
 | Suite | Cosa verifica |
 |---|---|
@@ -287,8 +342,9 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | Router | La memoria raggiunge il modello anche oltre 40 messaggi; dialogo che parte dall'utente; UTF-8; budget per i modelli che ragionano; errori leggibili; elenchi dei modelli |
 | Umore | Emivite, affetto che non decade, energia, riga del prompt, file corrotti, contratto `emotion` |
 | Vita a riposo | Soglie di quiete, sonno e risveglio, notte e stanchezza, pesi secondo l'umore |
-| Controlli | Allowlist dei comandi, percorsi eseguibili, config dal renderer, mittenti IPC |
-| Animazioni | Player di pose: dissolvenze, ritorno a idle, nessun residuo fra clip, VRM 0.x e 1.0; ciglia uguali a ogni frame rate, sguardo, pesi dell'umore |
+| Controlli | Allowlist dei comandi, percorsi eseguibili, config dal renderer, opzioni della finestra, mittenti IPC |
+| Animazioni | Player di pose: dissolvenze, ritorno a idle, nessun residuo fra clip, VRM 0.x e 1.0; ciglia uguali a ogni frame rate, sguardo, pesi dell'umore; testa che segue il mouse nei limiti, posa in braccio |
+| Oscillazione | Molla di `sway.js`: verso, limiti, smorzamento, stesso risultato a 30 e 144 fps |
 | AvatarLibrary | Importazione di VRM, glTF e pacchetti di sprite, solo i file dichiarati, limiti di scansione, avatar integrati |
 | Ritaglio sprite | Rilevamento automatico dei fotogrammi su fogli costruiti nel test |
 | Strip | Avatar 2D integrato: manifest e PNG coerenti, oppure assente senza PNG orfani |
@@ -312,8 +368,17 @@ se punta a `127.0.0.1` o `localhost`. Lo script verifica:
 - la forma di ogni richiesta;
 - l'avviso con i modelli in prosa;
 - i fumetti neutri per le immagini importate;
+- nel 2D e nel 3D, che il mouse venga catturato sull'avatar e non sul vuoto,
+  e che l'avatar reagisca quando lo si prende in braccio;
+- nel 3D, che la testa segua il cursore a sinistra, a destra, in alto e in
+  basso;
+- le dimensioni scelte dal menu;
 - il saluto in 3D, l'umore, la memoria, l'eliminazione di un avatar e la
   console.
+
+Il cursore vero viene ignorato (`window.__companionTest`), così muovere il
+mouse durante l'audit non falsa i controlli. `--vrm Neko` prova il 3D con un
+altro modello, utile per un VRM 0.x.
 
 ## Note pratiche
 
@@ -323,7 +388,7 @@ Per questo `npm run build` scrive sotto la temp di sistema. Per cambiare
 destinazione usa `COMPANION_BUILD_OUT`.
 
 **Le librerie del renderer sono copie.** `scripts/vendor.js` porta pixi,
-three, three-vrm, GLTFLoader e OrbitControls sotto `src/renderer/vendor/`,
+three, three-vrm e GLTFLoader sotto `src/renderer/vendor/`,
 perché electron-builder esclude le cartelle `examples` di `node_modules`.
 Lo script verifica anche che gli import relativi siano tutti soddisfatti.
 
@@ -340,6 +405,9 @@ Fatto:
 - avatar 3D con pose procedurali coperte da test;
 - pacchetti di sprite 2D importabili, con rilevamento automatico dei fotogrammi;
 - camminata sul desktop;
+- mouse alla Mate Engine: clic che passano sul vuoto, presa in braccio con
+  oscillazione e capelli che si muovono, sguardo che segue il cursore, menu
+  col tasto destro;
 - router a sette provider con output vincolato ed elenchi dal vivo;
 - memoria persistente riletta nel prompt;
 - umore che decade nel tempo, gesti autonomi a riposo, ciglia e sguardo nel 3D;
@@ -350,7 +418,11 @@ Da fare:
 - arte dell'avatar 2D originale ([brief](docs/avatar-brief.md));
 - interfaccia in inglese;
 - firma del codice e aggiornamenti automatici;
-- taratura a occhio delle pose 3D e `vrm.lookAt` sul cursore;
-- le fasi successive del piano: iniziativa con freni, memoria leggibile,
-  presenza sul desktop, clip 3D generate con Kimodo;
+- taratura a occhio delle pose 3D;
+- clip 3D generate con Kimodo (Fase C), che sostituiranno anche la posa
+  `dangle`;
+- seduta su finestre e taskbar (resto della Fase B, con koffi);
+- Fase D: nascondersi ai bordi, chibi, danza con l'audio, mano verso il
+  cursore;
+- iniziativa con freni, memoria leggibile;
 - input e sintesi vocale.

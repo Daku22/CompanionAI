@@ -33,8 +33,18 @@ yourself from source if you prefer (see below).
 2. Pick a provider. **OpenRouter** is the quickest start: create a free
    account, then a key. The "Come ottengo una chiave?" link opens the right
    page. **Ollama** needs no key at all, just `ollama serve` running.
-3. Paste the key, choose a model, and start chatting. The 💬 button on the
-   avatar opens and closes the chat. The 🔄 button switches avatar.
+3. Paste the key, choose a model, and start chatting. Double-click the avatar,
+   or use the 💬 button that appears when the mouse is over it, to open and
+   close the chat. The 🔄 button switches avatar.
+
+**Using the mouse on the avatar:**
+- Clicks on the empty parts of its window go through to whatever is below.
+- Grab the avatar to carry it around: it sways as you move it, and in 3D its
+  hair follows the motion.
+- In 3D it turns its head toward the mouse; in 2D it faces the mouse's side.
+- Right-click for a menu with the chat, avatars, size (small to extra large),
+  "Segue il mouse" (follow the mouse), "Vita autonoma" (idle life), "Sempre in
+  primo piano" (always on top), hide and quit.
 
 Ask things like "open my Documents folder", "search the news about AI" or just
 chat. Anything that touches your system shows a confirmation dialog first.

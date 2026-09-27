@@ -98,6 +98,12 @@ idleLife.addEventListener('change', async () => {
   try { config.idleLife = (await api.setConfig({ idleLife: idleLife.checked })).idleLife !== false } catch (_) {}
   idleLife.checked = config.idleLife !== false
 })
+// "Vita autonoma" si cambia anche dal menu col tasto destro sull'avatar.
+if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
+  if (!cfg) return
+  config.idleLife = cfg.idleLife
+  idleLife.checked = cfg.idleLife !== false
+})
 
 // Umore del companion accanto alla memoria. Lo decide il main: qui si mostra.
 function showMood(mood) {

@@ -18,7 +18,18 @@
 - New 2D pipeline: `npm run strips` turns master sheets into sprite packs and
   finds the frames automatically. Frames are capped at 480 px, which cuts
   video memory by about 7×.
-- In 3D mode, a handle lets you move the window.
+- Mouse, in the spirit of Mate Engine (ideas only, no code):
+  - clicks on the transparent parts of the window go through to the windows
+    below;
+  - grab the avatar itself to move it. It sways on a damped spring driven by
+    the window's speed, and in 3D the spring bones (hair, clothes) are pushed
+    by the motion. The 3D camera no longer turns, and the drag handle is gone;
+  - in 3D, head, neck and spine turn toward the cursor within limits, and the
+    eyes follow it; in 2D the sprite faces the cursor's side;
+  - click for a small reaction, double-click to open the chat;
+  - right-click menu: chat, avatars, window size, follow the mouse, idle life,
+    always on top, hide, quit.
+- The window starts in the right place when the taskbar is on the top or left.
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.

@@ -135,6 +135,23 @@ export const CLIPS = {
       head: { x: 0.10 },
     }),
   },
+  // Preso in braccio: gambe che penzolano sciolte, braccia un po' aperte.
+  // Ripiego procedurale finche' la Fase C non porta una clip vera.
+  dangle: {
+    duration: 0,
+    pose: (t) => {
+      const s = Math.sin(t * 2.4)
+      return {
+        leftUpperLeg:  { x: -0.18 + s * 0.08, z:  0.05 },
+        rightUpperLeg: { x: -0.10 - s * 0.08, z: -0.05 },
+        leftLowerLeg:  { x: 0.40 + s * 0.06 },
+        rightLowerLeg: { x: 0.30 - s * 0.06 },
+        leftUpperArm:  { z: -0.12, x: -0.10 },
+        rightUpperArm: { z:  0.12, x: -0.10 },
+        spine: { x: 0.04 },
+      }
+    },
+  },
   search: {
     duration: 2.8,
     pose: (t) => ({
@@ -158,6 +175,7 @@ export const CLIP_ALIAS = {
   happy: 'happy',
   click: 'click',
   search: 'search', scroll: 'search', 'open-file': 'search',
+  drag: 'dangle', dangle: 'dangle',
 }
 
 // Ossa che il player tocca. Vengono riscritte a ogni frame, cosi' una clip non
@@ -167,6 +185,43 @@ export const TOUCHED_BONES = [
   'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
   'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
 ]
+
+// ─── Sguardo che segue il mouse ────────────────────────────────────────────
+// Limiti e ripartizione fra busto, collo e testa come li descrive Mate Engine
+// (AvatarMouseTracking: testa ±45° di lato e ±30° in verticale, busto ±15°);
+// numeri presi come idea, codice nostro. Gli angoli sono nella convenzione
+// delle pose (VRM 0.x): y positivo gira il volto verso la destra dello
+// schermo, x positivo lo alza. applyPose li specchia per i VRM 1.0.
+
+const DEG = Math.PI / 180
+export const LOOK_LIMITS = {
+  headYaw: 45 * DEG, headPitch: 30 * DEG,
+  spineYaw: 15 * DEG, spinePitch: 8 * DEG,
+}
+// Quanto segue il mouse durante ogni clip: pieno a riposo, per niente mentre
+// cammina, siede o penzola, dove girare la testa sembrerebbe un difetto.
+export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5 }
+const LOOK_RATE = 7          // inseguimento del bersaglio, 1/s
+const LOOK_WEIGHT_RATE = 3   // entrata e uscita del peso, 1/s
+
+const clampAbs = (v, lim) => Math.max(-lim, Math.min(lim, v))
+
+/**
+ * Ripartisce l'orientamento verso il cursore fra busto, collo e testa.
+ * @param {number} yaw radianti, positivo verso la destra dello schermo
+ * @param {number} pitch radianti, positivo verso l'alto
+ */
+export function distributeLook(yaw, pitch) {
+  const spineYaw = clampAbs(yaw * 0.25, LOOK_LIMITS.spineYaw)
+  const spinePitch = clampAbs(pitch * 0.2, LOOK_LIMITS.spinePitch)
+  const headYaw = clampAbs(yaw - spineYaw, LOOK_LIMITS.headYaw)
+  const headPitch = clampAbs(pitch - spinePitch, LOOK_LIMITS.headPitch)
+  return {
+    spine: { x: spinePitch, y: spineYaw },
+    neck:  { x: headPitch * 0.4, y: headYaw * 0.4 },
+    head:  { x: headPitch * 0.6, y: headYaw * 0.6 },
+  }
+}
 
 const BLEND_IN_S  = 0.25
 const BLEND_OUT_S = 0.35
@@ -218,6 +273,10 @@ export function createVRMAnimator(getBone) {
   let clipEnding   = false
   let facingYaw    = 0
   let facingTarget = 0
+  let lookTarget   = { yaw: 0, pitch: 0 }
+  let look         = { yaw: 0, pitch: 0 }
+  let lookWeight   = 0
+  let lookEnabled  = false
 
   function applyPose(vrm, offsets) {
     const mirror = isVRM0(vrm) ? 1 : -1
@@ -263,10 +322,23 @@ export function createVRMAnimator(getBone) {
       if (dir === 1 || dir === -1) facingTarget = dir * FACING_YAW
     },
 
+    /**
+     * Dove sta il cursore, come angoli dalla testa (vedi distributeLook).
+     * Valori non finiti vengono ignorati.
+     */
+    setLook(yaw, pitch) {
+      if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return
+      lookTarget = { yaw, pitch }
+    },
+
+    /** Accende o spegne lo sguardo che segue il mouse, con dissolvenza. */
+    setLookEnabled(enabled) { lookEnabled = enabled === true },
+
     /** Riporta l'avatar alla sola posa di riposo. */
     reset(vrm) {
       clipName = 'idle'; clipElapsed = 0; clipWeight = 0; clipEnding = false
       facingYaw = 0; facingTarget = 0
+      look = { yaw: 0, pitch: 0 }; lookWeight = 0
       applyPose(vrm, {})
     },
 
@@ -289,17 +361,33 @@ export function createVRMAnimator(getBone) {
       const clipPose = clipName === 'idle' ? {} : active.pose(clipElapsed)
       const pose     = mergePose(basePose, clipPose, clipWeight)
 
+      // Lo sguardo si somma alla clip: la testa segue il mouse anche mentre
+      // saluta, ma il peso dipende dalla clip in corso.
+      const lookRate = Math.min(1, delta * LOOK_RATE)
+      look.yaw   += (lookTarget.yaw - look.yaw) * lookRate
+      look.pitch += (lookTarget.pitch - look.pitch) * lookRate
+      const wTarget = lookEnabled ? (LOOK_WEIGHT[clipName] || 0) : 0
+      lookWeight += (wTarget - lookWeight) * Math.min(1, delta * LOOK_WEIGHT_RATE)
+      if (lookWeight > 0.001) {
+        const parts = distributeLook(look.yaw * lookWeight, look.pitch * lookWeight)
+        for (const [name, add] of Object.entries(parts)) {
+          const p = pose[name] = pose[name] || {}
+          p.x = (p.x || 0) + add.x
+          p.y = (p.y || 0) + add.y
+        }
+      }
+
       applyPose(vrm, pose)
 
       facingYaw += (facingTarget - facingYaw) * Math.min(1, delta * 6)
       if (vrm && vrm.scene) vrm.scene.rotation.y = baseYaw(vrm) + facingYaw
 
-      return { clip: clipName, weight: clipWeight, yaw: facingYaw, pose }
+      return { clip: clipName, weight: clipWeight, yaw: facingYaw, pose, lookWeight }
     },
 
     /** Stato interno, per i test. */
     debug() {
-      return { clipName, clipElapsed, clipWeight, clipEnding, facingYaw, facingTarget }
+      return { clipName, clipElapsed, clipWeight, clipEnding, facingYaw, facingTarget, look, lookWeight }
     },
   }
 }

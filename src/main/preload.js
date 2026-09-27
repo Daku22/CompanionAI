@@ -8,6 +8,14 @@ contextBridge.exposeInMainWorld('companion', {
   // ─── UI / Finestre ──────────────────────────────────────────────────────────
   toggleChat:       ()       => ipcRenderer.send('toggle-chat'),
 
+  // ─── Mouse sull'avatar (companion-input.js) ────────────────────────────────
+  // Il renderer dice solo quando catturare il mouse e quando inizia o finisce
+  // un trascinamento: la posizione della finestra la calcola il main.
+  setMouseCapture:  (on)     => ipcRenderer.send('mouse:capture', on === true),
+  startDrag:        ()       => ipcRenderer.send('drag:start'),
+  endDrag:          ()       => ipcRenderer.send('drag:end'),
+  showMenu:         ()       => ipcRenderer.send('companion:menu'),
+
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),
 
@@ -53,6 +61,30 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('mood-changed', handler)
     return () => ipcRenderer.removeListener('mood-changed', handler)
+  },
+  // Velocita' della finestra mentre la si trascina, in px/s
+  onDragMotion: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('drag-motion', handler)
+    return () => ipcRenderer.removeListener('drag-motion', handler)
+  },
+  // Cursore rispetto alla finestra, anche fuori; follow = "Segue il mouse"
+  onCursor: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('cursor', handler)
+    return () => ipcRenderer.removeListener('cursor', handler)
+  },
+  // Voci del menu col tasto destro che servono alla pagina (avatar, importa)
+  onMenuCommand: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('menu-command', handler)
+    return () => ipcRenderer.removeListener('menu-command', handler)
+  },
+  // Opzioni cambiate dal menu, per tenere allineati gli interruttori della chat
+  onConfigChanged: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('config-changed', handler)
+    return () => ipcRenderer.removeListener('config-changed', handler)
   },
   // Verso della camminata deciso dal main (che conosce l'area di lavoro reale)
   onCompanionFacing: (cb)    => {

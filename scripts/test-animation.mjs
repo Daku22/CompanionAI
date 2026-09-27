@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import {
   createVRMAnimator, CLIPS, CLIP_ALIAS, TOUCHED_BONES, REST_POSE, mergePose,
   createBlinker, createGaze, nextSaccade, moodExpressions, MOOD_MAX, MOOD_EXPRESSIONS,
+  distributeLook, LOOK_LIMITS, LOOK_WEIGHT,
 } from '../src/renderer/vrm-animation.js'
 
 let passed = 0
@@ -240,6 +241,64 @@ function countBlinks(fps, seconds = 120) {
   }
   return blinks
 }
+
+test('lo sguardo verso il mouse resta nei limiti di testa e busto', () => {
+  for (const [yaw, pitch] of [[0, 0], [0.3, 0.1], [3, 2], [-3, -2]]) {
+    const d = distributeLook(yaw, pitch)
+    assert.ok(Math.abs(d.spine.y) <= LOOK_LIMITS.spineYaw + 1e-9)
+    assert.ok(Math.abs(d.spine.x) <= LOOK_LIMITS.spinePitch + 1e-9)
+    assert.ok(Math.abs(d.neck.y + d.head.y) <= LOOK_LIMITS.headYaw + 1e-9)
+    assert.ok(Math.abs(d.neck.x + d.head.x) <= LOOK_LIMITS.headPitch + 1e-9)
+  }
+  // Entro i limiti la somma delle parti e' l'angolo chiesto.
+  const d = distributeLook(0.4, -0.2)
+  assert.ok(Math.abs(d.spine.y + d.neck.y + d.head.y - 0.4) < 1e-9)
+  assert.ok(Math.abs(d.spine.x + d.neck.x + d.head.x + 0.2) < 1e-9)
+})
+
+test('a riposo la testa si gira verso il mouse, camminando no', () => {
+  const anim = makeAnimator()
+  const vrm = fakeVrm()
+  anim.setLookEnabled(true)
+  anim.setLook(0.5, 0)
+  const idle = advance(anim, vrm, 2)
+  assert.ok(idle.lookWeight > 0.95, 'peso a riposo ' + idle.lookWeight)
+  assert.ok(vrm.bones.head.rotation.y > 0.1, 'la testa non si e-` girata')
+  anim.play('walk-to')
+  const walking = advance(anim, vrm, 2)
+  assert.equal(LOOK_WEIGHT['walk-to'], undefined)
+  assert.ok(walking.lookWeight < 0.01, 'camminando il peso resta ' + walking.lookWeight)
+})
+
+test('spento, lo sguardo sfuma e non lascia la testa girata', () => {
+  const anim = makeAnimator()
+  const vrm = fakeVrm()
+  anim.setLookEnabled(true)
+  anim.setLook(0.6, 0.3)
+  advance(anim, vrm, 2)
+  anim.setLookEnabled(false)
+  const off = advance(anim, vrm, 3)
+  assert.ok(off.lookWeight < 0.001)
+  assert.ok(Math.abs(vrm.bones.head.rotation.y - (CLIPS.idle.pose(anim.debug().clipElapsed).head.y)) < 0.01)
+})
+
+test('setLook ignora valori non numerici', () => {
+  const anim = makeAnimator()
+  anim.setLook(0.2, 0.1)
+  anim.setLook(NaN, Infinity)
+  const vrm = fakeVrm()
+  anim.setLookEnabled(true)
+  advance(anim, vrm, 2)
+  assert.ok(Math.abs(anim.debug().look.yaw - 0.2) < 0.01)
+})
+
+test('preso in braccio le gambe penzolano invece di stare dritte', () => {
+  const anim = makeAnimator()
+  const vrm = fakeVrm()
+  assert.equal(anim.play('drag'), 'dangle')
+  advance(anim, vrm, 1)
+  assert.ok(Math.abs(vrm.bones.leftLowerLeg.rotation.x) > 0.2, 'ginocchio dritto')
+})
 
 test('il battito di ciglia ha lo stesso ritmo a 30 e a 144 fps', () => {
   const slow = countBlinks(30)
