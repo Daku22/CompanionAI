@@ -34,6 +34,8 @@ lo sviluppo, copia `.env.example` in `.env` e compila le variabili che ti servon
 | `npm test` | Tutte le suite di test, senza rete né finestre |
 | `npm run smoke` | Avvia l'app vera e la controlla dall'interno: errori, CSP, ogni avatar |
 | `npm run audit` | Avvia l'app con dati e OpenRouter finti e verifica che le richieste in chat muovano davvero l'avatar |
+| `npm run preview -- clip.vrma=wave` | Mostra delle clip su un avatar vero, con dati finti, e salva le schermate |
+| `npm run kimodo -- --out clip.vrma "prompt"` | Genera una clip con Kimodo in locale (vedi [docs/kimodo-locale.md](docs/kimodo-locale.md)) |
 | `npm run build` | Installer Windows (NSIS). `npm run dist` produce solo la cartella |
 | `npm run strips -- --masters <cartella>` | Genera un avatar 2D dalle immagini master |
 | `npm run check:publish` | Verifica che non si pubblichino asset privati o segreti |

@@ -332,6 +332,29 @@ Verifica: su Fred e Neko "siediti qui" fa sedere a terra (bacino da 0,90 a
 0,13 m) e l'avatar resta seduto dopo la fine della clip. Seduto, la camera
 abbassa lo sguardo perché si vedano le gambe.
 
+## Kimodo in locale: prototipo (2026-09-27)
+
+Richiesta: le animazioni le deve generare Kimodo in sottofondo, dopo una
+richiesta in chat. La demo su Hugging Face è un'app Docker senza API, quindi
+serve Kimodo sul PC.
+
+Prototipo con kimodo.cpp (LocalAI, Apache-2.0):
+- compilato su Windows al primo tentativo;
+- pesi da 5,5 GB con impronte verificate;
+- 30 s per il primo avvio, 15 s per ogni clip di 4 s, 2,4 GB di memoria
+  video sulla RTX 3060;
+- tre clip generate e controllate su Fred, tutte corrette.
+
+Dettagli e comandi in `docs/kimodo-locale.md`.
+
+- `kmd-generate --server` non scrive un GLB ma i dati grezzi (rotazioni locali
+  e bacino). Lo scheletro SOMA a 30 ossa è ricostruito in
+  `src/renderer/kimodo-raw.js`, con i dati di `src/skeleton.hpp`. Ha le gambe
+  `LeftLeg`/`LeftShin` come il SOMA a 77, e il riposo è in T-pose (braccia
+  lungo X, verso +Z), quindi non serve il ripiego sul primo fotogramma.
+- Strumenti nuovi: `npm run kimodo` (genera) e `npm run preview` (guarda le
+  clip su un avatar vero, con dati finti).
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

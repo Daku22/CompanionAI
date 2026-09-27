@@ -13,6 +13,14 @@ are released under the MIT License, whose full text is in each package's
 | [@pixiv/three-vrm](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 | [@pixiv/three-vrm-animation](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 
+Data copied into the source:
+
+- `src/renderer/kimodo-raw.js` contains the names, parents and rest offsets
+  of the 30-joint SOMA skeleton. They come from
+  [kimodo.cpp](https://github.com/localai-org/kimodo.cpp) `src/skeleton.hpp`
+  (Apache-2.0), which took them from NVIDIA Kimodo
+  `kimodo/skeleton/definitions.py` (Apache-2.0).
+
 The desktop runtime is [Electron](https://www.electronjs.org/) (MIT, © Electron
 contributors, © GitHub Inc.). The installer includes Electron's
 `LICENSE.electron.txt` and Chromium's `LICENSES.chromium.html`, which list the

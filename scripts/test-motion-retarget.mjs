@@ -15,6 +15,7 @@ import { BVHLoader } from 'three/examples/jsm/loaders/BVHLoader.js'
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation'
 import { retargetClip, writeVRMA, prepareHumanoid } from '../src/renderer/motion-retarget.js'
 import { createClipLayer } from '../src/renderer/clip-layer.js'
+import { kimodoClip, SOMA30 } from '../src/renderer/kimodo-raw.js'
 import { TOUCHED_BONES } from '../src/renderer/vrm-animation.js'
 import { v, wp, dir, S, buildSkeleton, mixamoSource, vrmTarget } from './lib/skeletons.mjs'
 
@@ -197,6 +198,30 @@ async function main() {
     assert.equal(step('idle', 0.6), 0)
     near(dir(vrm.bones.leftUpperArm, vrm.bones.leftLowerArm), v(1, 0, 0))
     assert.equal(layer.debug().clip, null)
+  })
+
+  await test('uscita grezza di kimodo.cpp (SOMA 30): T-pose, braccio abbassato, bacino', async () => {
+    // Due fotogrammi: fermo in T-pose, poi braccio sinistro giu' e bacino piu' basso.
+    const frames = 2
+    const joints = SOMA30.names.length
+    const rot = new Float32Array(frames * joints * 4)
+    for (let i = 0; i < frames * joints; i++) rot[i * 4 + 3] = 1
+    const down = new THREE.Quaternion().setFromAxisAngle(v(0, 0, 1), -Math.PI / 2)
+    rot.set(down.toArray(), (1 * joints + SOMA30.names.indexOf('LeftArm')) * 4)
+    const roots = new Float32Array([0, 0.95, 0, 0, 0.75, 0])
+    const { root, clip } = kimodoClip(roots, rot)
+    assert.ok(Math.abs(clip.duration - 1 / 30) < 1e-6)
+    const anim = await loadVRMA(writeVRMA(retargetClip(root, clip, { fps: 60 })))
+    const vrm = vrmTarget('1')
+    const c = createVRMAnimationClip(anim, vrm)
+    let b = pose(vrm, c, 0)
+    near(dir(b.leftUpperArm, b.leftLowerArm), v(1, 0, 0), 0.08)
+    near(dir(b.leftUpperLeg, b.leftLowerLeg), v(0, -1, 0), 0.08)
+    const h0 = wp(b.hips).y
+    b = pose(vrm, c, anim.duration)
+    near(dir(b.leftUpperArm, b.leftLowerArm), v(0, -1, 0), 0.08)
+    assert.ok(wp(b.hips).y < h0 - 0.1, 'il bacino deve scendere')
+    assert.throws(() => kimodoClip(new Float32Array(6), new Float32Array(10)), /non valida/)
   })
 
   await test('fasi: il "sedersi" di Kimodo resta seduto, e l-uscita passa prima dello slot nuovo', async () => {

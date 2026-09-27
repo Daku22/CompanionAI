@@ -29,6 +29,6 @@
     "scripts/lib/*.js",
     "scripts/*.mjs"
   ],
-  // smoke.mjs e audit.mjs usano await a livello di modulo, che il controllo in CommonJS non ammette.
-  "exclude": ["node_modules", "scripts/smoke.mjs", "scripts/audit.mjs"]
+  // smoke.mjs, audit.mjs e preview-clips.mjs usano await a livello di modulo, che il controllo in CommonJS non ammette.
+  "exclude": ["node_modules", "scripts/smoke.mjs", "scripts/audit.mjs", "scripts/preview-clips.mjs"]
 }

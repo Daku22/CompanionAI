@@ -23,6 +23,8 @@
     "check": "npm run typecheck && npm test",
     "smoke": "npm run assets && node scripts/smoke.mjs",
     "audit": "npm run assets && node scripts/audit.mjs",
+    "preview": "npm run assets && node scripts/preview-clips.mjs",
+    "kimodo": "node scripts/kimodo-generate.mjs",
     "check:publish": "node scripts/check-publish.js",
     "prebuild": "npm run assets",
     "build": "node scripts/build.js",

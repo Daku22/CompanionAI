@@ -51,6 +51,12 @@
   - sitting on an edge.
 
   Each has a procedural pose until a real clip is imported.
+- Local Kimodo (developer tools for now):
+  - `npm run kimodo` generates a clip with kimodo.cpp on your own GPU and
+    saves it as `.vrma`;
+  - `npm run preview` shows clips on a real avatar and saves screenshots;
+  - measured on an RTX 3060: about 15 s per 4-second clip. See
+    `docs/kimodo-locale.md`.
   `docs/kimodo-prompts.md` lists the Kimodo prompts for the first set of clips.
 
 ### AI and memory
