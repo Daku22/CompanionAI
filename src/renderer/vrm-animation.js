@@ -135,6 +135,69 @@ export const CLIPS = {
       head: { x: 0.10 },
     }),
   },
+  // Seduto su un bordo (finestra, taskbar): come sit, con le gambe che dondolano.
+  'sit-edge': {
+    duration: 0,
+    pose: (t) => ({
+      leftUpperLeg:  { x: -1.45 },
+      rightUpperLeg: { x: -1.45 },
+      leftLowerLeg:  { x: 1.25 + Math.sin(t * 1.7) * 0.22 },
+      rightLowerLeg: { x: 1.25 - Math.sin(t * 1.7) * 0.22 },
+      leftUpperArm:  { z: -0.18 },
+      rightUpperArm: { z:  0.18 },
+      spine: { x: 0.08 },
+      chest: { x: Math.sin(t * 1.8) * 0.025 },
+    }),
+  },
+  // Braccia in alto, busto all'indietro, e giu' di nuovo.
+  stretch: {
+    duration: 3.2,
+    pose: (t) => {
+      const c = Math.sin(Math.PI * Math.min(1, t / 3.2))
+      return {
+        rightUpperArm: { z: 2.3 * c, x: -0.1 * c },
+        leftUpperArm:  { z: -2.3 * c, x: -0.1 * c },
+        rightLowerArm: { z: 0.2 * c },
+        leftLowerArm:  { z: -0.2 * c },
+        chest: { x: -0.1 * c },
+        head:  { x: 0.15 * c },
+      }
+    },
+  },
+  // Mano alla bocca e testa all'indietro.
+  yawn: {
+    duration: 2.8,
+    pose: (t) => {
+      const c = Math.sin(Math.PI * Math.min(1, t / 2.8))
+      return {
+        rightUpperArm: { z: 0.62 * c, x: -0.30 * c },
+        rightLowerArm: { z: 1.30 * c },
+        head:  { x: 0.25 * c },
+        chest: { x: -0.05 * c },
+      }
+    },
+  },
+  // Sonnecchia in piedi: testa che ciondola.
+  doze: {
+    duration: 0,
+    pose: (t) => ({
+      head:  { x: -0.35 + Math.sin(t * 0.8) * 0.04, z: 0.06 },
+      chest: { x: Math.sin(t * 1.1) * 0.02 },
+    }),
+  },
+  dance: {
+    duration: 0,
+    pose: (t) => {
+      const s = Math.sin(t * 4.0)
+      return {
+        hips:  { y: Math.abs(s) * 0.04 },
+        chest: { y: s * 0.15 },
+        rightUpperArm: { z: 0.5 + 0.4 * s },
+        leftUpperArm:  { z: -(0.5 - 0.4 * s) },
+        head:  { z: s * 0.08 },
+      }
+    },
+  },
   // Preso in braccio: gambe che penzolano sciolte, braccia un po' aperte.
   // Ripiego procedurale finche' la Fase C non porta una clip vera.
   dangle: {
@@ -176,6 +239,8 @@ export const CLIP_ALIAS = {
   click: 'click',
   search: 'search', scroll: 'search', 'open-file': 'search',
   drag: 'dangle', dangle: 'dangle',
+  'sit-edge': 'sit-edge', stretch: 'stretch', yawn: 'yawn',
+  doze: 'doze', sleep: 'doze', dance: 'dance',
 }
 
 // Ossa che il player tocca. Vengono riscritte a ogni frame, cosi' una clip non

@@ -45,6 +45,13 @@
   - clips can have phases: an entry ("sit down", then stay seated), a loop and
     an exit ("stand up"). Sitting on the floor lowers the camera so the legs
     stay in view.
+- New gestures:
+  - stretch, yawn, doze and dance: the AI can ask for them, and idle life
+    uses the first three;
+  - sitting on an edge.
+
+  Each has a procedural pose until a real clip is imported.
+  `docs/kimodo-prompts.md` lists the Kimodo prompts for the first set of clips.
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.

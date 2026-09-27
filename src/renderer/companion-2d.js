@@ -436,6 +436,8 @@ const ANIM_ALIAS = {
   'walk-to': 'walk', 'run-to': 'run', 'walk': 'walk', 'run': 'run',
   'scroll': 'think', 'open-file': 'sit', 'search': 'think',
   'relaxed': 'think',
+  // Gesti senza una strip propria nei pacchetti di oggi.
+  'sit-edge': 'sit', 'stretch': 'happy', 'yawn': 'think', 'doze': 'sit', 'dance': 'happy',
 };
 function resolveAnimKey(action) {
   if (!action) return 'idle';

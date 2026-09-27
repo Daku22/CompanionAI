@@ -20,7 +20,7 @@ const { writeAtomic } = require('./write-atomic')
 
 // Stessi nomi di CLIPS in src/renderer/vrm-animation.js (test-animation.mjs
 // controlla che coincidano).
-const ANIMATION_SLOTS = ['idle', 'wave', 'think', 'walk-to', 'run-to', 'sit', 'smoke', 'happy', 'click', 'dangle', 'search']
+const ANIMATION_SLOTS = ['idle', 'wave', 'think', 'walk-to', 'run-to', 'sit', 'sit-edge', 'smoke', 'happy', 'click', 'dangle', 'search', 'stretch', 'yawn', 'doze', 'dance']
 const FILE_RE = /^[a-z0-9][a-z0-9._-]{0,80}\.vrma$/i
 const MAX_ANIMATION_BYTES = 30 * 1024 * 1024
 const SOURCE_RE = /^[a-z]+$/

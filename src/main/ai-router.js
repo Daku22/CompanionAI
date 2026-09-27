@@ -113,6 +113,7 @@ const PROVIDERS = {
 const ANIMATIONS = [
   'idle', 'walk-to', 'run-to', 'think', 'wave', 'sit', 'smoke',
   'click', 'happy', 'scroll', 'open-file', 'search',
+  'stretch', 'yawn', 'doze', 'dance',
 ]
 const ACTION_TYPES = ['none', 'open-desktop-item', 'open-url', 'open-path', 'run-command']
 // Emozioni che il modello puo' dichiarare: le stesse che mood.js sa gestire.
@@ -180,6 +181,9 @@ Esempi:
 - "corri fino al bordo sinistro" -> type: "none", animation: "run-to", direction: "left", distance: "edge"
 - "vieni qui" / "vieni dal mouse" -> type: "none", animation: "walk-to", direction: "toward-cursor"
 - "siediti" / "siediti qui" -> type: "none", animation: "sit"
+- "balla" / "facciamo festa" -> type: "none", animation: "dance", emotion: "joy"
+- "sono stanco, stiracchiati con me" -> type: "none", animation: "stretch"
+- "buonanotte" -> type: "none", animation: "doze", emotion: "calm"
 
 Le animazioni e gli spostamenti del tuo avatar non sono azioni sul sistema:
 usa sempre type "none" e scegli l'animazione che corrisponde alla richiesta.

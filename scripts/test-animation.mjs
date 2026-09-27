@@ -60,8 +60,7 @@ test('la libreria delle clip .vrma conosce gli stessi gesti del player', () => {
 test('le animazioni del contratto AI sono tutte gestite', () => {
   // Stesso vocabolario dichiarato in ai-router.js: se le due liste divergono,
   // l'AI puo' chiedere un movimento che l'avatar non sa fare.
-  const daRouter = ['idle', 'walk-to', 'run-to', 'think', 'wave', 'sit', 'smoke',
-                    'click', 'happy', 'scroll', 'open-file', 'search']
+  const daRouter = createRequire(process.argv[1])('../src/main/ai-router.js').ANIMATIONS
   for (const nome of daRouter) {
     assert.ok(CLIP_ALIAS[nome], 'animazione "' + nome + '" senza alias nel player')
   }

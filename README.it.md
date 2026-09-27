@@ -227,8 +227,12 @@ provider diventano messaggi che dicono cosa fare (`describeError`).
 ## Animazioni
 
 Vocabolario condiviso tra AI, chat e avatar: `idle`, `walk-to`, `run-to`,
-`wave`, `think`, `sit`, `smoke`, più gli alias `click`, `happy`, `scroll`,
-`open-file`, `search`.
+`wave`, `think`, `sit`, `smoke`, `stretch`, `yawn`, `doze`, `dance`, più gli
+alias `click`, `happy`, `scroll`, `open-file`, `search`.
+
+Due gesti sono solo interni, usati dal main e dalla vita a riposo: `sit-edge`
+(seduto su un bordo) e `dangle` (in braccio). Le clip Kimodo da generare, con
+i prompt, sono in [docs/kimodo-prompts.md](docs/kimodo-prompts.md).
 
 **2D.** Un avatar è un pacchetto di strip, una per animazione, con i riquadri
 dei fotogrammi in un manifest. `scripts/build-strips.js` le genera dalle

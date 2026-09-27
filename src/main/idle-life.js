@@ -25,8 +25,10 @@ const GESTURES = {
   walk:  { animation: 'walk-to', bubble: '',        holdMs: 0, walk: true },
   happy: { animation: 'happy',   bubble: '♪',       holdMs: 3000 },
   rest:  { animation: 'sit',     bubble: '',        holdMs: 8000 },
-  doze:  { animation: 'sit',     bubble: '💤',      holdMs: 12000 },
+  doze:  { animation: 'doze',    bubble: '💤',      holdMs: 12000 },
   smoke: { animation: 'smoke',   bubble: '🚬 ...',  holdMs: 6000 },
+  stretch: { animation: 'stretch', bubble: '',      holdMs: 3500 },
+  yawn:  { animation: 'yawn',    bubble: '🥱',      holdMs: 3000 },
 }
 
 function isNight(hour) {
@@ -37,8 +39,8 @@ function isNight(hour) {
 function gestureWeights(mood, hour) {
   const e = (mood && mood.emotions) || {}
   const tired = isNight(hour) || (mood && mood.energy < 0.35)
-  if (tired) return { doze: 4, look: 1, rest: 1 }
-  const w = { look: 3, walk: 2, happy: 1, rest: 1, smoke: 1 }
+  if (tired) return { doze: 4, yawn: 2, look: 1, rest: 1 }
+  const w = { look: 3, walk: 2, happy: 1, rest: 1, smoke: 1, stretch: 1 }
   if ((e.joy || 0) >= FELT)       { w.happy += 2; w.walk += 1 }
   if ((e.curiosity || 0) >= FELT) { w.look += 2; w.walk += 1 }
   if ((e.sadness || 0) >= FELT)   { w.rest += 2; w.happy = 0 }

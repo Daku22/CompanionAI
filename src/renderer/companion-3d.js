@@ -450,11 +450,14 @@ loadAnimationLibrary().catch(e => console.warn('Animazioni non caricate:', e.mes
 
 // Etichette dei gesti, nell'ordine in cui si propongono all'import.
 const SLOT_LABELS = {
-  idle: 'A riposo', wave: 'Saluto', happy: 'Contento', think: 'Pensa', sit: 'Seduto',
-  dangle: 'In braccio', 'walk-to': 'Camminata', 'run-to': 'Corsa', search: 'Cerca',
+  idle: 'A riposo', wave: 'Saluto', happy: 'Contento', think: 'Pensa', sit: 'Seduto a terra',
+  'sit-edge': 'Seduto sul bordo', dangle: 'In braccio', stretch: 'Si stiracchia', yawn: 'Sbadiglio',
+  doze: 'Sonnecchia', dance: 'Balla', 'walk-to': 'Camminata', 'run-to': 'Corsa', search: 'Cerca',
   smoke: 'Fuma', click: 'Clic',
 };
 const SLOT_HINTS = [
+  [/(ledge|edge|bordo|dangling legs)/, 'sit-edge'], [/(stretch|stiracch)/, 'stretch'],
+  [/(yawn|sbadigl)/, 'yawn'], [/(doze|sleep|nap|dorm|sonn)/, 'doze'], [/(danc|ball)/, 'dance'],
   [/(wave|hello|greet|salut|ciao)/, 'wave'], [/(think|pens|ponder)/, 'think'],
   [/(walk|cammin)/, 'walk-to'], [/(run|jog|corr)/, 'run-to'], [/(sit|seat|sedu|sied)/, 'sit'],
   [/(hang|dangl|drag|carr|brac)/, 'dangle'], [/(happy|cheer|joy|clap|content)/, 'happy'],
