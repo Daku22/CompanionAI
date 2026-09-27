@@ -3,10 +3,11 @@ const path  = require('path')
 const { spawn } = require('child_process')
 const fs    = require('fs')
 const os    = require('os')
-const { route, PROVIDERS, describeError, listModels, EMOTIONS } = require('./ai-router')
+const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
-const { AnimationLibrary } = require('./AnimationLibrary')
+const { AnimationLibrary, isGlb } = require('./AnimationLibrary')
+const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
 const { builtinAvatars } = require('./builtin-avatars')
 const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, WINDOW_SCALES } = require('./guards')
 const { walkTarget } = require('./walk-target')
@@ -20,6 +21,7 @@ let tray            = null
 let memoryManager   = null
 let avatarLibrary   = null
 let animationLibrary = null
+let kimodo = null
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -42,9 +44,11 @@ const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 // avatarModel vuoto = l'avatar predefinito, scelto da builtin-avatars.js.
 // idleLife: gesti autonomi quando nessuno scrive (idle-life.js).
 // followMouse, alwaysOnTop e scale si cambiano dal menu col tasto destro.
+// kimodo: movimenti nuovi generati in locale (kimodo-service.js); kimodoDir
+// si scrive solo a mano in config.json, mai dalla UI.
 const DEFAULT_CONFIG = {
   provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true,
-  followMouse: true, alwaysOnTop: true, scale: 'm', keys: {},
+  followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, keys: {},
 }
 
 function loadEnvFile() {
@@ -100,6 +104,7 @@ function loadConfig() {
   cfg.idleLife = cfg.idleLife !== false
   cfg.followMouse = cfg.followMouse !== false
   cfg.alwaysOnTop = cfg.alwaysOnTop !== false
+  cfg.kimodo = cfg.kimodo === true
   if (typeof cfg.scale !== 'string' || !Object.prototype.hasOwnProperty.call(WINDOW_SCALES, cfg.scale)) cfg.scale = DEFAULT_CONFIG.scale
   if (!PROVIDERS[cfg.provider]) { cfg.provider = DEFAULT_CONFIG.provider; cfg.model = DEFAULT_CONFIG.model }
 
@@ -126,13 +131,14 @@ function saveConfig(cfg) {
 }
 
 function publicConfig(cfg) {
-  const { keys, unreadableKeys, ...safe } = cfg
+  const { keys, unreadableKeys, kimodoDir, ...safe } = cfg
   return {
     ...safe,
     keyConfigured: Object.fromEntries(Object.entries(keys || {}).map(([name, value]) => [name, !!value])),
     // Solo i nomi dei provider: la chat spiega perche' la chiave va reinserita.
     keyUnreadable: Object.fromEntries(Object.keys(unreadableKeys || {}).filter(name => !(keys || {})[name]).map(name => [name, true])),
     providers: PROVIDERS,
+    kimodoAvailable: !!kimodo && kimodo.available(),
   }
 }
 
@@ -526,6 +532,8 @@ handle('ai:send-message', async (_e, { history }) => {
       model:    cfg.model,
       apiKey,
       history: historyWithMemory,
+      // Il campo motion si spiega al modello solo quando si puo' usare.
+      systemPrompt: (await motionsEnabled(cfg)) ? SYSTEM_PROMPT + MOTION_PROMPT : undefined,
     })
     console.log('[Main] route() completato, reply length:', result?.reply?.length)
 
@@ -699,6 +707,64 @@ on('os:execute', async (_e, action) => {
     // riposo non devono farlo alzare dopo venti secondi.
     requestedPoseUntil = action.animation === 'sit' ? Date.now() + REQUESTED_POSE_MS : 0
   }
+  const motion = motionPrompt(action.motion)
+  if (motion) requestGeneratedMotion(motion).catch(e => console.error('[kimodo]', e.message))
+})
+
+// ─── Movimenti generati (Kimodo) ─────────────────────────────────────────────
+// Il modello descrive in action.motion un movimento che non e' fra le
+// animazioni; kimodo-service.js lo genera sulla scheda video. Il renderer
+// converte l'uscita in .vrma, la riproduce una volta e la rimanda qui per la
+// cache: la stessa frase, la volta dopo, parte subito.
+
+const MOTION_SECONDS = 4
+let motionJob = 0
+// Chiavi di cache che il renderer puo' salvare: solo quelle appena generate.
+const expectedMotions = new Set()
+
+/** Kimodo attivo, installato, e un avatar 3D (il 2D ha solo sprite). */
+async function motionsEnabled(cfg = loadConfig()) {
+  if (!cfg.kimodo || !kimodo || !kimodo.available()) return false
+  let avatars = []
+  try { avatars = avatarLibrary ? await avatarLibrary.list() : [] } catch (_) { return false }
+  const current = avatars.find(a => a.id === cfg.avatarModel) || avatars.find(a => a.default) || avatars[0]
+  return !!current && current.kind !== 'sprite-pack' && current.kind !== 'sprite'
+}
+
+/** @param {string} prompt frase gia' ripulita da motionPrompt */
+async function requestGeneratedMotion(prompt) {
+  if (!(await motionsEnabled())) return
+  const job = ++motionJob
+  const key = kimodo.cached(prompt, MOTION_SECONDS)
+  if (key) {
+    sendCompanion('generated-motion', { key, prompt, url: 'motion://generated/' + key, play: true })
+    return
+  }
+  console.log('[kimodo] genero: ' + prompt)
+  animateCompanion({ type: 'none', animation: 'think', bubble: 'Provo il movimento…' })
+  const started = Date.now()
+  try {
+    const raw = await kimodo.generate(prompt, { seconds: MOTION_SECONDS })
+    const fresh = cacheKey(prompt, MOTION_SECONDS)
+    expectedMotions.add(fresh)
+    console.log('[kimodo] pronto in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s, ' + raw.frames + ' fotogrammi')
+    // Una richiesta piu' recente ha la precedenza: questa va solo in cache.
+    sendCompanion('generated-motion', { key: fresh, prompt, rootPositions: raw.rootPositions, rotations: raw.rotations, play: job === motionJob })
+  } catch (error) {
+    console.error('[kimodo] generazione fallita: ' + error.message)
+    if (job === motionJob) animateCompanion({ type: 'none', animation: 'idle', bubble: 'Questo movimento non mi riesce…' })
+  }
+}
+
+const MAX_MOTION_BYTES = 10 * 1024 * 1024
+handle('motions:store', async (_e, payload) => {
+  const { key, data } = payload || {}
+  if (typeof key !== 'string' || !expectedMotions.has(key)) throw new Error('Movimento non atteso')
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data || [])
+  if (bytes.length > MAX_MOTION_BYTES || !isGlb(bytes)) throw new Error('Movimento non valido')
+  expectedMotions.delete(key)
+  await kimodo.store(key, bytes)
+  return { url: 'motion://generated/' + key }
 })
 
 /**
@@ -901,6 +967,8 @@ function applyScale(scale) {
 function applyWindowOptions(cfg) {
   idleLifeEnabled = cfg.idleLife !== false
   followMouse = cfg.followMouse !== false
+  // Spento Kimodo, la memoria video si libera subito.
+  if (!cfg.kimodo && kimodo) kimodo.stop()
   if (!companionWindow || companionWindow.isDestroyed()) return
   const onTop = cfg.alwaysOnTop !== false
   if (companionWindow.isAlwaysOnTop() !== onTop) companionWindow.setAlwaysOnTop(onTop, 'screen-saver')
@@ -951,6 +1019,9 @@ async function showCompanionMenu() {
     { label: 'Segue il mouse', type: 'checkbox', checked: cfg.followMouse, click: (item) => setOption({ followMouse: item.checked }) },
     { label: 'Vita autonoma', type: 'checkbox', checked: cfg.idleLife, click: (item) => setOption({ idleLife: item.checked }) },
     { label: 'Sempre in primo piano', type: 'checkbox', checked: cfg.alwaysOnTop, click: (item) => setOption({ alwaysOnTop: item.checked }) },
+    kimodo && kimodo.available()
+      ? { label: 'Movimenti nuovi con Kimodo', type: 'checkbox', checked: cfg.kimodo, click: (item) => setOption({ kimodo: item.checked }) }
+      : { label: 'Movimenti nuovi con Kimodo (non installato)', enabled: false },
     { type: 'separator' },
     { label: 'Nascondi (torna dall\'icona nella barra)', click: () => { if (companionWindow) companionWindow.hide() } },
     { label: 'Esci', click: () => app.quit() },
@@ -1110,11 +1181,21 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler(() => false)
 
   avatarLibrary = new AvatarLibrary(path.join(app.getPath('userData'), 'avatars'), builtinAvatars(path.join(__dirname, '..', '..')))
+  // audit.mjs e preview-clips.mjs provano le proprie clip: con anche le
+  // integrate e le private, uno slot sceglierebbe a caso fra piu' clip.
+  const onlyUserClips = process.env.COMPANION_ONLY_USER_CLIPS === '1'
   animationLibrary = new AnimationLibrary([
-    { id: 'builtin', dir: path.join(__dirname, '..', '..', 'modelli-3d', 'animations') },
-    { id: 'private', dir: path.join(__dirname, '..', '..', 'private-assets', 'animations') },
+    ...(onlyUserClips ? [] : [
+      { id: 'builtin', dir: path.join(__dirname, '..', '..', 'modelli-3d', 'animations') },
+      { id: 'private', dir: path.join(__dirname, '..', '..', 'private-assets', 'animations') },
+    ]),
     { id: 'user', dir: path.join(app.getPath('userData'), 'animations') },
   ])
+  const startCfg = loadConfig()
+  kimodo = new KimodoService({
+    dir: typeof startCfg.kimodoDir === 'string' && path.isAbsolute(startCfg.kimodoDir) ? startCfg.kimodoDir : path.join(os.homedir(), 'kimodo'),
+    cacheDir: path.join(app.getPath('userData'), 'generated-motions'),
+  })
   app.on('web-contents-created', (_event, contents) => {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     contents.on('will-navigate', event => event.preventDefault())
@@ -1180,7 +1261,8 @@ app.whenReady().then(() => {
   protocol.handle('motion', async (request) => {
     try {
       const url = new URL(request.url)
-      const file = animationLibrary.resolve(url.hostname, decodeURIComponent(url.pathname.slice(1)))
+      const name = decodeURIComponent(url.pathname.slice(1))
+      const file = url.hostname === 'generated' ? (kimodo && kimodo.resolve(name)) : animationLibrary.resolve(url.hostname, name)
       if (!file) return new Response('Not found', { status: 404 })
       const res = await net.fetch(require('url').pathToFileURL(file).toString())
       const headers = new Headers(res.headers)
@@ -1204,6 +1286,7 @@ app.on('window-all-closed', () => {
   if (cursorTimer) clearInterval(cursorTimer)
   if (idleTimer) clearInterval(idleTimer)
   if (global.__memoryTimer) clearInterval(global.__memoryTimer)
+  if (kimodo) kimodo.stop()
   if (process.platform !== 'darwin') app.quit()
 })
 

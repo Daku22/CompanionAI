@@ -355,6 +355,41 @@ Dettagli e comandi in `docs/kimodo-locale.md`.
 - Strumenti nuovi: `npm run kimodo` (genera) e `npm run preview` (guarda le
   clip su un avatar vero, con dati finti).
 
+## Fase C2 e fase K: serie di base e movimenti dalla chat (2026-09-27)
+
+**C2, la serie di base.** Le 20 clip di `docs/kimodo-prompts.md` si generano
+in locale in circa 5 minuti (`scripts/kimodo-series.json`). Vanno in
+`private-assets/animations/`, solo nella copia privata, finché non si
+confermano i termini sulle uscite di Kimodo.
+- Entrata, ciclo e uscita di un gesto sono una sola richiesta a sequenza:
+  kimodo.cpp raccorda i segmenti (5 fotogrammi) e poi si tagliano.
+- I cicli si tagliano dove si ripetono meglio (`findLoop`) e si chiudono
+  sfumando la coda verso il primo fotogramma (`closeLoop`).
+- Errore trovato guardando le anteprime: la posa di riposo prendeva l'altezza
+  del bacino del primo fotogramma. Le clip che partono sedute (ciclo seduto,
+  rialzarsi) finivano all'altezza di chi sta in piedi, e "rialzarsi" arrivava
+  quasi a 2 m. Ora il riposo è la T-pose in piedi sul pavimento vero (Kimodo:
+  y = 0, caviglia a 7 cm, misurata), e `retargetClip` rialza il riposo quando
+  il riferimento è seduto. Test con una clip seduta dal primo fotogramma.
+- "Seduto sul bordo" ora è "seduto su una sedia": Kimodo non vede oggetti e
+  con "ledge" si sedeva a terra.
+
+**K, i movimenti nuovi dalla chat.**
+- Contratto: `action.motion`, facoltativo, spiegato al modello solo se Kimodo
+  è attivo (`MOTION_PROMPT`). Senza, il prompt resta quello di prima.
+- `src/main/kimodo-service.js`: server avviato alla prima richiesta, coda,
+  tempo massimo, chiusura dopo 5 minuti di inattività, cache di 100 file.
+  Testato con un processo finto che parla lo stesso protocollo
+  (`scripts/test-kimodo-service.js`).
+- La conversione resta nel renderer, che ha three: il main manda l'uscita
+  grezza e riceve il .vrma per la cache. `motions:store` accetta solo chiavi
+  che il main ha appena generato.
+- Slot `generated` nel player (`GENERATED` in `vrm-animation.js`), fuori da
+  `ANIMATION_SLOTS`: nessun file della libreria lo usa.
+- Sicurezza: la cartella di kimodo.cpp si sceglie solo a mano in
+  `config.json` (`kimodoDir`), mai dalla UI; la frase del modello va in un
+  file di prompt, non sulla riga di comando.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

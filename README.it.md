@@ -35,7 +35,7 @@ lo sviluppo, copia `.env.example` in `.env` e compila le variabili che ti servon
 | `npm run smoke` | Avvia l'app vera e la controlla dall'interno: errori, CSP, ogni avatar |
 | `npm run audit` | Avvia l'app con dati e OpenRouter finti e verifica che le richieste in chat muovano davvero l'avatar |
 | `npm run preview -- clip.vrma=wave` | Mostra delle clip su un avatar vero, con dati finti, e salva le schermate |
-| `npm run kimodo -- --out clip.vrma "prompt"` | Genera una clip con Kimodo in locale (vedi [docs/kimodo-locale.md](docs/kimodo-locale.md)) |
+| `npm run kimodo -- --out clip.vrma "prompt"` | Genera una clip con Kimodo in locale (vedi [docs/kimodo-locale.md](docs/kimodo-locale.md)). `--series scripts/kimodo-series.json --out <cartella>` genera tutta la serie di base |
 | `npm run build` | Installer Windows (NSIS). `npm run dist` produce solo la cartella |
 | `npm run strips -- --masters <cartella>` | Genera un avatar 2D dalle immagini master |
 | `npm run check:publish` | Verifica che non si pubblichino asset privati o segreti |
@@ -235,6 +235,24 @@ alias `click`, `happy`, `scroll`, `open-file`, `search`.
 Due gesti sono solo interni, usati dal main e dalla vita a riposo: `sit-edge`
 (seduto su un bordo) e `dangle` (in braccio). Le clip Kimodo da generare, con
 i prompt, sono in [docs/kimodo-prompts.md](docs/kimodo-prompts.md).
+
+**Movimenti nuovi con Kimodo (facoltativo, solo 3D).** Se in chat si chiede un
+movimento che non è fra i gesti ("fai un inchino"), il modello lo descrive in
+inglese nel campo facoltativo `action.motion` e l'app lo fa generare a Kimodo
+sulla scheda video, poi lo riproduce una volta.
+- `src/main/kimodo-service.js` avvia `kmd-generate --server` alla prima
+  richiesta, passa le richieste una alla volta e lo chiude dopo cinque minuti
+  senza richieste, per liberare la memoria video.
+- Il renderer converte l'uscita grezza in .vrma (`kimodo-raw.js`, poi
+  `retargetClip`), la riproduce nello slot `generated` e la rimanda al main,
+  che la tiene in cache (`<userData>/generated-motions`, al massimo 100 file).
+  La stessa frase, la volta dopo, parte subito.
+- Il campo `motion` si spiega al modello (`MOTION_PROMPT`) solo quando Kimodo
+  è acceso, installato e l'avatar è 3D.
+- Si accende dal menu col tasto destro, "Movimenti nuovi con Kimodo". La
+  cartella di kimodo.cpp è `%USERPROFILE%\kimodo`, oppure `kimodoDir` scritto a
+  mano in `config.json`: dalla UI non si può cambiare, perché è un eseguibile
+  da avviare.
 
 **2D.** Un avatar è un pacchetto di strip, una per animazione, con i riquadri
 dei fotogrammi in un manifest. `scripts/build-strips.js` le genera dalle
@@ -492,8 +510,8 @@ Da fare:
 - interfaccia in inglese;
 - firma del codice e aggiornamenti automatici;
 - taratura a occhio delle pose 3D;
-- le clip vere: generate con Kimodo e convertite con l'import (Fase C),
-  che sostituiranno anche la posa `dangle`;
+- clip integrate pubblicabili: la serie di base generata con Kimodo è per ora
+  solo nella copia privata, finché non si confermano i termini sulle uscite;
 - prova con un FBX vero (Mixamo): il percorso è lo stesso del glTF, ma i test
   non hanno un file FBX;
 - seduta su finestre e taskbar (resto della Fase B, con koffi);

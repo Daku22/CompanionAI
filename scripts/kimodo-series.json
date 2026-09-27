@@ -1,0 +1,29 @@
+{
+  "about": "Prima serie di clip per il companion, generata con npm run kimodo -- --series scripts/kimodo-series.json --out <cartella>. Ogni voce e' una richiesta a Kimodo: una clip sola, o una sequenza (entrata, ciclo, uscita) generata in un colpo solo e tagliata, cosi' le fasi si raccordano. Seduto sul bordo = seduto su una sedia: Kimodo non vede il bordo, ma la posa (cosce orizzontali, gambe giu') e' la stessa. In braccio = in punta di piedi con le braccia in alto: Kimodo non solleva il corpo da terra (sollevato si accovaccia, fluttuare lo sdraia). loop: il tratto che si ripete meglio viene tagliato e chiuso. Vedi docs/kimodo-prompts.md.",
+  "clips": [
+    { "out": "idle-respiro.vrma", "seconds": 6, "loop": true, "prompt": "A person stands relaxed, breathing slowly, shifting weight slightly from one foot to the other, arms loose at the sides." },
+    { "out": "idle-guarda.vrma", "seconds": 6, "loop": true, "prompt": "A person stands still and looks around curiously to the left and to the right, then back to the front." },
+    { "out": "idle-talloni.vrma", "seconds": 5, "loop": true, "prompt": "A person stands with hands clasped behind the back, rocking gently on the heels." },
+    { "out": "stretch.vrma", "seconds": 4, "prompt": "A person raises both arms above the head and stretches, leaning back a little, then lowers the arms." },
+    { "out": "yawn.vrma", "seconds": 3, "prompt": "A person yawns, covering the mouth with the right hand, then lowers the hand." },
+    { "sequence": [
+      { "out": "sit-enter-terra.vrma", "seconds": 5, "prompt": "A person slowly sits down on the floor and hugs their knees." },
+      { "out": "sit-ginocchia.vrma", "seconds": 6, "loop": true, "prompt": "A person sits on the floor hugging their knees, breathing slowly and swaying slightly." },
+      { "out": "sit-exit-alzati.vrma", "seconds": 4, "prompt": "A person sitting on the floor hugging their knees stands up." }
+    ] },
+    { "sequence": [
+      { "out": "sit-edge-enter.vrma", "seconds": 3, "prompt": "A person sits down on a chair, hands resting on the thighs." },
+      { "out": "sit-edge-dondola.vrma", "seconds": 6, "loop": true, "prompt": "A person sits on a chair, relaxed, gently swinging the lower legs back and forth." },
+      { "out": "sit-edge-exit.vrma", "seconds": 3, "prompt": "A person sitting on a chair stands up." }
+    ] },
+    { "out": "dangle.vrma", "seconds": 4, "loop": true, "prompt": "A person stands on tiptoe with both arms raised overhead, legs relaxed, swaying gently." },
+    { "out": "wave.vrma", "seconds": 3, "prompt": "A person waves hello with the right hand, smiling." },
+    { "out": "happy.vrma", "seconds": 3, "prompt": "A person jumps slightly and raises both fists happily." },
+    { "out": "think.vrma", "seconds": 4, "prompt": "A person puts a hand on the chin and thinks, tilting the head." },
+    { "out": "doze.vrma", "seconds": 6, "loop": true, "prompt": "A person stands dozing off, head slowly dropping forward and jerking back up." },
+    { "out": "walk-to.vrma", "seconds": 4, "loop": true, "prompt": "A person walks forward at a relaxed pace." },
+    { "out": "run-to.vrma", "seconds": 4, "loop": true, "prompt": "A person jogs forward." },
+    { "out": "dance-allegro.vrma", "seconds": 6, "loop": true, "prompt": "A person dances happily, bouncing to the beat and swinging the arms." },
+    { "out": "dance-lento.vrma", "seconds": 6, "loop": true, "prompt": "A person does a slow, relaxed sway dance." }
+  ]
+}

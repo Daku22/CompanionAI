@@ -12,6 +12,10 @@ everything the app sends out and everything it stores.
 | The Ollama server | Only if you use Ollama | Same as any AI provider. By default Ollama runs on your own computer (`127.0.0.1`) |
 | A website | Only if the AI proposes opening a link **and you approve it** | The link opens in your default browser |
 
+Movements generated with Kimodo ("Movimenti nuovi con Kimodo", off by
+default) never leave your computer: the model runs on your own graphics card,
+and it receives only the short English description of the movement.
+
 What each provider does with your conversations is governed by that
 provider's own privacy policy and terms. Pick one you trust. With Ollama,
 nothing leaves your machine.
@@ -27,6 +31,8 @@ personal data.
 | Settings and API keys | `%USERPROFILE%\.desktop-companion\config.json`. Keys are encrypted with Windows' own key store (Electron `safeStorage`) |
 | Conversation memory | `%USERPROFILE%\.desktop-companion\memory\`: recent turns, summary, and the lossless archive of summarized turns |
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
+| Imported animations | `%APPDATA%\CompanionAI\animations\` |
+| Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files |
 | Error log | `%APPDATA%\CompanionAI\logs\`: warnings and errors only, never your conversations. Open it from the tray icon menu |
 
 **Deleting your data:**

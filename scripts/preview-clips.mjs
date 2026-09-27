@@ -7,6 +7,9 @@
 // Uso:
 //   node scripts/preview-clips.mjs [--vrm Fred] [--out <cartella>] clip.vrma=wave altra.vrma=sit-enter ...
 //   Il nome dopo "=" e' lo slot, con la fase se serve (sit-enter, sit-exit).
+//   --play sit,idle: invece di una clip alla volta, esegue questi gesti in
+//   ordine (per vedere entrata, ciclo e uscita di fila).
+//   --times 600,2000,3600: quando scattare le schermate, in ms dall'avvio.
 //
 // Esce con codice 1 se una clip non parte.
 
@@ -27,6 +30,7 @@ const opt = (name) => { const i = argv.indexOf(name); return i === -1 ? null : a
 const VRM = opt('--vrm') || 'Fred'
 const OUT = path.resolve(opt('--out') || path.join(os.tmpdir(), 'companion-preview'))
 // Lo slot puo' portare la fase: "sit-enter" -> sit-enter-preview-0.vrma, gesto sit.
+const TIMES = (opt('--times') || '600,2000,3600').split(',').map(Number)
 const clips = argv.filter((a, i) => a.includes('=') && !argv[i - 1]?.startsWith('--')).map((a, i) => {
   const [file, slot] = a.split('=')
   return { file: path.resolve(file), slot, name: slot + '-preview-' + i + '.vrma', animation: slot.replace(/-(enter|exit)$/, '') }
@@ -41,9 +45,10 @@ fs.writeFileSync(path.join(HOME, '.desktop-companion', 'config.json'), JSON.stri
 fs.mkdirSync(path.join(USER_DATA, 'animations'), { recursive: true })
 fs.mkdirSync(OUT, { recursive: true })
 for (const c of clips) fs.copyFileSync(c.file, path.join(USER_DATA, 'animations', c.name))
+const plays = opt('--play') ? opt('--play').split(',').map(a => ({ slot: a, animation: a, name: null })) : clips
 
 const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA], {
-  cwd: ROOT, stdio: 'ignore', env: { ...process.env, USERPROFILE: HOME, HOME },
+  cwd: ROOT, stdio: 'ignore', env: { ...process.env, USERPROFILE: HOME, HOME, COMPANION_ONLY_USER_CLIPS: "1" },
 })
 
 function connect(target) {
@@ -79,11 +84,10 @@ try {
     const s = await comp.send('Page.captureScreenshot', { format: 'png' })
     fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(s.result.data, 'base64'))
   }
-  for (const [i, c] of clips.entries()) {
+  for (const [i, c] of plays.entries()) {
     await comp.evaluate(`window.companion.executeAction({ type: 'none', animation: ${JSON.stringify(c.animation)} }); true`)
-    const times = [600, 2000, 3600]
     let last = 0
-    for (const t of times) {
+    for (const t of TIMES) {
       await sleep(t - last)
       last = t
       await shot(`${i}-${c.slot}-${(t / 1000).toFixed(1)}s`)
@@ -93,8 +97,10 @@ try {
     if (!ok) failed++
     console.log((ok ? 'ok  ' : 'NO  ') + c.slot + ': ' + JSON.stringify(state))
     // Pausa in idle fra una clip e l'altra.
-    await comp.evaluate(`window.companion.executeAction({ type: 'none', animation: 'idle' }); true`)
-    await sleep(1500)
+    if (plays === clips) {
+      await comp.evaluate(`window.companion.executeAction({ type: 'none', animation: 'idle' }); true`)
+      await sleep(1500)
+    }
   }
 } catch (error) {
   failed++

@@ -216,9 +216,16 @@ export function retargetClip(root, clip, { fps = 30, inPlace = true } = {}) {
   mixer.uncacheRoot(root)
 
   // Posizioni di riposo per lo scheletro del file .vrma, relative al genitore.
+  // Il bacino a riposo e' quello in piedi: in T-pose i piedi toccano terra.
+  // Se il riferimento era seduto (una clip che parte seduta), i piedi
+  // raddrizzati finiscono sotto il pavimento e il riposo va rialzato; le
+  // posizioni della clip restano rispetto al pavimento vero.
+  const feet = Math.min(restPos.leftFoot.y, restPos.rightFoot.y)
+  const floor = Math.min(0, feet - 0.08 * (restPos.head.y - feet))
   const skeleton = names.map(n => {
     const parent = humanParent(n, nodes)
     const pos = restPos[n].clone().sub(parent ? restPos[parent] : new THREE.Vector3())
+    if (!parent) pos.y -= floor
     return { name: n, parent, translation: pos.toArray() }
   })
   return { name: clip.name || 'clip', duration, times, tracks, hips, skeleton }

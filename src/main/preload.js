@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('companion', {
   listAnimations:   ()       => ipcRenderer.invoke('animations:list'),
   pickAnimation:    ()       => ipcRenderer.invoke('animations:pick'),
   saveAnimation:    (data)   => ipcRenderer.invoke('animations:save', data),
+  // Movimento generato da Kimodo e convertito qui: il main lo tiene in cache.
+  storeGeneratedMotion: (data) => ipcRenderer.invoke('motions:store', data),
 
   // ─── Azioni OS (solo main le esegue) ───────────────────────────────────────
   executeAction: (action)    => ipcRenderer.send('os:execute', action),
@@ -91,6 +93,12 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('config-changed', handler)
     return () => ipcRenderer.removeListener('config-changed', handler)
+  },
+  // Movimento generato da Kimodo: uscita grezza da convertire, o URL in cache
+  onGeneratedMotion: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('generated-motion', handler)
+    return () => ipcRenderer.removeListener('generated-motion', handler)
   },
   // Verso della camminata deciso dal main (che conosce l'area di lavoro reale)
   onCompanionFacing: (cb)    => {

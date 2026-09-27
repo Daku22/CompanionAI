@@ -143,6 +143,7 @@ const COMPANION_SCHEMA = {
         cmd:       { type: 'string', description: 'comando in allowlist' },
         direction: { type: 'string', enum: DIRECTIONS, description: 'verso di walk-to / run-to' },
         distance:  { type: 'string', enum: DISTANCES, description: 'quanto lontano: short, medium, edge (fino al bordo)' },
+        motion:    { type: 'string', description: 'movimento nuovo da generare, in inglese (solo se richiesto e non fra le animazioni)' },
       },
       required: ['type', 'animation'],
       additionalProperties: false,
@@ -195,6 +196,20 @@ Solo i comandi in allowlist (notepad, calc, mspaint, explorer) vengono eseguiti,
 chiamati per nome e senza percorso: non proporne altri con run-command.
 explorer accetta solo una cartella. File eseguibili e script non vengono aperti.
 Non aggiungere mai testo fuori dal JSON.`
+
+// Aggiunta al prompt quando Kimodo e' attivo (kimodo-service.js): l'avatar
+// puo' imparare un movimento che non e' fra le animazioni.
+const MOTION_PROMPT = `
+
+Movimenti nuovi: se l'utente ti chiede un movimento del corpo che non è fra le
+animazioni (una capriola, un inchino, saltare su un piede, fare stretching del
+collo), aggiungi in "action" il campo "motion": una frase breve IN INGLESE, in
+terza persona, che descrive solo il movimento del corpo, per esempio
+"A person does a deep bow." oppure "A person hops on the left foot three times.".
+Usa "animation" per il gesto più vicino (o "idle"). Non usare "motion" per le
+animazioni che esistono già, né per espressioni del viso o azioni sul computer.
+Il movimento richiede qualche secondo: puoi dire che ci provi.
+Esempio: "fai un inchino" -> type: "none", animation: "idle", motion: "A person does a deep, polite bow."`
 
 // ─── Trasporto HTTP ──────────────────────────────────────────────────────────
 
@@ -801,6 +816,7 @@ module.exports = {
   EMOTIONS,
   COMPANION_SCHEMA,
   SYSTEM_PROMPT,
+  MOTION_PROMPT,
   parseResponse,
   sanitizeHistory,
   fetchJSON,

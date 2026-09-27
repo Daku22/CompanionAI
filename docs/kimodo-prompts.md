@@ -1,6 +1,18 @@
 # Clip Kimodo per il companion
 
-Le clip si generano sulla demo di Kimodo su Hugging Face
+**In locale (consigliato).** Con kimodo.cpp installato
+([kimodo-locale.md](kimodo-locale.md)) tutta la serie si genera con un
+comando, in circa 5 minuti, già in .vrma e con i nomi giusti:
+
+```
+npm run kimodo -- --series scripts/kimodo-series.json --out private-assets/animations --keep-raw
+```
+
+I prompt stanno in `scripts/kimodo-series.json`; la tabella qui sotto li
+riporta. In locale entrata, ciclo e uscita dello stesso gesto escono da una
+sola richiesta, e i cicli si tagliano e si chiudono da soli.
+
+**Dalla demo.** Le clip si generano anche sulla demo di Kimodo su Hugging Face
 (`huggingface.co/spaces/nvidia/Kimodo`), con un modello **SOMA** (licenza
 NVIDIA Open Model License, uso commerciale permesso; mai SMPL-X), e si
 esportano in **BVH**. L'NPZ non serve.
@@ -19,8 +31,18 @@ fase.
   piccolo e ripetuto). Durata 4–6 s.
 - **Clip di passaggio** (*entrata*, *uscita*): partire da in piedi, o dalla
   posa seduta, e fermarsi nella posa finale. Durata 3–6 s.
-- Sul posto: la camminata la fa la finestra, e l'import toglie comunque lo
-  spostamento orizzontale del bacino.
+- La camminata la fa la finestra: l'import toglie lo spostamento orizzontale
+  del bacino, quindi "walks forward" va bene (e viene più naturale di "in
+  place").
+- Kimodo muove solo il corpo e non vede oggetti: "seduto su un ripiano alto"
+  lo fa sedere a terra. Per il bordo si chiede una sedia: la posa (cosce
+  orizzontali, gambe giù) è la stessa, e il bordo lo mette la finestra.
+- Per lo stesso motivo non si stacca da terra: "sollevato" lo fa accovacciare,
+  "fluttua" lo sdraia, "appeso a una sbarra" lo mette in verticale sulle mani.
+  "In braccio" è in punta di piedi con le braccia in alto: con la finestra
+  tenuta dal mouse sembra appeso.
+- La clip `output.bvh` della demo (seduta a terra) resta nei test come
+  `scripts/fixtures/kimodo-soma77-sit.bvh`.
 
 ## Prima serie
 
@@ -31,19 +53,19 @@ fase.
 | A riposo | ciclo | 5 s | A person stands with hands clasped behind the back, rocking gently on the heels. | `idle-talloni.bvh` |
 | Si stiracchia | gesto | 4 s | A person raises both arms above the head and stretches, leaning back a little, then lowers the arms. | `stretch.bvh` |
 | Sbadiglio | gesto | 3 s | A person yawns, covering the mouth with the right hand, then lowers the hand. | `yawn.bvh` |
-| Seduto a terra | entrata | 6 s | *(fatta: `output.bvh`, a terra con le braccia attorno alle ginocchia)* | `sit-enter-kimodo.bvh` |
+| Seduto a terra | entrata | 5 s | A person slowly sits down on the floor and hugs their knees. | `sit-enter-terra.bvh` |
 | Seduto a terra | ciclo | 6 s | A person sits on the floor hugging their knees, breathing slowly and swaying slightly. | `sit-ginocchia.bvh` |
 | Seduto a terra | uscita | 4 s | A person sitting on the floor hugging their knees stands up. | `sit-exit-alzati.bvh` |
-| Seduto sul bordo | entrata | 3 s | A person sits down on a high ledge, legs hanging down in front. | `sit-edge-enter.bvh` |
-| Seduto sul bordo | ciclo | 6 s | A person sits on a high ledge swinging the legs back and forth, hands resting on the ledge. | `sit-edge-dondola.bvh` |
-| Seduto sul bordo | uscita | 3 s | A person sitting on a high ledge hops down and stands. | `sit-edge-exit.bvh` |
-| In braccio | ciclo | 4 s | A person is lifted off the ground by the waist, legs dangling and swinging loosely, arms slightly raised. | `dangle.bvh` |
+| Seduto sul bordo | entrata | 3 s | A person sits down on a chair, hands resting on the thighs. | `sit-edge-enter.bvh` |
+| Seduto sul bordo | ciclo | 6 s | A person sits on a chair, relaxed, gently swinging the lower legs back and forth. | `sit-edge-dondola.bvh` |
+| Seduto sul bordo | uscita | 3 s | A person sitting on a chair stands up. | `sit-edge-exit.bvh` |
+| In braccio | ciclo | 4 s | A person stands on tiptoe with both arms raised overhead, legs relaxed, swaying gently. | `dangle.bvh` |
 | Saluto | gesto | 3 s | A person waves hello with the right hand, smiling. | `wave.bvh` |
 | Contento | gesto | 3 s | A person jumps slightly and raises both fists happily. | `happy.bvh` |
 | Pensa | gesto | 4 s | A person puts a hand on the chin and thinks, tilting the head. | `think.bvh` |
 | Sonnecchia | ciclo | 6 s | A person stands dozing off, head slowly dropping forward and jerking back up. | `doze.bvh` |
-| Camminata | ciclo | 2 s | A person walks forward in place at a relaxed pace. | `walk-to.bvh` |
-| Corsa | ciclo | 2 s | A person jogs forward in place. | `run-to.bvh` |
+| Camminata | ciclo | 4 s | A person walks forward at a relaxed pace. | `walk-to.bvh` |
+| Corsa | ciclo | 4 s | A person jogs forward. | `run-to.bvh` |
 | Balla | ciclo | 6 s | A person dances happily, bouncing to the beat and swinging the arms. | `dance-allegro.bvh` |
 | Balla | ciclo | 6 s | A person does a slow, relaxed sway dance. | `dance-lento.bvh` |
 

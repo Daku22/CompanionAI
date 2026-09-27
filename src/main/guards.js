@@ -155,6 +155,8 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.idleLife === 'boolean') merged.idleLife = incoming.idleLife
   if (typeof incoming.followMouse === 'boolean') merged.followMouse = incoming.followMouse
   if (typeof incoming.alwaysOnTop === 'boolean') merged.alwaysOnTop = incoming.alwaysOnTop
+  // Solo l'interruttore: la cartella di Kimodo (kimodoDir) si scrive a mano.
+  if (typeof incoming.kimodo === 'boolean') merged.kimodo = incoming.kimodo
   if (typeof incoming.scale === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_SCALES, incoming.scale)) merged.scale = incoming.scale
   if (incoming.keys && typeof incoming.keys === 'object') {
     for (const [provider, value] of Object.entries(incoming.keys)) {

@@ -13,6 +13,9 @@
 import * as THREE from 'three'
 
 export const KIMODO_FPS = 30
+// Il pavimento di Kimodo e' a y = 0; in piedi, con i piedi piatti, la
+// caviglia (LeftFoot) sta a 7 cm (misurato su "A person stands still.").
+const ANKLE_HEIGHT = 0.07
 
 export const SOMA30 = {
   names: [
@@ -73,8 +76,90 @@ export function kimodoClip(rootPositions, rotations, options = {}) {
     for (let f = 0; f < frames; f++) values.set(rotations.subarray((f * joints + j) * 4, (f * joints + j + 1) * 4), f * 4)
     tracks.push(new THREE.QuaternionKeyframeTrack(SOMA30.names[j] + '.quaternion', times, values))
   }
-  // Il riposo e' il primo fotogramma del bacino, come in un BVH.
-  bones[0].position.fromArray(rootPositions, 0)
+  // Riposo: la T-pose in piedi sul pavimento vero, non l'altezza del primo
+  // fotogramma. Con una clip che parte seduta il riposo finiva a terra, e il
+  // seduto veniva rialzato all'altezza di chi sta in piedi.
+  root.updateMatrixWorld(true)
+  const foot = (name) => bones[SOMA30.names.indexOf(name)].getWorldPosition(new THREE.Vector3()).y
+  const standing = ANKLE_HEIGHT - Math.min(foot('LeftFoot'), foot('RightFoot'))
+  bones[0].position.set(rootPositions[0], standing, rootPositions[2])
   root.updateMatrixWorld(true)
   return { root, clip: new THREE.AnimationClip(options.name || 'kimodo', (frames - 1) / fps, tracks), frames }
+}
+
+// ─── Taglio e chiusura dei cicli, sull'uscita grezza ───────────────────────
+
+/**
+ * I fotogrammi da from a to (compreso) dell'uscita grezza.
+ * @param {Float32Array} rootPositions
+ * @param {Float32Array} rotations
+ * @param {number} from
+ * @param {number} to
+ */
+export function sliceMotion(rootPositions, rotations, from, to) {
+  const joints = SOMA30.names.length
+  return {
+    rootPositions: rootPositions.slice(from * 3, (to + 1) * 3),
+    rotations: rotations.slice(from * joints * 4, (to + 1) * joints * 4),
+  }
+}
+
+/** Distanza fra due pose: rotazioni delle ossa e altezza del bacino. */
+function poseDistance(rootPositions, rotations, a, b) {
+  const joints = SOMA30.names.length
+  let d = 0
+  for (let j = 0; j < joints; j++) {
+    const i = (a * joints + j) * 4
+    const k = (b * joints + j) * 4
+    const dot = rotations[i] * rotations[k] + rotations[i + 1] * rotations[k + 1] + rotations[i + 2] * rotations[k + 2] + rotations[i + 3] * rotations[k + 3]
+    d += 1 - Math.min(1, Math.abs(dot))
+  }
+  return d + Math.abs(rootPositions[a * 3 + 1] - rootPositions[b * 3 + 1])
+}
+
+/**
+ * Il tratto che si ripete meglio: due fotogrammi il piu' simili possibile, a
+ * distanza di almeno minFrames. L'inizio sta nel primo quarto; a parita' di
+ * somiglianza vince il tratto piu' lungo.
+ * @returns {{ from: number, to: number, distance: number }}
+ */
+export function findLoop(rootPositions, rotations, { minFrames = 30 } = {}) {
+  const frames = rootPositions.length / 3
+  let best = { from: 0, to: frames - 1, distance: poseDistance(rootPositions, rotations, 0, frames - 1) }
+  let bestCost = Infinity
+  for (let a = 0; a <= Math.floor(frames / 4); a++) {
+    for (let b = a + minFrames; b < frames; b++) {
+      const distance = poseDistance(rootPositions, rotations, a, b)
+      const cost = distance + 0.0001 * (frames - (b - a))
+      if (cost < bestCost) { bestCost = cost; best = { from: a, to: b, distance } }
+    }
+  }
+  return best
+}
+
+/**
+ * Chiude un ciclo: gli ultimi blend fotogrammi sfumano verso il primo, cosi'
+ * l'ultimo coincide col primo e la ripartenza non salta. Modifica gli array.
+ * @param {Float32Array} rootPositions
+ * @param {Float32Array} rotations
+ * @param {number} [blend] fotogrammi di raccordo
+ */
+export function closeLoop(rootPositions, rotations, blend = 10) {
+  const joints = SOMA30.names.length
+  const frames = rootPositions.length / 3
+  const n = Math.min(blend, frames - 1)
+  const q = new THREE.Quaternion()
+  const first = new THREE.Quaternion()
+  for (let s = 1; s <= n; s++) {
+    const f = frames - 1 - n + s
+    const t = s / n
+    const w = t * t * (3 - 2 * t)
+    for (let j = 0; j < joints; j++) {
+      const i = (f * joints + j) * 4
+      q.fromArray(rotations, i)
+      first.fromArray(rotations, j * 4)
+      q.slerp(first, w).toArray(rotations, i)
+    }
+    for (let c = 0; c < 3; c++) rootPositions[f * 3 + c] += (rootPositions[c] - rootPositions[f * 3 + c]) * w
+  }
 }

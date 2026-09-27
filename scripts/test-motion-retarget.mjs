@@ -15,7 +15,7 @@ import { BVHLoader } from 'three/examples/jsm/loaders/BVHLoader.js'
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation'
 import { retargetClip, writeVRMA, prepareHumanoid } from '../src/renderer/motion-retarget.js'
 import { createClipLayer } from '../src/renderer/clip-layer.js'
-import { kimodoClip, SOMA30 } from '../src/renderer/kimodo-raw.js'
+import { kimodoClip, SOMA30, findLoop, closeLoop, sliceMotion } from '../src/renderer/kimodo-raw.js'
 import { TOUCHED_BONES } from '../src/renderer/vrm-animation.js'
 import { v, wp, dir, S, buildSkeleton, mixamoSource, vrmTarget } from './lib/skeletons.mjs'
 
@@ -200,6 +200,25 @@ async function main() {
     assert.equal(layer.debug().clip, null)
   })
 
+  await test('movimento generato: si riproduce nello slot generated, e uno nuovo riparte da capo', async () => {
+    const vrm = vrmTarget('1')
+    const layer = createClipLayer()
+    layer.setLibrary(new Map([['wave', [{ name: 'wave-test.vrma', animation: vrmAnimation }]]]))
+    layer.attach(vrm)
+    const step = (slot, seconds) => { for (let t = 0; t < seconds; t += 1 / 60) layer.update(1 / 60, slot) }
+    layer.setGenerated({ name: 'a.vrma', animation: vrmAnimation, phase: 'loop' })
+    assert.ok(Math.abs(layer.prepare('generated') - 1) < 1e-6)
+    step('generated', 0.5)
+    assert.equal(layer.debug().clip, 'a.vrma')
+    // La libreria delle clip resta com'era.
+    assert.ok(layer.has('wave'))
+    layer.setGenerated({ name: 'b.vrma', animation: vrmAnimation, phase: 'loop' })
+    layer.prepare('generated')
+    step('generated', 0.1)
+    assert.equal(layer.debug().clip, 'b.vrma')
+    assert.equal(layer.debug().kind, 'loop')
+  })
+
   await test('uscita grezza di kimodo.cpp (SOMA 30): T-pose, braccio abbassato, bacino', async () => {
     // Due fotogrammi: fermo in T-pose, poi braccio sinistro giu' e bacino piu' basso.
     const frames = 2
@@ -222,6 +241,58 @@ async function main() {
     near(dir(b.leftUpperArm, b.leftLowerArm), v(0, -1, 0), 0.08)
     assert.ok(wp(b.hips).y < h0 - 0.1, 'il bacino deve scendere')
     assert.throws(() => kimodoClip(new Float32Array(6), new Float32Array(10)), /non valida/)
+  })
+
+  await test('Kimodo: in piedi sul pavimento resta all-altezza giusta, una clip che parte seduta resta seduta', async () => {
+    const joints = SOMA30.names.length
+    const identity = () => { const r = new Float32Array(2 * joints * 4); for (let i = 0; i < 2 * joints; i++) r[i * 4 + 3] = 1; return r }
+    const vrm = vrmTarget('1')
+    const restHips = wp(vrm.bones.hips).y
+    // In piedi in T-pose, caviglie a 7 cm come in Kimodo: il bacino del
+    // modello deve stare alla sua altezza di riposo, non sprofondare.
+    const legDrop = -SOMA30.offsets.slice(22, 25).reduce((sum, o) => sum + o[1], 0)
+    const up = kimodoClip(new Float32Array([0, legDrop + 0.07, 0, 0, legDrop + 0.07, 0]), identity())
+    let c = createVRMAnimationClip(await loadVRMA(writeVRMA(retargetClip(up.root, up.clip))), vrm)
+    assert.ok(Math.abs(wp(pose(vrm, c, 0).hips).y - restHips) < 0.03, 'in piedi: bacino a ' + wp(vrm.bones.hips).y.toFixed(3) + ' invece di ' + restHips.toFixed(3))
+    // Seduto dal primo fotogramma: cosce in avanti, stinchi giu', bacino a 45 cm.
+    const rot = identity()
+    const thigh = new THREE.Quaternion().setFromAxisAngle(v(1, 0, 0), -Math.PI / 2)
+    const knee = new THREE.Quaternion().setFromAxisAngle(v(1, 0, 0), Math.PI / 2)
+    for (let f = 0; f < 2; f++) {
+      for (const side of ['Left', 'Right']) {
+        rot.set(thigh.toArray(), (f * joints + SOMA30.names.indexOf(side + 'Leg')) * 4)
+        rot.set(knee.toArray(), (f * joints + SOMA30.names.indexOf(side + 'Shin')) * 4)
+      }
+    }
+    const seated = kimodoClip(new Float32Array([0, 0.45, 0, 0, 0.45, 0]), rot)
+    c = createVRMAnimationClip(await loadVRMA(writeVRMA(retargetClip(seated.root, seated.clip))), vrm)
+    const b = pose(vrm, c, 0)
+    assert.ok(wp(b.hips).y < restHips * 0.6, 'seduto: bacino a ' + wp(b.hips).y.toFixed(3) + ', in piedi ' + restHips.toFixed(3))
+    near(dir(b.leftUpperLeg, b.leftLowerLeg), v(0, 0, 1), 0.1)
+    near(dir(b.leftLowerLeg, b.leftFoot), v(0, -1, 0), 0.1)
+  })
+
+  await test('Kimodo: il ciclo si taglia dove si ripete e si chiude senza salto', () => {
+    const joints = SOMA30.names.length
+    const frames = 100
+    const roots = new Float32Array(frames * 3)
+    const rot = new Float32Array(frames * joints * 4)
+    const q = new THREE.Quaternion()
+    for (let f = 0; f < frames; f++) {
+      roots[f * 3 + 1] = 1 + 0.02 * Math.sin(f / 40 * 2 * Math.PI)
+      for (let j = 0; j < joints; j++) {
+        q.setFromAxisAngle(v(0, 0, 1), j === SOMA30.names.indexOf('LeftArm') ? 0.5 * Math.sin(f / 40 * 2 * Math.PI + 0.3) : 0)
+        q.toArray(rot, (f * joints + j) * 4)
+      }
+    }
+    const loop = findLoop(roots, rot, { minFrames: 30 })
+    assert.equal((loop.to - loop.from) % 40, 0, 'periodo 40, trovato ' + (loop.to - loop.from))
+    assert.ok(loop.distance < 1e-3)
+    const cut = sliceMotion(roots, rot, 0, 57)
+    closeLoop(cut.rootPositions, cut.rotations, 10)
+    const last = (cut.rootPositions.length / 3 - 1) * joints * 4
+    for (let i = 0; i < joints * 4; i++) assert.ok(Math.abs(cut.rotations[last + i] - cut.rotations[i]) < 1e-5)
+    assert.ok(Math.abs(cut.rootPositions[cut.rootPositions.length - 2] - cut.rootPositions[1]) < 1e-6)
   })
 
   await test('fasi: il "sedersi" di Kimodo resta seduto, e l-uscita passa prima dello slot nuovo', async () => {

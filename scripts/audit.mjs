@@ -15,6 +15,8 @@
 //   npm run audit -- --vrm Neko      il 3D con un altro modello (predefinito Fred)
 //   npm run audit -- --bvh <file>    la clip "sedersi" da un BVH di Kimodo (predefinita:
 //                                    scripts/fixtures/kimodo-soma77-sit.bvh)
+//   npm run audit -- --kimodo <dir>  anche un movimento generato davvero da Kimodo
+//                                    (kimodo.cpp e pesi in <dir>, docs/kimodo-locale.md)
 //
 // Esce con codice 1 se un controllo fallisce.
 
@@ -29,6 +31,7 @@ import * as THREE from 'three'
 import { retargetClip, writeVRMA } from '../src/renderer/motion-retarget.js'
 import { BVHLoader } from 'three/examples/jsm/loaders/BVHLoader.js'
 import { mixamoSource, dir, v } from './lib/skeletons.mjs'
+import { SOMA30 } from '../src/renderer/kimodo-raw.js'
 
 const require = createRequire(import.meta.url)
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -39,6 +42,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 const argv = process.argv.slice(2)
 const opt = (name) => { const i = argv.indexOf(name); return i === -1 ? null : argv[i + 1] }
 const VRM = opt('--vrm') || 'Fred'
+const KIMODO = opt('--kimodo') ? path.resolve(opt('--kimodo')) : null
 const OUT = path.resolve(opt('--out') || path.join(os.tmpdir(), 'companion-audit'))
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-audit-'))
 const HOME = path.join(WORK, 'home')
@@ -58,6 +62,7 @@ const REPLIES = {
   'cammina verso destra': { reply: 'Vado a destra.', emotion: 'calm', action: { type: 'none', animation: 'walk-to', direction: 'right', distance: 'medium' } },
   'siediti qui': { reply: 'Mi siedo.', emotion: 'calm', action: { type: 'none', animation: 'sit' } },
   'salutami': { reply: 'Ciao!', emotion: 'joy', action: { type: 'none', animation: 'wave' } },
+  'fai un inchino': { reply: 'Ci provo!', emotion: 'joy', action: { type: 'none', animation: 'idle', motion: 'A person does a deep, polite bow.' } },
 }
 const requests = []
 const fake = http.createServer((req, res) => {
@@ -91,6 +96,7 @@ const FAKE_URL = 'http://127.0.0.1:' + /** @type {import('net').AddressInfo} */ 
 fs.mkdirSync(path.join(HOME, '.desktop-companion'), { recursive: true })
 fs.writeFileSync(path.join(HOME, '.desktop-companion', 'config.json'), JSON.stringify({
   provider: 'openrouter', model: 'audit/tools:free', idleLife: false, keys: { openrouter: 'sk-or-audit' },
+  ...(KIMODO ? { kimodo: true, kimodoDir: KIMODO } : {}),
 }))
 const png = path.join(WORK, 'immagine-importata.png')
 fs.copyFileSync(path.join(ROOT, 'src', 'renderer', 'assets', 'icon.png'), png)
@@ -142,7 +148,7 @@ const gltfAvatar = await library.commit(gltfScan.token, gltfScan.candidates[0].i
 
 const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA], {
   cwd: ROOT, stdio: 'ignore',
-  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL },
+  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, COMPANION_ONLY_USER_CLIPS: "1" },
 })
 
 // ── Protocollo DevTools ──────────────────────────────────────────────────────
@@ -372,6 +378,63 @@ try {
     VRM + ': "siediti qui" con la clip di Kimodo, seduto a terra (bacino ' + standing.toFixed(2) + ' -> ' + seated.toFixed(2) + ' m)')
   await sleep(2000)
   check(await comp.evaluate('window.__companion3DTest.hipsY()') < standing * 0.45, VRM + ': resta seduto dopo la fine della clip')
+
+  // 4c''. Movimento generato da Kimodo. Prima il percorso del renderer, con
+  // un'uscita sintetica (braccio sinistro che scende in due secondi); poi, con
+  // --kimodo, la catena vera: chat -> campo motion -> kimodo.cpp -> clip.
+  await say('alzati')
+  await sleep(1500)
+  const joints = SOMA30.names.length
+  const frames = 60
+  const rotations = new Array(frames * joints * 4).fill(0)
+  const rootPositions = []
+  const armDown = new THREE.Quaternion().setFromAxisAngle(v(0, 0, 1), -Math.PI / 2)
+  for (let f = 0; f < frames; f++) {
+    rootPositions.push(0, 1.008, 0)
+    for (let j = 0; j < joints; j++) rotations[(f * joints + j) * 4 + 3] = 1
+    const q = new THREE.Quaternion().slerp(armDown, Math.min(1, f / 20))
+    q.toArray(rotations, (f * joints + SOMA30.names.indexOf('LeftArm')) * 4)
+  }
+  await comp.evaluate(`window.__companion3DTest.generated({ key: '${'0'.repeat(32)}.vrma', prompt: 'audit', rootPositions: ${JSON.stringify(rootPositions)}, rotations: ${JSON.stringify(rotations)}, play: true }).then(() => true)`)
+  await sleep(1200)
+  const genState = await comp.evaluate('window.__companion3DTest.clips()')
+  const genArm = await comp.evaluate(`window.__companion3DTest.boneDir('leftUpperArm', 'leftLowerArm')`)
+  await shot('3a-generato-' + VRM)
+  check(genState.slot === 'generated' && genState.clip === '0'.repeat(32) + '.vrma' && genArm && genArm[1] < -0.6,
+    VRM + ': movimento generato (uscita di Kimodo) convertito e riprodotto, braccio giu' + "'" + ' (y ' + (genArm ? genArm[1].toFixed(2) : '?') + ')')
+  await sleep(1500)
+  check((await comp.evaluate('window.__companion3DTest.clips()')).slot !== 'generated', 'finito il movimento generato torna a riposo')
+  const lastSystem = () => requests[requests.length - 1].messages.filter(m => m.role === 'system').map(m => m.content).join(' ')
+  if (!KIMODO) {
+    await say('fai un inchino')
+    check(!lastSystem().includes('Movimenti nuovi'), 'senza Kimodo il campo motion non si spiega al modello')
+    await sleep(1500)
+    check((await comp.evaluate('window.__companion3DTest.clips()')).slot !== 'generated', 'senza Kimodo un motion nella risposta non fa nulla')
+  } else {
+    await say('fai un inchino')
+    check(lastSystem().includes('Movimenti nuovi'), 'con Kimodo il modello sa del campo motion')
+    const started = Date.now()
+    let state = null
+    while (Date.now() - started < 180000) {
+      state = await comp.evaluate('window.__companion3DTest.clips()')
+      if (state.slot === 'generated' && state.clip) break
+      await sleep(500)
+    }
+    const took = (Date.now() - started) / 1000
+    await sleep(1500)
+    await shot('3a-kimodo-inchino-' + VRM)
+    check(state && state.slot === 'generated' && !!state.clip, VRM + ': "fai un inchino" generato da Kimodo e riprodotto in ' + took.toFixed(0) + ' s')
+    await sleep(4000)
+    await say('fai un inchino')
+    const again = Date.now()
+    while (Date.now() - again < 10000) {
+      state = await comp.evaluate('window.__companion3DTest.clips()')
+      if (state.slot === 'generated' && state.clip) break
+      await sleep(200)
+    }
+    check(state.slot === 'generated' && Date.now() - again < 5000, 'la seconda volta il movimento arriva dalla cache (' + ((Date.now() - again) / 1000).toFixed(1) + ' s)')
+    await sleep(4500)
+  }
 
   await pickAvatar(gltfAvatar.name)
   await sleep(8000)

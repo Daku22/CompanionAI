@@ -5,10 +5,11 @@ import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanoid } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import {
-  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS,
+  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS, GENERATED,
 } from './vrm-animation.js';
 import { createClipLayer, applyLook, isLoopSlot } from './clip-layer.js';
 import { prepareHumanoid, retargetClip, writeVRMA } from './motion-retarget.js';
+import { kimodoClip } from './kimodo-raw.js';
 
 
 window.__threeVisible = false;
@@ -168,6 +169,8 @@ window.__companion3DTest = {
     const hips = currentVrm && currentVrm.humanoid && currentVrm.humanoid.getRawBoneNode('hips');
     return hips ? hips.getWorldPosition(new THREE.Vector3()).y : null;
   },
+  /** Riproduce un movimento generato come se arrivasse dal main. */
+  generated: (data) => playGeneratedMotion(data),
   /** Converte in .vrma come l'import dal menu, senza la finestra di scelta. */
   convert: async (ext, data) => convertToVRMA(ext, data),
   /** Direzione nel mondo da un osso all'altro, sulle ossa vere del modello. */
@@ -647,6 +650,44 @@ if (api && api.onTriggerAnimation) {
     else if (key === 'click') react('happy', 0.7);
     else if (key === 'think' || key === 'search' || key === 'scroll' || key === 'relaxed') react('relaxed', 1.0);
     else if (key === 'idle' || key === 'none') clearReactions();
+  });
+}
+
+// ─── Movimenti generati da Kimodo ──────────────────────────────────────────
+// Il main manda l'uscita grezza di Kimodo (o l'URL della cache, se la frase
+// e' gia' stata generata). Qui si converte in .vrma come un import, si
+// riproduce una volta e il file torna al main per la cache.
+
+/** Uscita grezza di Kimodo -> .vrma. */
+function generatedToVRMA(data) {
+  const { root, clip } = kimodoClip(new Float32Array(data.rootPositions), new Float32Array(data.rotations), { name: String(data.prompt || '').slice(0, 60) });
+  return new Uint8Array(writeVRMA(retargetClip(root, clip)));
+}
+
+async function playGeneratedMotion(data) {
+  if (!data || typeof data.key !== 'string') return;
+  let gltf;
+  if (typeof data.url === 'string') {
+    gltf = await vrmaLoader.loadAsync(data.url);
+  } else {
+    const vrma = generatedToVRMA(data);
+    gltf = await vrmaLoader.parseAsync(vrma.buffer.slice(vrma.byteOffset, vrma.byteOffset + vrma.byteLength), '');
+    if (api.storeGeneratedMotion) api.storeGeneratedMotion({ key: data.key, data: vrma }).catch(e => console.warn('Movimento non salvato:', e.message));
+  }
+  const animation = gltf.userData.vrmAnimations && gltf.userData.vrmAnimations[0];
+  if (!animation) throw new Error('nessuna animazione VRMA');
+  if (!data.play || !window.__threeVisible || !currentVrm) return;
+  clips.setGenerated({ name: data.key, animation, phase: 'loop' });
+  animator.play(GENERATED, { duration: clips.prepare(GENERATED), restart: true });
+  clearReactions();
+}
+
+if (api && api.onGeneratedMotion) {
+  api.onGeneratedMotion((data) => {
+    playGeneratedMotion(data).catch((error) => {
+      console.error('Movimento generato non riprodotto:', error);
+      showBubble('Questo movimento non mi riesce…', 3000);
+    });
   });
 }
 

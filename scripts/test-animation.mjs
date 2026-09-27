@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import {
-  createVRMAnimator, CLIPS, CLIP_ALIAS, TOUCHED_BONES, REST_POSE, mergePose,
+  createVRMAnimator, CLIPS, CLIP_ALIAS, TOUCHED_BONES, REST_POSE, mergePose, GENERATED,
   createBlinker, createGaze, nextSaccade, moodExpressions, MOOD_MAX, MOOD_EXPRESSIONS,
   distributeLook, LOOK_LIMITS, LOOK_WEIGHT,
 } from '../src/renderer/vrm-animation.js'
@@ -54,7 +54,7 @@ test('ogni alias punta a una clip che esiste', () => {
 
 test('la libreria delle clip .vrma conosce gli stessi gesti del player', () => {
   const { ANIMATION_SLOTS } = createRequire(process.argv[1])('../src/main/AnimationLibrary.js')
-  assert.deepEqual([...ANIMATION_SLOTS].sort(), Object.keys(CLIPS).sort())
+  assert.deepEqual([...ANIMATION_SLOTS].sort(), Object.keys(CLIPS).filter(k => k !== GENERATED).sort())
 })
 
 test('le animazioni del contratto AI sono tutte gestite', () => {

@@ -17,7 +17,7 @@
 
 import * as THREE from 'three'
 import { createVRMAnimationClip, VRMLookAtQuaternionProxy } from '@pixiv/three-vrm-animation'
-import { CLIPS, TOUCHED_BONES } from './vrm-animation.js'
+import { CLIPS, TOUCHED_BONES, GENERATED } from './vrm-animation.js'
 
 const FADE_S = 0.3
 
@@ -151,6 +151,15 @@ export function createClipLayer() {
     },
 
     has(slot) { return (library.get(slot) || []).length > 0 },
+
+    /** Il movimento generato da riprodurre col prossimo play dello slot generated. */
+    setGenerated(entry) {
+      for (const old of library.get(GENERATED) || []) if (!playing || playing.entry !== old) bound.delete(old)
+      library = new Map(library)
+      library.set(GENERATED, [entry])
+      // Se un movimento generato e' gia' in scena, il nuovo riparte da capo.
+      if (currentSlot === GENERATED) currentSlot = null
+    },
 
     /** Lega il livello a un modello (VRM o umanoide ricostruito), o a nessuno. */
     attach(next) {

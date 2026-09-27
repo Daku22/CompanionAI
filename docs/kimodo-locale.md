@@ -59,15 +59,54 @@ npm run preview -- clip.vrma=sit-enter
 - `scripts/preview-clips.mjs` mostra le clip su un avatar vero, con dati finti
   e schermate.
 
-## Cosa manca per usarlo dall'app
+Serie di base: `npm run kimodo -- --series scripts/kimodo-series.json --out
+<cartella> --keep-raw`. Venti clip in circa 5 minuti. Con `--keep-raw` salva
+anche l'uscita grezza in `raw/`, e `--from-raw <cartella>/raw --series
+scripts/kimodo-series.json --out <cartella>` riconverte senza scheda video
+(serve quando cambia la conversione).
 
-È la fase K del piano:
-- un servizio nel main che avvia `kmd-generate --server` alla prima richiesta
-  e lo chiude dopo un po' di inattività, per liberare la memoria video;
-- un campo nel contratto dell'AI per descrivere un movimento che non esiste
-  fra i gesti;
-- la cache delle clip già generate;
-- l'interruttore nelle impostazioni.
+- **Sequenze.** Il server accetta più frasi nella stessa richiesta, con 5
+  fotogrammi di raccordo: entrata, ciclo e uscita di un gesto escono insieme
+  e si tagliano dopo, così le fasi si raccordano. I fotogrammi totali sono la
+  somma dei segmenti.
+- **Cicli.** `findLoop` cerca i due fotogrammi più simili (rotazioni e altezza
+  del bacino) a distanza di almeno metà clip, `closeLoop` sfuma gli ultimi 10
+  verso il primo: la ripartenza non salta.
+- **Pavimento.** In Kimodo il pavimento è a y = 0 e, in piedi, la caviglia sta
+  a 7 cm. La posa di riposo della clip è la T-pose in piedi su quel pavimento:
+  prendendo il primo fotogramma, una clip che parte seduta veniva rialzata
+  all'altezza di chi sta in piedi.
+- **Seduto sul bordo.** Kimodo non vede oggetti: "sul bordo di un ripiano" lo
+  fa sedere a terra. "Seduto su una sedia" dà la posa giusta (cosce
+  orizzontali, gambe giù), e il bordo lo metterà la finestra (Fase B2).
+
+## Nell'app: movimenti nuovi dalla chat (fase K)
+
+1. L'utente chiede un movimento che non è fra i gesti ("fai un inchino").
+2. Il modello risponde con `action.motion`, una frase in inglese ("A person
+   does a deep, polite bow."). Il campo si spiega al modello (`MOTION_PROMPT`
+   in `ai-router.js`) solo quando Kimodo è acceso, installato e l'avatar è 3D.
+3. Il main (`src/main/kimodo-service.js`) ripulisce la frase (una riga, al
+   massimo 200 caratteri) e guarda la cache. Se non c'è, l'avatar fa "pensa"
+   con il fumetto "Provo il movimento…" e parte `kmd-generate --server`, se
+   non è già acceso. Le richieste passano una alla volta; 4 minuti di tempo
+   al primo avvio, 2 dopo.
+4. L'uscita grezza va al renderer, che la converte in .vrma come un import,
+   la riproduce nello slot `generated` e la rimanda al main (`motions:store`:
+   solo chiavi appena generate, solo file glTF validi). Cache in
+   `<userData>/generated-motions`, al massimo 100 file.
+5. Dopo 5 minuti senza richieste il server si chiude e la memoria video torna
+   libera. Spegnendo l'interruttore si chiude subito.
+
+Si accende dal menu col tasto destro: "Movimenti nuovi con Kimodo" (se
+kimodo.cpp o i pesi mancano, la voce dice "non installato"). La cartella è
+`%USERPROFILE%\kimodo`; per un'altra si scrive `"kimodoDir"` a mano in
+`config.json`. Dalla UI non si cambia: è la cartella di un eseguibile da
+avviare.
+
+Verifica: `npm run audit -- --kimodo %USERPROFILE%\kimodo` chiede "fai un
+inchino" con Kimodo vero, controlla che la clip arrivi e che la seconda volta
+esca dalla cache.
 
 Chi scarica l'app pubblica installa kimodo.cpp e i pesi a parte. I pesi
 occupano 5,5 GB e hanno licenze proprie (NVIDIA Open Model License, Meta

@@ -66,6 +66,16 @@ add a clip for a gesture (idle, greeting, sitting, being carried…). It accepts
 same clip plays on every 3D avatar. Where there is no clip, the built-in
 procedural poses are used.
 
+**New movements with Kimodo (optional, 3D avatars).** Ask in chat for a
+movement the avatar does not know ("do a bow", "hop on one foot") and it is
+generated on your own graphics card with [Kimodo](docs/kimodo-locale.md)
+(NVIDIA's text-to-motion model, run by kimodo.cpp), then played. It takes
+about 15–30 seconds the first time, and is instant the next time the same
+movement is asked for. Kimodo is installed separately (about 5.5 GB of
+weights, a Vulkan graphics card with about 3 GB of free video memory) and
+turned on from the right-click menu: "Movimenti nuovi con Kimodo". Nothing
+leaves your PC: the model runs locally and stops after five idle minutes.
+
 The companion has a mood that fades over time and colours its replies, and it
 lives a little when you are not chatting: it looks around, takes a few steps,
 dozes off when you are away. These gestures never call a model. Turn them off

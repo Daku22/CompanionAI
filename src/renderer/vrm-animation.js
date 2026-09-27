@@ -24,6 +24,9 @@ export const REST_POSE = {
   leftLowerArm:  { y:  0.15 },
 }
 
+// Slot dei movimenti generati: non ha file suoi nella libreria delle clip.
+export const GENERATED = 'generated'
+
 // duration 0 = ciclica finche' non arriva un altro trigger.
 // pose(t) restituisce SOLO gli scostamenti dalla posa di riposo.
 export const CLIPS = {
@@ -224,6 +227,13 @@ export const CLIPS = {
       chest: { y: Math.sin(t * 1.8) * 0.10 },
     }),
   },
+  // Movimento generato da Kimodo su richiesta (kimodo-service.js): la clip
+  // vera la mette clip-layer.js; qui solo il respiro sotto, e la durata di
+  // ripiego se la clip non arriva.
+  [GENERATED]: {
+    duration: 4.0,
+    pose: (t) => ({ chest: { x: Math.sin(t * 2.0) * 0.03 } }),
+  },
 }
 
 // Nomi alternativi usati dall'AI e dalla chat, ricondotti alle clip reali.
@@ -241,6 +251,7 @@ export const CLIP_ALIAS = {
   drag: 'dangle', dangle: 'dangle',
   'sit-edge': 'sit-edge', stretch: 'stretch', yawn: 'yawn',
   doze: 'doze', sleep: 'doze', dance: 'dance',
+  [GENERATED]: GENERATED,
 }
 
 // Ossa che il player tocca. Vengono riscritte a ogni frame, cosi' una clip non
@@ -375,13 +386,15 @@ export function createVRMAnimator(getBone) {
     /**
      * Avvia una clip per nome o alias. Sconosciuto significa idle.
      * @param {string} name
-     * @param {{ duration?: number }} [options] durata della clip .vrma che la
-     *        riproduce (clip-layer.js): il player torna a idle quando finisce lei
+     * @param {{ duration?: number, restart?: boolean }} [options] duration:
+     *        durata della clip .vrma che la riproduce (clip-layer.js), il
+     *        player torna a idle quando finisce lei; restart: riparte anche se
+     *        e' gia' in corso
      */
     play(name, options = {}) {
       const duration = options.duration
       const resolved = CLIP_ALIAS[name] || 'idle'
-      if (resolved === clipName && !clipEnding) return resolved
+      if (resolved === clipName && !clipEnding && !options.restart) return resolved
       clipName    = resolved
       clipDuration = Number.isFinite(duration) && duration > 0 ? duration : null
       clipElapsed = 0

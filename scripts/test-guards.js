@@ -147,6 +147,14 @@ test('le opzioni della finestra passano solo con valori validi', () => {
   for (const size of Object.values(WINDOW_SCALES)) assert.ok(size.width >= 140 && size.height >= 200)
 })
 
+test('Kimodo: la UI accende e spegne, ma non sceglie la cartella da eseguire', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {}, kimodoDir: 'D:/kimodo' }
+  assert.equal(mergeConfig(base, { kimodo: true }).kimodo, true)
+  assert.equal(mergeConfig(base, { kimodo: 'si' }).kimodo, undefined)
+  const merged = mergeConfig(base, { kimodoDir: 'C:/Windows/System32' })
+  assert.equal(merged.kimodoDir, 'D:/kimodo', 'kimodoDir si scrive solo a mano in config.json')
+})
+
 test('verso e distanza passano solo con i valori del contratto', () => {
   assert.deepEqual(checkMotion({ type: 'none', animation: 'walk-to', direction: 'right', distance: 'edge' }), { direction: 'right', distance: 'edge' })
   assert.deepEqual(checkMotion({ direction: 'su', distance: 9000, bubble: 'ciao' }), {})

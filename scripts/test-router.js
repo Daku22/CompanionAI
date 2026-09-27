@@ -9,7 +9,7 @@ const assert = require('node:assert/strict')
 const http = require('http')
 const {
   prepare, sanitizeHistory, parseResponse, PROVIDERS, ANIMATIONS, ACTION_TYPES, EMOTIONS,
-  COMPANION_SCHEMA, SYSTEM_PROMPT, route, fetchJSON, requestBudget,
+  COMPANION_SCHEMA, SYSTEM_PROMPT, MOTION_PROMPT, route, fetchJSON, requestBudget,
   describeError, parseOpenRouterModels, parseOllamaTags,
   capsFromParams, outputMode, openRouterBody, readChoice, openRouterUrl, DIRECTIONS, DISTANCES,
 } = require('../src/main/ai-router')
@@ -334,6 +334,16 @@ test('il contratto sa dire verso e distanza della camminata', () => {
   assert.ok(!COMPANION_SCHEMA.properties.action.required.includes('direction'))
   assert.match(SYSTEM_PROMPT, /cammina verso destra.*direction: "right"/)
   assert.match(SYSTEM_PROMPT, /siediti.*animation: "sit"/)
+})
+
+test('movimenti nuovi: campo motion facoltativo, spiegato solo quando serve', () => {
+  const props = COMPANION_SCHEMA.properties.action.properties
+  assert.equal(props.motion.type, 'string')
+  assert.ok(!COMPANION_SCHEMA.properties.action.required.includes('motion'))
+  // Il prompt di base non ne parla: senza Kimodo il modello non deve proporlo.
+  assert.ok(!SYSTEM_PROMPT.includes('"motion"'))
+  assert.match(MOTION_PROMPT, /IN INGLESE/)
+  assert.match(MOTION_PROMPT, /motion: "A person/)
 })
 
 // ── Guardie di route() ──────────────────────────────────────────────────────

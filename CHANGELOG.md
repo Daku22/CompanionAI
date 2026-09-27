@@ -51,13 +51,25 @@
   - sitting on an edge.
 
   Each has a procedural pose until a real clip is imported.
-- Local Kimodo (developer tools for now):
-  - `npm run kimodo` generates a clip with kimodo.cpp on your own GPU and
-    saves it as `.vrma`;
+- New movements with Kimodo, generated on your own GPU (optional, 3D avatars):
+  - ask in chat for a movement the avatar does not know ("do a bow"): the
+    model describes it in a new optional `motion` field, kimodo.cpp generates
+    it in the background and the avatar plays it. About 15–30 s the first
+    time, instant from the cache after that;
+  - Kimodo starts on the first request and stops after five idle minutes, to
+    free video memory;
+  - off by default: right-click menu → "Movimenti nuovi con Kimodo". kimodo.cpp
+    and its weights are installed separately (`docs/kimodo-locale.md`).
+- Developer tools for Kimodo:
+  - `npm run kimodo` generates clips as `.vrma`; with `--series` it generates
+    the whole base set in `scripts/kimodo-series.json`. Entry, loop and exit
+    of the same gesture come from one request, so they join up; loops are cut
+    where they repeat best and closed so they do not jump;
   - `npm run preview` shows clips on a real avatar and saves screenshots;
-  - measured on an RTX 3060: about 15 s per 4-second clip. See
-    `docs/kimodo-locale.md`.
-  `docs/kimodo-prompts.md` lists the Kimodo prompts for the first set of clips.
+  - measured on an RTX 3060: the 20 base clips in about 5 minutes.
+- Clips that start seated (a sitting loop, standing up) were raised to
+  standing height: the rest pose was taken from the first frame. The rest pose
+  is now the standing T-pose on the real floor.
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.
