@@ -351,6 +351,102 @@ try {
   await sleep(800)
   check((await comp.evaluate('window.__companion3DTest.animator()')).clipName === 'idle', '3D: posato torna a riposo')
 
+  // 4c. Camera: destro + trascina gira senza aprire il menu, destro fermo apre
+  // il menu, la rotella zooma, doppio clic centrale rimette la camera.
+  const mouse = (type, x, y, button = 'none', buttons = 0) => comp.send('Input.dispatchMouseEvent', { type, x, y, button, buttons, clickCount: 1 })
+  const camera = () => comp.evaluate('window.__companion3DTest.camera()')
+  const [cx, cy] = [Math.round(w3 / 2), Math.round(h3 * 0.45)]
+  await comp.evaluate('window.__menuOpened = 0; true')
+  const cam0 = await camera()
+  await mouse('mouseMoved', cx, cy)
+  await mouse('mousePressed', cx, cy, 'right', 2)
+  for (let i = 1; i <= 8; i++) { await mouse('mouseMoved', cx + i * 12, cy, 'right', 2); await sleep(30) }
+  await mouse('mouseReleased', cx + 96, cy, 'right', 0)
+  await sleep(800)
+  const cam1 = await camera()
+  check(Math.abs(cam1.azimuth - cam0.azimuth) > 0.3 && await comp.evaluate('window.__menuOpened') === 0,
+    '3D: destro + trascina gira la camera senza aprire il menu (azimut ' + cam0.azimuth.toFixed(2) + ' -> ' + cam1.azimuth.toFixed(2) + ')')
+  await shot('2d-camera-ruotata')
+  await mouse('mousePressed', cx, cy, 'right', 2)
+  await mouse('mouseReleased', cx, cy, 'right', 0)
+  await sleep(300)
+  check(await comp.evaluate('window.__menuOpened') === 1, '3D: destro senza trascinare apre il menu')
+  await comp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: cx, y: cy, deltaX: 0, deltaY: -400 })
+  await sleep(800)
+  const cam2 = await camera()
+  check(cam2.distance < cam1.distance - 0.2, '3D: la rotella avvicina la camera (' + cam1.distance.toFixed(2) + ' -> ' + cam2.distance.toFixed(2) + ')')
+  for (let i = 0; i < 2; i++) { await mouse('mousePressed', cx, cy, 'middle', 4); await mouse('mouseReleased', cx, cy, 'middle', 0); await sleep(80) }
+  await sleep(800)
+  const cam3 = await camera()
+  check(Math.abs(cam3.azimuth - cam0.azimuth) < 0.02 && Math.abs(cam3.distance - cam0.distance) < 0.05, '3D: doppio clic centrale rimette la camera')
+  check(await comp.evaluate('window.__menuOpened') === 1, '3D: il centrale non apre il menu')
+
+  // 4d. Stanza: la finestra diventa grande, la scena cambia con l'ora e il
+  // meteo, la chat si aggancia a destra, un avatar 2D sta sopra la scena.
+  const room = () => comp.evaluate('window.__companion3DTest.room()')
+  await pickAvatar(VRM)
+  await sleep(2500)
+  await comp.evaluate(`window.companion.setView('room'); true`)
+  await sleep(2500)
+  const [rw, rh] = await size()
+  let r = await room()
+  check(r.mode === true && r.active === true && rw >= 560 && rh >= 380, 'stanza: finestra grande (' + rw + 'x' + rh + ') con la scena ' + r.scene)
+  check(await comp.evaluate(`getComputedStyle(document.getElementById('room-bar')).display`) === 'flex', 'stanza: barra del titolo visibile')
+  await comp.evaluate(`window.__companion3DTest.roomTime('2026-06-21T12:00:00'); true`)
+  await sleep(3000)
+  await shot('4a-stanza-studio')
+  await chat.evaluate('window.companion.toggleChat(); true')
+  await sleep(1200)
+  r = await room()
+  check(r.chatInset > 0, 'stanza: la chat si aggancia e la scena le lascia il lato destro (' + r.chatInset + ' px)')
+  await shot('4b-stanza-con-chat')
+  await chat.evaluate('window.companion.toggleChat(); true')
+  await comp.evaluate(`window.__companion3DTest.roomScene('giardino'); true`)
+  const lights = {}
+  for (const [name, iso] of [['mezzogiorno', '2026-06-21T12:00:00'], ['tramonto', '2026-06-21T19:15:00'], ['notte', '2026-06-21T23:50:00']]) {
+    await comp.evaluate(`window.__companion3DTest.roomTime(${JSON.stringify(iso)}); true`)
+    await sleep(3500)
+    lights[name] = await room()
+    await shot('4c-giardino-' + name)
+  }
+  check(lights.mezzogiorno.scene === 'giardino' && lights.mezzogiorno.sun > lights.tramonto.sun && lights.tramonto.sun > lights.notte.sun,
+    'giardino: il sole cala dal mezzogiorno alla notte (' + ['mezzogiorno', 'tramonto', 'notte'].map(k => lights[k].sun.toFixed(2)).join(' > ') + ')')
+  check(lights.notte.night === 1 && lights.mezzogiorno.night === 0, 'giardino: di notte e\' notte, a mezzogiorno no')
+  await comp.evaluate(`window.__companion3DTest.roomTime('2026-06-21T16:00:00'); window.__companion3DTest.roomWeather({ code: 63, cloudCover: 95 }, null); true`)
+  await sleep(3500)
+  r = await room()
+  check(r.rain === true && r.snow === false, 'giardino: con la pioggia piove')
+  await shot('4d-giardino-pioggia')
+  await comp.evaluate(`window.__companion3DTest.roomWeather(null, null); true`)
+  // Scene HDRI (modelli-3d/scenes): la foto giusta per l'ora.
+  for (const [sceneId, name, iso, expect] of [
+    ['collina', 'mezzogiorno', '2026-06-21T12:00:00', 'qwantani_noon_2k.hdr'],
+    ['collina', 'tramonto', '2026-06-21T19:15:00', 'qwantani_sunset_2k.hdr'],
+    ['collina', 'notte', '2026-06-21T23:50:00', 'qwantani_night_2k.hdr'],
+    ['stanza', 'giorno', '2026-06-21T12:00:00', 'small_empty_room_1_2k.hdr'],
+    ['stanza', 'notte', '2026-06-21T23:50:00', 'small_empty_room_2_2k.hdr'],
+  ]) {
+    await comp.evaluate(`window.__companion3DTest.roomScene(${JSON.stringify(sceneId)}); window.__companion3DTest.roomTime(${JSON.stringify(iso)}); true`)
+    let variant = null
+    for (let i = 0; i < 40 && variant !== expect; i++) { await sleep(250); variant = (await room()).variant }
+    await sleep(1500)
+    check(variant === expect, sceneId + ' (' + name + '): foto ' + variant)
+    await shot('4f-' + sceneId + '-' + name)
+  }
+  // Avatar 2D nella stanza: disegnato sopra la scena, che resta viva.
+  await pickAvatar('immagine-importata')
+  await sleep(2500)
+  const layers = await comp.evaluate(`[getComputedStyle(document.getElementById('three-mount')).display, getComputedStyle(document.getElementById('pixi-mount')).display, window.__threeVisible]`)
+  check(layers[0] === 'block' && layers[1] === 'block' && layers[2] === false, 'stanza: avatar 2D sopra la scena 3D')
+  await shot('4e-stanza-2d')
+  await pickAvatar(VRM)
+  await sleep(2500)
+  await comp.evaluate(`window.__companion3DTest.roomTime(null); window.companion.setView('desktop'); true`)
+  await sleep(2000)
+  const [dw, dh] = await size()
+  r = await room()
+  check(r.mode === false && r.active === false && dw === w3 && dh === h3, 'stanza chiusa: torna la finestra piccola (' + dw + 'x' + dh + ') e trasparente')
+
   // 4c. Le clip .vrma: su questo VRM e su un glTF senza dati VRM.
   const armUp = () => comp.evaluate("window.__companion3DTest.boneDir('leftUpperArm', 'leftLowerArm')")
   await sleep(1000)

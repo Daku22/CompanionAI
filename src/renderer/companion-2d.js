@@ -63,7 +63,10 @@ rootC.addChild(charC);
 rootC.addChild(overlayG);
 
 // Container default position at ground baseline
-charC.x = window.innerWidth / 2;
+// Centro della scena: nella stanza, con la chat agganciata a destra,
+// __roomInset (companion-3d.js) e' lo spazio che la chat occupa.
+const stageCenterX = () => (window.innerWidth - (window.__roomInset || 0)) / 2;
+charC.x = stageCenterX();
 charC.y = window.innerHeight - 12;
 
 // Ground shadow: e' anche l'ancora per sedersi sulle finestre, quindi scura
@@ -71,7 +74,7 @@ charC.y = window.innerHeight - 12;
 shadowG.beginFill(0x000000, 1);
 shadowG.drawEllipse(0, 0, 28, 6);
 shadowG.endFill();
-shadowG.x = window.innerWidth / 2;
+shadowG.x = stageCenterX();
 shadowG.y = window.innerHeight - 12;
 
 // ── Strip ───────────────────────────────────────────────────────────────────
@@ -204,7 +207,9 @@ function updateScale() {
   // (es. sit 377-557) e così l'altezza a schermo resta costante, senza salti.
   const cur = charSprite.textures[charSprite.currentFrame] || charSprite.textures[0];
   const sh = cur?.height || 400;
-  const targetH = Math.min(window.innerHeight * 0.78, window.innerWidth * 1.15);
+  // Nella stanza la finestra e' grande: l'avatar non deve riempirla tutta.
+  const share = document.body.classList.contains('mode-room') ? 0.6 : 0.78;
+  const targetH = Math.min(window.innerHeight * share, window.innerWidth * 1.15);
   baseScale = targetH / sh;
 }
 
@@ -222,7 +227,7 @@ app.ticker.add((delta) => {
   shadowG.y = window.innerHeight - 12;
 
   const groundY = window.innerHeight - 8;
-  const centerX = window.innerWidth / 2;
+  const centerX = stageCenterX();
 
   if (!State.dragging && State.name !== 'walk' && State.name !== 'run') {
     State.posX = centerX;
@@ -416,7 +421,7 @@ if (api && api.onCursor) api.onCursor((c) => { if (!window.__companionTest) curs
 
 function faceCursor(deltaMS) {
   if (!cursor || !cursor.follow) { faceHeld = 0; return; }
-  const center = window.innerWidth / 2;
+  const center = stageCenterX();
   const want = cursor.x > center + FACE_MARGIN_PX ? 1 : cursor.x < center - FACE_MARGIN_PX ? -1 : 0;
   if (want === 0 || want === State.dir) { faceWant = 0; faceHeld = 0; return; }
   if (want !== faceWant) { faceWant = want; faceHeld = 0; }

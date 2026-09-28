@@ -11,6 +11,7 @@ everything the app sends out and everything it stores.
 | `openrouter.ai` | When you open the settings with OpenRouter selected | A request for the list of free models. No key, no conversation |
 | The Ollama server | Only if you use Ollama | Same as any AI provider. By default Ollama runs on your own computer (`127.0.0.1`) |
 | A website | Only if the AI proposes opening a link **and you approve it** | The link opens in your default browser |
+| `open-meteo.com` | Only if you turn on "Meteo vero nella stanza" (off by default), while the room is open, at most every 30 minutes | The city you typed (to the geocoding service), then its coordinates (to the weather service). No key, no account |
 
 Movements generated with Kimodo ("Movimenti nuovi con Kimodo", off by
 default) never leave your computer: the model runs on your own graphics card,
@@ -32,7 +33,7 @@ personal data.
 | Conversation memory | `%USERPROFILE%\.desktop-companion\memory\`: recent turns, summary, and the lossless archive of summarized turns |
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
 | Imported animations | `%APPDATA%\CompanionAI\animations\` |
-| Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files |
+| Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, and the sentence each one came from in `index.json` |
 | Error log | `%APPDATA%\CompanionAI\logs\`: warnings and errors only, never your conversations. Open it from the tray icon menu |
 
 **Deleting your data:**

@@ -7,8 +7,9 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
+    /* 380x520 sul desktop; nella stanza la chat e' alta quanto la stanza. */
     html, body {
-      width: 380px; height: 520px;
+      width: 100%; height: 100%;
       background: transparent;
       overflow: hidden;
       font-family: 'Segoe UI', system-ui, sans-serif;
@@ -16,7 +17,7 @@
     }
 
     #panel {
-      width: 380px; height: 520px;
+      width: 100%; height: 100%;
       background: rgba(14, 11, 22, 0.94);
       border: 1px solid rgba(180,140,255,0.2);
       border-radius: 20px;
@@ -108,7 +109,7 @@
       cursor: pointer; text-decoration: underline; align-self: center;
     }
     .link-btn:hover { color: #e8d8ff; }
-    .link-btn.hidden, .setup-check.hidden { display: none; }
+    .link-btn.hidden, .setup-check.hidden, .setup-section.hidden { display: none; }
     .setup-check {
       width: 100%; display: flex; align-items: center; gap: 8px;
       font-size: 11.5px; color: rgba(220,200,255,0.75); margin: 2px 0 8px; cursor: pointer;
@@ -317,6 +318,17 @@
     <label class="setup-check" id="idle-row" title="Quando non gli scrivi si guarda attorno, fa due passi, sonnecchia. Nessuna chiamata al modello.">
       <input type="checkbox" id="idle-life"> Vita autonoma quando non scrivi
     </label>
+    <label class="setup-check" id="weather-row" title="Nella stanza nuvole, pioggia, neve e sole seguono il meteo vero della tua città.">
+      <input type="checkbox" id="weather-on"> Meteo vero nella stanza
+    </label>
+    <div class="setup-section hidden" id="weather-section">
+      <input class="setup-input" id="weather-city" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Città, per esempio Bologna">
+      <div class="ollama-note" id="weather-note">
+        La città va a Open-Meteo (open-meteo.com), senza chiave, al massimo una
+        volta ogni 30 minuti e solo con la stanza aperta.
+      </div>
+      <div class="ollama-note" id="weather-status"></div>
+    </div>
 
     <button class="setup-save" id="save-btn">Salva e avvia</button>
     <button class="link-btn hidden" id="setup-cancel" type="button">Annulla</button>

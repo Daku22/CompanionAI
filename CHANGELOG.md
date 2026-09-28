@@ -92,6 +92,26 @@
   standing height: the rest pose was taken from the first frame. The rest pose
   is now the standing T-pose on the real floor.
 
+### Camera and room
+- 3D camera: drag with the right or middle button to turn around the avatar,
+  wheel to zoom. The right button opens the menu only when released without
+  moving. Double-click the middle button, or "Rimetti la camera", to reset it.
+  The head still follows the mouse from any angle.
+- The room ("Stanza", right-click or tray menu): the avatar's window becomes
+  a bigger, resizable window in the taskbar, with its own title bar
+  (minimize, maximize, back to the desktop), borders to resize it, the chat
+  docked on the right and a 3D scene behind the avatar. It remembers its size
+  and position, and the app reopens in the mode it was closed in. In the room
+  the left button turns the camera; 2D avatars are drawn over the scene.
+- Scenes: "Studio" (backdrop and floor), "Giardino" (computed sky with the
+  real sun, stars at night) and two photo scenes from Poly Haven HDRIs (CC0):
+  "Collina" (dawn, noon, sunset, night) and "Stanza vuota" (day, night).
+- The light follows the local time (sun position from date, time and
+  latitude) and, softly, the avatar's mood.
+- Optional real weather (off by default): "Meteo vero nella stanza" and a city
+  in the chat settings. Clouds, rain, snow and fog come from Open-Meteo, at
+  most every 30 minutes and only while the room is open.
+
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.
   OpenRouter and Ollama model lists are fetched live.

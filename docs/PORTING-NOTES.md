@@ -494,6 +494,60 @@ finestra spostata e scende quando la finestra viene ridotta a icona. La
 taskbar di questo PC si nasconde da sola, quindi non ha un bordo su cui
 sedersi: quel caso e' coperto solo dai test.
 
+**Dopo, dalla prova dell'utente.** Cliccata la finestra su cui sedeva,
+l'avatar perdeva le gambe dietro la sua barra del titolo: Windows non lascia
+che un altro processo metta la sua finestra sopra quella attiva con
+`HWND_TOP`, quindi `placeAbove` non bastava. Ora, finche' il sedile e' la
+finestra attiva, l'avatar torna "sempre in primo piano" (`keepAboveSeat`).
+Verificato leggendo l'ordine z ogni secondo: sedile attivato, un attimo
+sopra l'avatar, al campione dopo l'avatar e' di nuovo davanti.
+
+## Blocco 2: camera e stanza (2026-09-28)
+
+**2a, OrbitControls.** Tornano, ma sullo strato che riceve il mouse
+(`#drag-zone`), non sul canvas, e senza il sinistro, che prende l'avatar.
+Destro e centrale ruotano, la rotella zooma; il destro apre il menu solo se
+rilasciato senza muoversi (su Windows `contextmenu` arriva dopo il
+rilascio, altrove prima: `companion-input.js` gestisce entrambi i casi).
+OrbitControls misura la rotazione sull'altezza della finestra, che qui e'
+piccola: a velocita' piena 260 px facevano un giro, ora `rotateSpeed` 0,5.
+Il piano del cursore per lo sguardo ora sta di fronte alla camera, e il
+punto di seduta si riproietta con la camera di adesso: girando la camera da
+seduto l'avatar resta sul bordo.
+
+**2b, la stanza.** La stessa finestra cambia modalita' (`room.js` puro, con
+test, e le chiamate in `main.js`). Una finestra trasparente non diventa
+opaca, e su Windows trasparente e ridimensionabile non vanno d'accordo:
+barra del titolo e bordi li disegna la pagina, i bordi li segue il main
+come il trascinamento, "Ingrandisci" e' fatto a mano. Verificato dal vivo:
+Windows risponde `HTCAPTION` sulla barra (`WM_NCHITTEST`), il bordo in basso
+a destra porta la stanza da 1040x680 a 908x601 con l'angolo opposto fermo,
+la chat agganciata segue la stanza spostata, la posizione si salva, l'app si
+riapre nella stanza e la ✕ riporta la finestra piccola, trasparente e in
+primo piano. Il trascinamento dalla barra con computer use non e' stato
+possibile: lo strumento non vede la finestra trasparente sotto il cursore e
+blocca il movimento. La chat usa `setParentWindow`, e la scena le lascia il
+lato destro con `setViewOffset`.
+
+**2c, scene.** Studio e Giardino (Sky.js) senza file; Collina e Stanza vuota
+da Poly Haven, CC0, 2k, scelte con l'utente fra 1k, 2k e scaricamento al
+primo uso (37 MB nel repo). Sono due serie scattate nello stesso posto a ore
+diverse, cosi' la foto cambia con l'ora senza cambiare luogo. `GroundedSkybox`
+proietta la foto su un pavimento: con il raggio da esterno (100 m) le pareti
+della stanza si curvavano, ora il raggio sta nel manifest (10 m al chiuso).
+`*.hdr` e' binario in `.gitattributes`.
+
+**2d, luce.** `scene-light.js` e' puro: sole da data, ora e latitudine
+(senza citta', 42 gradi e la longitudine dal fuso), luci per fase, meteo e
+tinta dell'umore; 8 test con mezzogiorno d'estate e d'inverno, tramonto e
+notte. Il tone mapping ACES serve a cielo e foto, ma cambierebbe l'aspetto
+del VRM: i materiali dell'avatar hanno `toneMapped = false`. Meteo da
+Open-Meteo (`weather.js`, 5 test con fetch finto), spento di base; provato
+una volta contro il servizio vero.
+
+**Audit** 68/68: 5 controlli per la camera e 16 per la stanza, con
+schermate a mezzogiorno, al tramonto, di notte e con la pioggia.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

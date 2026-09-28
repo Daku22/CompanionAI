@@ -41,6 +41,13 @@ const FILES = {
   'three/examples/jsm/curves/NURBSCurve.js':         'three-addons/curves/NURBSCurve.js',
   'three/examples/jsm/curves/NURBSUtils.js':         'three-addons/curves/NURBSUtils.js',
   'three/examples/jsm/loaders/BVHLoader.js':         'three-addons/loaders/BVHLoader.js',
+  // Destro o centrale + trascina ruotano la camera 3D, la rotella zooma.
+  'three/examples/jsm/controls/OrbitControls.js':    'three-addons/controls/OrbitControls.js',
+  // Stanza (room-scene.js): cielo con il sole dell'ora, foto HDRI proiettate
+  // su un pavimento, e il loro caricatore.
+  'three/examples/jsm/objects/Sky.js':               'three-addons/objects/Sky.js',
+  'three/examples/jsm/objects/GroundedSkybox.js':    'three-addons/objects/GroundedSkybox.js',
+  'three/examples/jsm/loaders/RGBELoader.js':        'three-addons/loaders/RGBELoader.js',
 }
 
 function copyOne(from, to) {

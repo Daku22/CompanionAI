@@ -155,6 +155,21 @@ test('Kimodo: la UI accende e spegne, ma non sceglie la cartella da eseguire', (
   assert.equal(merged.kimodoDir, 'D:/kimodo', 'kimodoDir si scrive solo a mano in config.json')
 })
 
+test('stanza: scena e meteo dalla UI, modalita\' e posto della stanza no', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {}, view: 'room', roomBounds: { x: 1, y: 2, width: 800, height: 600 } }
+  const ok = mergeConfig(base, { roomScene: 'giardino', weather: true, weatherCity: '  Reggio \n Emilia ' })
+  assert.equal(ok.roomScene, 'giardino')
+  assert.equal(ok.weather, true)
+  assert.equal(ok.weatherCity, 'Reggio Emilia')
+  const bad = mergeConfig(base, { roomScene: '../x', weather: 'si', weatherCity: 7, view: 'desktop', roomBounds: { x: 0 } })
+  assert.equal(bad.roomScene, undefined)
+  assert.equal(bad.weather, undefined)
+  assert.equal(bad.weatherCity, undefined)
+  assert.equal(bad.view, 'room', 'la modalita\' la cambia solo il main')
+  assert.deepEqual(bad.roomBounds, base.roomBounds)
+  assert.equal(mergeConfig(base, { weatherCity: 'x'.repeat(300) }).weatherCity.length, 80)
+})
+
 test('verso e distanza passano solo con i valori del contratto', () => {
   assert.deepEqual(checkMotion({ type: 'none', animation: 'walk-to', direction: 'right', distance: 'edge' }), { direction: 'right', distance: 'edge' })
   assert.deepEqual(checkMotion({ direction: 'su', distance: 9000, bubble: 'ciao' }), {})

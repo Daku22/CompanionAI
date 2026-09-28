@@ -11,6 +11,8 @@ const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
 const winWindows = require('./win-windows')
 const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated } = require('./perch')
 const { builtinAvatars } = require('./builtin-avatars')
+const room = require('./room')
+const { WeatherService } = require('./weather')
 const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES } = require('./guards')
 const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
@@ -49,9 +51,11 @@ const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 // kimodo: movimenti nuovi generati in locale (kimodo-service.js); kimodoDir
 // si scrive solo a mano in config.json, mai dalla UI.
 // perch: posato sul bordo di una finestra o della taskbar, ci si siede (perch.js).
+// view: 'desktop' (trasparente, sul desktop) o 'room' (la stanza, room.js);
+// roomBounds: dove era la stanza, la scrive solo il main.
 const DEFAULT_CONFIG = {
   provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true,
-  followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, perch: true, keys: {},
+  followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, perch: true, view: 'desktop', keys: {},
 }
 
 function loadEnvFile() {
@@ -116,6 +120,7 @@ function loadConfig() {
   cfg.alwaysOnTop = cfg.alwaysOnTop !== false
   cfg.kimodo = cfg.kimodo === true
   cfg.perch = cfg.perch !== false
+  cfg.view = cfg.view === 'room' ? 'room' : 'desktop'
   if (typeof cfg.scale !== 'string' || !Object.prototype.hasOwnProperty.call(WINDOW_SCALES, cfg.scale)) cfg.scale = DEFAULT_CONFIG.scale
   if (!PROVIDERS[cfg.provider]) { cfg.provider = DEFAULT_CONFIG.provider; cfg.model = DEFAULT_CONFIG.model }
 
@@ -162,6 +167,8 @@ function publicConfig(cfg) {
     keyUnreadable: Object.fromEntries(Object.keys(unreadableKeys || {}).filter(name => !(keys || {})[name]).map(name => [name, true])),
     providers: PROVIDERS,
     kimodoAvailable: !!kimodo && kimodo.available(),
+    // Meteo della stanza: la citta' trovata, o perche' non c'e'.
+    weatherStatus,
   }
 }
 
@@ -308,6 +315,8 @@ function createCompanionWindow() {
     minWidth: 140,
     minHeight: 200,
     hasShadow: false,
+    // Nella stanza la finestra compare nella barra delle applicazioni.
+    icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -322,6 +331,15 @@ function createCompanionWindow() {
   // arrivare i movimenti del mouse alla pagina, che decide quando catturarli
   // (companion-input.js).
   companionWindow.setIgnoreMouseEvents(true, { forward: true })
+  // Nella stanza la chat segue la finestra, e la stanza si ricorda dov'era.
+  companionWindow.on('move', () => onRoomMoved())
+  companionWindow.on('resize', () => onRoomMoved())
+  // Aperta l'ultima volta nella stanza: si riapre li'. La pagina deve essere
+  // pronta, o non saprebbe della modalita'.
+  companionWindow.webContents.once('did-finish-load', () => {
+    if (cfg.view === 'room') setView('room')
+    else sendViewMode()
+  })
 
   if (process.argv.includes('--dev')) {
     companionWindow.webContents.openDevTools({ mode: 'detach' })
@@ -366,8 +384,9 @@ function sendIdle() {
 function startWalk({ run = false, direction, distance, maxDistance = Infinity } = {}) {
   if (!companionWindow || companionWindow.isDestroyed()) return
   stopWalk()
-  // In braccio non si cammina: la finestra la sta muovendo l'utente.
-  if (drag) { sendIdle(); return }
+  // In braccio non si cammina: la finestra la sta muovendo l'utente. Nella
+  // stanza nemmeno: la finestra e' la stanza.
+  if (drag || viewMode === 'room') { sendIdle(); return }
 
   const area = companionWorkArea()
   const [x, y] = companionWindow.getPosition()
@@ -426,6 +445,9 @@ function createChatWindow() {
 
   chatWindow.loadFile(path.join(__dirname, '../renderer/chat.html'))
   chatWindow.setAlwaysOnTop(true, 'screen-saver')
+  // Nella stanza la scena lascia alla chat il lato destro solo se si vede.
+  chatWindow.on('show', () => sendViewMode())
+  chatWindow.on('hide', () => sendViewMode())
 
   if (process.argv.includes('--dev')) {
     chatWindow.webContents.openDevTools({ mode: 'detach' })
@@ -448,19 +470,25 @@ function createTray() {
     }
   } catch (e) { console.warn('[tray] icona non caricata:', e.message) }
   tray = new Tray(icon)
+  tray.setToolTip('CompanionAI')
+  buildTrayMenu()
+  tray.on('click', () => toggleChat())
+}
 
-  const contextMenu = Menu.buildFromTemplate([
+// Il menu della tray cambia con la modalita': si ricostruisce a ogni cambio.
+function buildTrayMenu() {
+  if (!tray) return
+  tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Mostra companion',  click: () => { if (companionWindow) companionWindow.show() } },
     { label: 'Apri chat',         click: () => toggleChat() },
+    viewMode === 'room'
+      ? { label: 'Torna sul desktop', click: () => setView('desktop') }
+      : { label: 'Apri la stanza', click: () => setView('room') },
     { type: 'separator' },
     { label: 'Apri cartella dei log', click: () => shell.openPath(path.join(app.getPath('userData'), 'logs')).catch(() => {}) },
     { type: 'separator' },
     { label: 'Esci',              click: () => app.quit() },
-  ])
-
-  tray.setToolTip('CompanionAI')
-  tray.setContextMenu(contextMenu)
-  tray.on('click', () => toggleChat())
+  ]))
 }
 
 // ─── Toggle Chat ─────────────────────────────────────────────────────────────
@@ -469,6 +497,11 @@ function toggleChat() {
   if (!chatWindow || chatWindow.isDestroyed()) return
   if (chatWindow.isVisible()) {
     chatWindow.hide()
+  } else if (viewMode === 'room') {
+    // Nella stanza la chat ha il suo posto, a destra.
+    dockChat()
+    chatWindow.show()
+    chatWindow.focus()
   } else {
     try {
       // In alto a sinistra del companion, ma dentro lo schermo su cui si trova:
@@ -517,10 +550,15 @@ handle('config:get', () => {
   return publicConfig(loadConfig())
 })
 
-handle('config:set', (_e, newCfg) => {
+handle('config:set', async (_e, newCfg) => {
   const current = loadConfig()
   const merged  = mergeConfig(current, newCfg || {})
   saveConfig(merged)
+  // Acceso il meteo o cambiata citta': si chiede subito, e la risposta dice
+  // alla chat se la citta' e' stata trovata.
+  if (merged.weather !== current.weather || merged.weatherCity !== current.weatherCity) {
+    await refreshWeather({ force: true })
+  }
   // La chiave inserita adesso deve servire anche ai riassunti, non solo dal
   // prossimo avvio. loadConfig riapplica il fallback sulle variabili d'ambiente.
   if (memoryManager) memoryManager.setModel(memoryModelFrom(loadConfig()))
@@ -924,7 +962,7 @@ function keepOnScreen() {
 }
 
 function startDrag() {
-  if (drag || !companionWindow || companionWindow.isDestroyed()) return
+  if (drag || viewMode === 'room' || !companionWindow || companionWindow.isDestroyed()) return
   // Ripreso in braccio scende dal sedile, senza cadere: lo tiene l'utente.
   leavePerch()
   stopWalk()
@@ -1143,6 +1181,211 @@ function fallToGround(then) {
   }, 16)
 }
 
+// ─── Modalita' stanza ────────────────────────────────────────────────────────
+// La stessa finestra del companion diventa una stanza: grande, con la scena,
+// la barra del titolo disegnata dalla pagina e la chat agganciata a destra.
+// Avatar, WebGL, umore e clip restano quelli. Le regole pure stanno in room.js.
+
+/** @type {'desktop' | 'room'} */
+let viewMode = 'desktop'
+/** Dove stava l'avatar sul desktop, per tornarci. */
+let desktopSpot = null
+/** @type {{ edge: string, start: Electron.Rectangle, cx: number, cy: number, timer: any } | null} */
+let roomResize = null
+/** Stanza prima di "Ingrandisci", per rimetterla com'era. */
+let roomRestore = null
+let roomSaveTimer = null
+/** Chat prima di agganciarla: dove stava sul desktop. */
+let chatDesktopBounds = null
+const CHAT_DESKTOP_SIZE = { width: 380, height: 520 }
+
+function isRoomWindow() {
+  return viewMode === 'room' && !!companionWindow && !companionWindow.isDestroyed()
+}
+
+/** Dice alla pagina la modalita' e quanto spazio a destra occupa la chat. */
+function sendViewMode() {
+  const chatShown = !!chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()
+  sendCompanion('view-mode', { mode: viewMode, chatInset: viewMode === 'room' && chatShown ? room.CHAT_INSET : 0, maximized: !!roomRestore })
+}
+
+function dockChat() {
+  if (!isRoomWindow() || !chatWindow || chatWindow.isDestroyed()) return
+  try { chatWindow.setBounds(room.chatDock(companionWindow.getBounds())) } catch (_) {}
+}
+
+/** Salva la stanza poco dopo che si e' fermata: non a ogni pixel. */
+function saveRoomSoon() {
+  clearTimeout(roomSaveTimer)
+  roomSaveTimer = setTimeout(() => {
+    if (!isRoomWindow() || roomRestore) return
+    const cfg = loadConfig()
+    cfg.roomBounds = companionWindow.getBounds()
+    saveConfig(cfg)
+  }, 600)
+}
+
+function onRoomMoved() {
+  if (!isRoomWindow()) return
+  dockChat()
+  saveRoomSoon()
+}
+
+/** @param {'desktop' | 'room'} mode */
+function setView(mode) {
+  if (!companionWindow || companionWindow.isDestroyed()) return
+  if (mode === 'room') enterRoom()
+  else leaveRoom()
+  const cfg = loadConfig()
+  if (cfg.view !== viewMode) { cfg.view = viewMode; saveConfig(cfg) }
+  buildTrayMenu()
+}
+
+function enterRoom() {
+  if (viewMode === 'room') return
+  endDrag()
+  leavePerch()
+  stopWalk()
+  desktopSpot = companionWindow.getBounds()
+  viewMode = 'room'
+  const area = screen.getDisplayMatching(desktopSpot).workArea
+  const bounds = room.roomBounds(loadConfig().roomBounds, area)
+  companionWindow.setIgnoreMouseEvents(false)
+  companionWindow.setAlwaysOnTop(false)
+  companionWindow.setSkipTaskbar(false)
+  companionWindow.setMinimumSize(Math.min(room.ROOM_MIN.width, area.width), Math.min(room.ROOM_MIN.height, area.height))
+  companionWindow.setBounds(bounds)
+  companionWindow.show()
+  companionWindow.focus()
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatDesktopBounds = chatWindow.getBounds()
+    // Figlia della stanza: le sta davanti, sparisce quando la stanza si
+    // riduce a icona, e non e' piu' sopra le altre app.
+    chatWindow.setAlwaysOnTop(false)
+    chatWindow.setParentWindow(companionWindow)
+    dockChat()
+  }
+  sendViewMode()
+  refreshWeather().catch(() => {})
+  console.log('[stanza] aperta ' + bounds.width + 'x' + bounds.height)
+}
+
+function leaveRoom() {
+  if (viewMode !== 'room') return
+  endRoomResize()
+  clearTimeout(roomSaveTimer)
+  const cfg = loadConfig()
+  if (!roomRestore) cfg.roomBounds = companionWindow.getBounds()
+  cfg.view = 'desktop'
+  saveConfig(cfg)
+  roomRestore = null
+  viewMode = 'desktop'
+  const size = WINDOW_SCALES[cfg.scale]
+  const spot = desktopSpot || companionWindow.getBounds()
+  companionWindow.setMinimumSize(140, 200)
+  companionWindow.setBounds({ x: spot.x, y: spot.y, width: size.width, height: size.height })
+  companionWindow.setSkipTaskbar(true)
+  companionWindow.setIgnoreMouseEvents(true, { forward: true })
+  if (cfg.alwaysOnTop) companionWindow.setAlwaysOnTop(true, 'screen-saver')
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.setParentWindow(null)
+    chatWindow.setAlwaysOnTop(true, 'screen-saver')
+    const back = chatDesktopBounds || chatWindow.getBounds()
+    chatWindow.setBounds({ x: back.x, y: back.y, ...CHAT_DESKTOP_SIZE })
+  }
+  keepOnScreen()
+  sendViewMode()
+  console.log('[stanza] chiusa, torna sul desktop')
+}
+
+/** "Ingrandisci" disegnato dalla pagina: una finestra trasparente di Windows non si massimizza da sola. */
+function toggleRoomMaximize() {
+  if (!isRoomWindow()) return
+  if (roomRestore) {
+    companionWindow.setBounds(roomRestore)
+    roomRestore = null
+  } else {
+    roomRestore = companionWindow.getBounds()
+    companionWindow.setBounds(screen.getDisplayMatching(roomRestore).workArea)
+  }
+  dockChat()
+  sendViewMode()
+}
+
+/** Un bordo della stanza preso dalla pagina: la finestra segue il cursore. */
+function startRoomResize(edge) {
+  if (!isRoomWindow() || roomResize || !room.EDGES.includes(edge)) return
+  const cursor = screen.getCursorScreenPoint()
+  roomRestore = null
+  roomResize = { edge, start: companionWindow.getBounds(), cx: cursor.x, cy: cursor.y, timer: null }
+  roomResize.timer = setInterval(() => {
+    if (!roomResize || !isRoomWindow()) { endRoomResize(); return }
+    const c = screen.getCursorScreenPoint()
+    const next = room.resizeBounds(roomResize.start, roomResize.edge, c.x - roomResize.cx, c.y - roomResize.cy)
+    const b = companionWindow.getBounds()
+    if (next.x !== b.x || next.y !== b.y || next.width !== b.width || next.height !== b.height) {
+      companionWindow.setBounds(next)
+      dockChat()
+    }
+  }, DRAG_TICK_MS)
+}
+
+function endRoomResize() {
+  if (!roomResize) return
+  clearInterval(roomResize.timer)
+  roomResize = null
+  saveRoomSoon()
+  sendViewMode()
+}
+
+// Scene HDRI in modelli-3d/scenes (servite da vrm://scenes/...).
+handle('scenes:list', async () => {
+  const dir = path.join(__dirname, '..', '..', 'modelli-3d', 'scenes')
+  let json = null
+  try { json = JSON.parse(await fs.promises.readFile(path.join(dir, 'scenes.json'), 'utf8')) } catch (_) { return [] }
+  return room.parseScenes(json, (file) => fs.existsSync(path.join(dir, file)))
+})
+on('view:set', (_e, mode) => { if (mode === 'room' || mode === 'desktop') setView(mode) })
+on('room:minimize', () => { if (isRoomWindow()) companionWindow.minimize() })
+on('room:maximize', () => toggleRoomMaximize())
+on('room:resize-start', (_e, edge) => { if (typeof edge === 'string') startRoomResize(edge) })
+on('room:resize-end', () => endRoomResize())
+
+
+// ─── Meteo della stanza (weather.js) ─────────────────────────────────────────
+// Facoltativo: solo con la stanza aperta, il meteo acceso e una citta'. Il
+// servizio ricorda l'ultimo meteo per 30 minuti; il timer controlla ogni 5.
+
+const weatherService = new WeatherService()
+const WEATHER_CHECK_MS = 5 * 60 * 1000
+let weatherStatus = ''
+let weatherTimer = null
+
+async function refreshWeather({ force = false } = {}) {
+  const cfg = loadConfig()
+  if (!cfg.weather || !cfg.weatherCity) {
+    weatherStatus = cfg.weather ? 'Scrivi una città' : ''
+    sendCompanion('room-weather', { weather: null, place: null })
+    return
+  }
+  if (viewMode !== 'room' && !force) return
+  try {
+    const { place, weather } = await weatherService.get(cfg.weatherCity, { force })
+    weatherStatus = place.name + (place.country ? ', ' + place.country : '')
+    sendCompanion('room-weather', { weather, place: { latitude: place.latitude, longitude: place.longitude } })
+  } catch (error) {
+    weatherStatus = error.message
+    console.warn('[meteo] ' + error.message)
+    sendCompanion('room-weather', { weather: null, place: null })
+  }
+}
+
+function startWeatherFeed() {
+  if (weatherTimer) clearInterval(weatherTimer)
+  weatherTimer = setInterval(() => { if (viewMode === 'room') refreshWeather().catch(() => {}) }, WEATHER_CHECK_MS)
+  if (weatherTimer.unref) weatherTimer.unref()
+}
+
 // Il cursore rispetto alla finestra, anche quando e' fuori: la pagina lo usa
 // per lo sguardo e per accorgersi che il mouse se n'e' andato.
 function cursorTick() {
@@ -1165,7 +1408,7 @@ function startCursorFeed() {
 /** Ridimensiona tenendo fermi i piedi: centro in basso della finestra. */
 function applyScale(scale) {
   const size = WINDOW_SCALES[scale]
-  if (!size || !companionWindow || companionWindow.isDestroyed()) return
+  if (!size || viewMode === 'room' || !companionWindow || companionWindow.isDestroyed()) return
   const b = companionWindow.getBounds()
   if (b.width === size.width && b.height === size.height) return
   companionWindow.setBounds({
@@ -1186,6 +1429,9 @@ function applyWindowOptions(cfg) {
   if (!cfg.kimodo && kimodo) kimodo.stop()
   if (!companionWindow || companionWindow.isDestroyed()) return
   if (!perchEnabled && perch) leavePerch({ fall: true })
+  // Nella stanza la finestra e' una finestra normale: niente primo piano, e la
+  // dimensione la sceglie chi la ridimensiona.
+  if (viewMode === 'room') return
   // Seduto su una finestra sta sotto quelle davanti: "sempre in primo piano"
   // torna quando scende (leavePerch).
   const onTop = cfg.alwaysOnTop !== false && !(perch && perch.kind === 'window')
@@ -1211,9 +1457,14 @@ async function showCompanionMenu() {
   const current = avatars.find(a => a.id === cfg.avatarModel) || avatars.find(a => a.default) || avatars[0]
   const kind = (a) => (a.kind === 'sprite-pack' || a.kind === 'sprite') ? '2D' : '3D'
   const command = (data) => sendCompanion('menu-command', data)
+  const is3D = !!current && kind(current) === '3D'
+  const inRoom = viewMode === 'room'
   /** @type {Electron.MenuItemConstructorOptions[]} */
   const template = [
     { label: 'Apri chat', click: () => toggleChat() },
+    // La stanza: finestra grande con la scena e la chat accanto (room.js).
+    { label: 'Stanza', type: 'checkbox', checked: inRoom, click: (item) => setView(item.checked ? 'room' : 'desktop') },
+    { type: 'separator' },
     {
       label: 'Avatar',
       submenu: [
@@ -1227,19 +1478,33 @@ async function showCompanionMenu() {
       ],
     },
     {
+      label: 'Animazioni',
+      submenu: [
+        { label: 'Importa animazione (VRMA, glTF, FBX, BVH)…', click: () => command({ cmd: 'import-animation' }) },
+        { label: 'Apri la cartella delle animazioni', click: () => openAnimationsFolder() },
+        { type: 'separator' },
+        ...(is3D ? await previewMenu(command) : [{ label: 'Prova (solo con un avatar 3D)', enabled: false }]),
+      ],
+    },
+    // Destro o centrale + trascina girano la camera, la rotella zooma.
+    ...(is3D || inRoom ? [{ label: 'Rimetti la camera', click: () => command({ cmd: 'camera-reset' }) }] : []),
+    // Sul desktop: dimensione della finestra; nella stanza la sceglie chi la ridimensiona.
+    ...(inRoom ? [] : [{
       label: 'Dimensione',
       submenu: Object.entries(WINDOW_SCALES).map(([id, size]) => ({
         label: size.label, type: /** @type {const} */ ('radio'), checked: cfg.scale === id,
         click: () => setOption({ scale: id }),
       })),
-    },
+    }]),
     { type: 'separator' },
     { label: 'Segue il mouse', type: 'checkbox', checked: cfg.followMouse, click: (item) => setOption({ followMouse: item.checked }) },
     { label: 'Vita autonoma', type: 'checkbox', checked: cfg.idleLife, click: (item) => setOption({ idleLife: item.checked }) },
-    { label: 'Sempre in primo piano', type: 'checkbox', checked: cfg.alwaysOnTop, click: (item) => setOption({ alwaysOnTop: item.checked }) },
-    winWindows.available()
-      ? { label: 'Si siede su finestre e taskbar', type: 'checkbox', checked: cfg.perch, click: (item) => setOption({ perch: item.checked }) }
-      : { label: 'Si siede su finestre e taskbar (non disponibile)', enabled: false },
+    ...(inRoom ? [] : /** @type {Electron.MenuItemConstructorOptions[]} */ ([
+      { label: 'Sempre in primo piano', type: 'checkbox', checked: cfg.alwaysOnTop, click: (item) => setOption({ alwaysOnTop: item.checked }) },
+      winWindows.available()
+        ? { label: 'Si siede su finestre e taskbar', type: 'checkbox', checked: cfg.perch, click: (item) => setOption({ perch: item.checked }) }
+        : { label: 'Si siede su finestre e taskbar (non disponibile)', enabled: false },
+    ])),
     kimodo && kimodo.available()
       ? { label: 'Movimenti nuovi con Kimodo', type: 'checkbox', checked: cfg.kimodo, click: (item) => setOption({ kimodo: item.checked }) }
       : { label: 'Movimenti nuovi con Kimodo (non installato)', enabled: false },
@@ -1247,17 +1512,6 @@ async function showCompanionMenu() {
     { label: 'Nascondi (torna dall\'icona nella barra)', click: () => { if (companionWindow) companionWindow.hide() } },
     { label: 'Esci', click: () => app.quit() },
   ]
-  template.splice(3, 0, {
-    label: 'Animazioni',
-    submenu: [
-      { label: 'Importa animazione (VRMA, glTF, FBX, BVH)…', click: () => command({ cmd: 'import-animation' }) },
-      { label: 'Apri la cartella delle animazioni', click: () => openAnimationsFolder() },
-      { type: 'separator' },
-      ...(current && kind(current) === '3D'
-        ? await previewMenu(command)
-        : [{ label: 'Prova (solo con un avatar 3D)', enabled: false }]),
-    ],
-  })
   Menu.buildFromTemplate(template).popup({ window: companionWindow })
 }
 
@@ -1316,7 +1570,7 @@ function openAnimationsFolder() {
 on('drag:start', () => startDrag())
 on('drag:end', () => endDrag())
 on('mouse:capture', (_e, capture) => {
-  if (!companionWindow || companionWindow.isDestroyed()) return
+  if (!companionWindow || companionWindow.isDestroyed() || viewMode === 'room') return
   companionWindow.setIgnoreMouseEvents(capture !== true, { forward: true })
 })
 on('companion:menu', () => { showCompanionMenu().catch(e => console.error('[menu]', e.message)) })
@@ -1556,6 +1810,7 @@ app.whenReady().then(() => {
   initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
   startIdleLife()
   startCursorFeed()
+  startWeatherFeed()
 })
 
 app.on('window-all-closed', () => {
@@ -1563,6 +1818,7 @@ app.on('window-all-closed', () => {
   endDrag()
   if (cursorTimer) clearInterval(cursorTimer)
   if (idleTimer) clearInterval(idleTimer)
+  if (weatherTimer) clearInterval(weatherTimer)
   if (global.__memoryTimer) clearInterval(global.__memoryTimer)
   if (kimodo) kimodo.stop()
   if (process.platform !== 'darwin') app.quit()

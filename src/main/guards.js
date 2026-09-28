@@ -159,6 +159,12 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.kimodo === 'boolean') merged.kimodo = incoming.kimodo
   if (typeof incoming.perch === 'boolean') merged.perch = incoming.perch
   if (typeof incoming.scale === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_SCALES, incoming.scale)) merged.scale = incoming.scale
+  // Stanza: la scena scelta (solo il formato: room-scene.js ripiega sulla
+  // prima se non esiste), e il meteo vero, spento di base, con la citta'.
+  // view e roomBounds li scrive solo il main.
+  if (typeof incoming.roomScene === 'string' && /^[a-z0-9-]{1,40}$/.test(incoming.roomScene)) merged.roomScene = incoming.roomScene
+  if (typeof incoming.weather === 'boolean') merged.weather = incoming.weather
+  if (typeof incoming.weatherCity === 'string') merged.weatherCity = incoming.weatherCity.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
   if (incoming.keys && typeof incoming.keys === 'object') {
     for (const [provider, value] of Object.entries(incoming.keys)) {
       if (PROVIDERS[provider] && typeof value === 'string' && value.trim()) merged.keys[provider] = value.trim()

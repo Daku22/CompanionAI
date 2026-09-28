@@ -7,6 +7,9 @@ conversations from one day to the next.
 
 - **Avatars:** a 3D VRM avatar, or 2D animated sprites. You can import your own
   VRM, GLB/glTF or sprite packs.
+- **Desktop or room:** it lives on your desktop, or in its own room, a bigger
+  window with a 3D scene whose light follows the time of day (and, if you
+  want, the real weather).
 - **Seven AI providers behind one router:** OpenRouter (free models), Claude,
   ChatGPT, Grok, Gemini, Mistral and local Ollama.
 - **Persistent local memory:** old conversations fade into a summary, and the
@@ -42,13 +45,28 @@ yourself from source if you prefer (see below).
 - Grab the avatar to carry it around: it sways as you move it, and in 3D its
   hair follows the motion.
 - In 3D it turns its head toward the mouse; in 2D it faces the mouse's side.
+- In 3D, drag with the right or middle button to turn the camera around it,
+  and use the wheel to zoom. Double-click the middle button (or "Rimetti la
+  camera" in the menu) to reset the view.
 - Drop it with the shadow under its feet on the top edge of a window: it
   stands there, then sits with its legs dangling and follows the window. It
   can sit on the bottom taskbar too.
-- Right-click for a menu with the chat, avatars, size (small to extra large),
-  "Segue il mouse" (follow the mouse), "Vita autonoma" (idle life), "Sempre in
-  primo piano" (always on top), "Si siede su finestre e taskbar" (sit on
-  windows and the taskbar), hide and quit.
+- Right-click (without dragging) for a menu with the chat, "Stanza" (the
+  room), avatars, animations (import them, or try any of them with "Prova"),
+  size (small to extra large), "Segue il mouse" (follow the mouse), "Vita
+  autonoma" (idle life), "Sempre in primo piano" (always on top), "Si siede su
+  finestre e taskbar" (sit on windows and the taskbar), hide and quit.
+
+**The room** ("Stanza" in the right-click or tray menu) turns the avatar's
+window into a bigger, resizable window with its own title bar and the chat
+docked on the right. Pick a scene from the title bar: "Studio", "Giardino" (a
+computed sky with the real sun, and stars at night), or the photo scenes
+"Collina" and "Stanza vuota". The light follows the local time and, softly,
+the avatar's mood. In the room the left button turns the camera too.
+Optional: "Meteo vero nella stanza" in the chat settings adds clouds, rain,
+snow and fog from the real weather of a city you type (through Open-Meteo, see
+[PRIVACY.md](PRIVACY.md)). The ✕ in the title bar brings the avatar back to
+the desktop.
 
 Ask things like "open my Documents folder", "search the news about AI" or just
 chat. Anything that touches your system shows a confirmation dialog first.

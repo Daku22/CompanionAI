@@ -20,6 +20,17 @@ contextBridge.exposeInMainWorld('companion', {
   // ci mette il bacino.
   setSeatAnchor:    (a)      => ipcRenderer.send('companion:seat-anchor', { x: Number(a && a.x), feet: Number(a && a.feet), seat: Number(a && a.seat) }),
 
+  // ─── Stanza (room.js) ──────────────────────────────────────────────────────
+  // La barra del titolo e i bordi li disegna la pagina: qui solo i comandi,
+  // e per i bordi quale si e' preso (n, s, e, w e gli angoli).
+  setView:          (mode)   => ipcRenderer.send('view:set', mode === 'room' ? 'room' : 'desktop'),
+  roomMinimize:     ()       => ipcRenderer.send('room:minimize'),
+  roomMaximize:     ()       => ipcRenderer.send('room:maximize'),
+  roomResizeStart:  (edge)   => ipcRenderer.send('room:resize-start', String(edge)),
+  roomResizeEnd:    ()       => ipcRenderer.send('room:resize-end'),
+  // Scene HDRI disponibili, gia' controllate dal main.
+  listScenes:       ()       => ipcRenderer.invoke('scenes:list'),
+
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),
 
@@ -109,6 +120,18 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('perch-state', handler)
     return () => ipcRenderer.removeListener('perch-state', handler)
+  },
+  // Desktop o stanza, e quanto spazio a destra occupa la chat agganciata
+  onViewMode: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('view-mode', handler)
+    return () => ipcRenderer.removeListener('view-mode', handler)
+  },
+  // Meteo vero per la scena della stanza (weather.js), o null se spento
+  onRoomWeather: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('room-weather', handler)
+    return () => ipcRenderer.removeListener('room-weather', handler)
   },
   // Verso della camminata deciso dal main (che conosce l'area di lavoro reale)
   onCompanionFacing: (cb)    => {

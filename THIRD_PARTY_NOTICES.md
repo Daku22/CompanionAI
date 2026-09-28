@@ -9,7 +9,7 @@ are released under the MIT License, whose full text is in each package's
 |---|---|---|---|
 | [PixiJS](https://pixijs.com/) (`pixi.js`) | 7.4.3 | MIT | © 2013-2023 Mathew Groves, Chad Engler |
 | [@pixi/unsafe-eval](https://github.com/pixijs/pixijs) | 7.4.3 | MIT | © 2013-2023 Mathew Groves, Chad Engler |
-| [three.js](https://threejs.org/) (`three`, including `GLTFLoader`, `FBXLoader`, `BVHLoader`, `BufferGeometryUtils`, NURBS curves and the bundled `fflate`) | 0.177.0 | MIT | © 2010-2025 three.js authors (fflate © 2020 Arjun Barrett, MIT) |
+| [three.js](https://threejs.org/) (`three`, including `GLTFLoader`, `FBXLoader`, `BVHLoader`, `RGBELoader`, `BufferGeometryUtils`, NURBS curves, `OrbitControls`, `Sky`, `GroundedSkybox` and the bundled `fflate`) | 0.177.0 | MIT | © 2010-2025 three.js authors (fflate © 2020 Arjun Barrett, MIT) |
 | [@pixiv/three-vrm](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 | [@pixiv/three-vrm-animation](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 

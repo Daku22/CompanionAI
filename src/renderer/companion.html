@@ -140,6 +140,50 @@
     .menu-item.danger { color: #ff9a9a; }
     .menu-item.disabled { opacity: 0.4; pointer-events: none; }
 
+    /* ── Stanza (room-ui.js): barra del titolo e bordi ─────────────────── */
+    #room-bar, .room-grip { display: none; }
+    body.mode-room #room-bar {
+      display: flex; align-items: center; gap: 6px;
+      position: absolute; top: 0; left: 0; right: 0; height: 36px;
+      padding: 0 6px 0 12px; z-index: 40;
+      background: rgba(14, 11, 22, 0.82);
+      border-bottom: 1px solid rgba(180,140,255,0.18);
+      font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; color: #e8ddff;
+      -webkit-app-region: drag;
+    }
+    body.mode-room .room-grip { display: block; position: absolute; z-index: 45; }
+    body.room-maximized .room-grip { display: none; }
+    #room-bar .room-title { font-weight: 600; letter-spacing: 0.3px; margin-right: auto; opacity: 0.9; }
+    #room-bar select, #room-bar button { -webkit-app-region: no-drag; font: inherit; color: inherit; }
+    #room-bar select {
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(180,140,255,0.25);
+      border-radius: 6px; padding: 3px 6px; margin-right: 6px; cursor: pointer;
+    }
+    #room-bar select option { background: #1b1528; }
+    #room-bar button {
+      width: 32px; height: 26px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: 14px;
+    }
+    #room-bar button:hover { background: rgba(180,140,255,0.18); }
+    #room-bar #room-close:hover { background: rgba(232,72,85,0.85); color: white; }
+    /* Bordi per ridimensionare: 6 px sui lati, 12 agli angoli. */
+    .room-grip[data-edge="n"]  { top: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+    .room-grip[data-edge="s"]  { bottom: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+    .room-grip[data-edge="e"]  { right: 0; top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+    .room-grip[data-edge="w"]  { left: 0; top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+    .room-grip[data-edge="ne"] { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+    .room-grip[data-edge="sw"] { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+    .room-grip[data-edge="nw"] { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+    .room-grip[data-edge="se"] { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+    /* Nella stanza: la scena riempie la finestra, l'avatar 2D ci sta sopra,
+       i pulsanti del desktop non servono e il fumetto scende sotto la barra. */
+    body.mode-room #app { background: #1d1b22; }
+    body.mode-room #pixi-mount { z-index: 2; }
+    body.mode-room #three-mount { z-index: 1; }
+    body.mode-room #click-zone, body.mode-room #switch-zone, body.mode-room #model-menu { display: none !important; }
+    body.mode-room #bubble { top: 48px; }
+    body.mode-room #drag-zone { cursor: default; }
+    body.mode-room #drag-zone:active { cursor: grabbing; }
+
   </style>
   <!-- Librerie copiate sotto src/ da scripts/vendor.js: dentro l'app
        impacchettata i percorsi di node_modules non sono garantiti. -->
@@ -165,6 +209,18 @@
   <div id="drag-zone"></div>
   <div id="click-zone"></div>
   <div id="switch-zone"></div>
+  <div id="room-bar">
+    <span class="room-title">CompanionAI · Stanza</span>
+    <select id="room-scene" title="Scena"></select>
+    <button id="room-chat" title="Chat">💬</button>
+    <button id="room-min" title="Riduci a icona">–</button>
+    <button id="room-max" title="Ingrandisci">□</button>
+    <button id="room-close" title="Torna sul desktop">✕</button>
+  </div>
+  <div class="room-grip" data-edge="n"></div><div class="room-grip" data-edge="s"></div>
+  <div class="room-grip" data-edge="e"></div><div class="room-grip" data-edge="w"></div>
+  <div class="room-grip" data-edge="ne"></div><div class="room-grip" data-edge="nw"></div>
+  <div class="room-grip" data-edge="se"></div><div class="room-grip" data-edge="sw"></div>
   <div id="model-menu" style="display: none; position: absolute; top: 35px; left: 8px; background: rgba(14, 11, 22, 0.94); border: 1px solid rgba(180,140,255,0.2); border-radius: 10px; padding: 5px; z-index: 30; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; color: white; ">
     <div id="avatar-list"></div>
     <div id="btn-import-avatar" class="menu-item" style="color: #d9c4ff;">+ Importa avatar…</div>

@@ -29,6 +29,20 @@ When the art is added, its license goes here. The recommended choice is
 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): anyone may
 share and adapt the character with credit, but not sell it.
 
+## Room scenes (HDRI)
+
+The room's photo backgrounds in `modelli-3d/scenes/` are 360° HDRI images
+from [Poly Haven](https://polyhaven.com), released under
+[CC0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain).
+They are the 2k `.hdr` files, unmodified; `scenes.json` lists them.
+
+- "Collina": `qwantani_dawn`, `qwantani_noon`, `qwantani_sunset`,
+  `qwantani_night`. Photography Greg Zaal, processing Jarod Guest.
+- "Stanza vuota": `small_empty_room_1` (day) and `small_empty_room_2`
+  (night), by Sergej Majboroda.
+
+Credit is not required by CC0. It is given here anyway, with thanks.
+
 ## Test motion data
 
 `scripts/fixtures/kimodo-soma77-sit.bvh` is an excerpt (13 frames) of a

@@ -3,3 +3,5 @@
 *.jpg binary
 *.jpeg binary
 *.vrm binary
+*.hdr binary
+*.vrma binary

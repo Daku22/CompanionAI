@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanoid } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import {
@@ -10,6 +11,8 @@ import {
 import { createClipLayer, applyLook, isLoopSlot } from './clip-layer.js';
 import { prepareHumanoid, retargetClip, writeVRMA } from './motion-retarget.js';
 import { kimodoClip } from './kimodo-raw.js';
+import { createRoomScene } from './room-scene.js';
+import { initRoomUI } from './room-ui.js';
 
 
 window.__threeVisible = false;
@@ -27,7 +30,14 @@ let loader = null;
 // piedi; body lo riporta a terra e lo solleva un poco mentre e' in mano.
 let rig = null;
 let body = null;
+let controls = null;
+let roomScene = null;
 const PIVOT_Y = 1.45;
+
+// Modalita' stanza (room.js nel main): la scena resta viva anche con un
+// avatar 2D, disegnato sopra; chatInset e' lo spazio a destra della chat.
+let roomMode = false;
+let chatInset = 0;
 const DRAG_LIFT = 0.06;
 
 function ensureThree() {
@@ -43,11 +53,29 @@ function ensureThree() {
   // finestra, e l'ombra ai piedi (l'ancora per le finestre) restava tagliata.
   camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 0.95, 2.7);
-  camera.lookAt(0, 0.85, 0);
+  camera.lookAt(0, CAMERA_LOOK_Y, 0);
 
-  // Camera fissa. Prima il mouse la ruotava (OrbitControls) e per spostare la
-  // finestra serviva una maniglia: ora il mouse prende l'avatar, come in Mate
-  // Engine (companion-input.js).
+  // Camera: il sinistro prende l'avatar (companion-input.js), destro o
+  // centrale + trascina girano intorno, la rotella zooma. OrbitControls sta
+  // sullo strato che riceve il mouse, non sul canvas; il mouse arriva solo
+  // sopra il modello, e durante la rotazione resta catturato.
+  controls = new OrbitControls(camera, document.getElementById('drag-zone'));
+  controls.target.set(0, CAMERA_LOOK_Y, 0);
+  controls.mouseButtons = { LEFT: -1, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.ROTATE };
+  controls.enablePan = false;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  // La rotazione si misura sull'altezza della finestra, che qui e' piccola:
+  // a velocita' piena bastavano 260 px per un giro intero.
+  controls.rotateSpeed = 0.5;
+  controls.minDistance = 0.5;
+  controls.maxDistance = 5.0;
+  // Giro completo in orizzontale; in altezza poco sopra e poco sotto.
+  controls.minPolarAngle = Math.PI / 2 - 0.45;
+  controls.maxPolarAngle = Math.PI / 2 + 0.15;
+  controls.update();
+  controls.saveState();
+
   rig = new THREE.Group();
   rig.position.y = PIVOT_Y;
   body = new THREE.Group();
@@ -65,6 +93,8 @@ function ensureThree() {
   const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
   dirLight.position.set(1, 2, 3);
   scene.add(dirLight);
+
+  roomScene = createRoomScene({ scene, renderer, hemiLight, dirLight, listScenes: api && api.listScenes });
 
   loader = new GLTFLoader();
   loader.register(parser => new VRMLoaderPlugin(parser));
@@ -120,7 +150,12 @@ function onWindowResize() {
   if (!renderer) return;
   const width = window.innerWidth;
   const height = window.innerHeight;
-  camera.aspect = width / height;
+  // Nella stanza con la chat aperta l'avatar sta al centro dello spazio
+  // libero a sinistra: la vista si sposta, la scena continua sotto la chat.
+  const inset = roomMode ? Math.min(chatInset, width * 0.6) : 0;
+  camera.aspect = (width + inset) / height;
+  if (inset > 0) camera.setViewOffset(width + inset, height, inset, 0, width, height);
+  else camera.clearViewOffset();
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
 }
@@ -185,7 +220,8 @@ function updateFace(vrm, delta, lookTarget) {
   }
 }
 
-if (api && api.onMoodChanged) api.onMoodChanged((mood) => { moodWeights = moodExpressions(mood); });
+if (api && api.onMoodChanged) api.onMoodChanged((mood) => { moodWeights = moodExpressions(mood); lastMood = mood; if (roomScene) roomScene.setMood(mood); });
+let lastMood = null;
 
 // ─── Mouse: sguardo, presa in braccio, pixel sotto il cursore ─────────────
 const sway = window.CompanionSway.createSway();
@@ -201,6 +237,8 @@ const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const lookPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const lookPoint = new THREE.Vector3();
+const toCamera = new THREE.Vector3();
+const planePoint = new THREE.Vector3();
 const headPos = new THREE.Vector3();
 const windForce = new THREE.Vector3();
 
@@ -224,6 +262,17 @@ window.__companion3DTest = {
   /** Avvia un gesto per nome, e la posa di riposo (idle, perch), senza il main. */
   play: (name) => playClip(name),
   rest: (name) => animator.setRest(name),
+  /** Camera: angoli e distanza da OrbitControls; resetCamera la rimette a posto. */
+  camera: () => controls && {
+    azimuth: controls.getAzimuthalAngle(), polar: controls.getPolarAngle(), distance: controls.getDistance(),
+    target: controls.target.toArray(),
+  },
+  resetCamera: () => resetCamera(),
+  /** Stanza: stato della scena; setTime forza un'ora (ISO) per le schermate. */
+  room: () => ({ mode: roomMode, chatInset, ...(roomScene ? roomScene.debug() : {}) }),
+  roomTime: (iso) => { if (roomScene) roomScene.setTime(iso ? new Date(iso) : null); },
+  roomScene: (id) => { const chosen = roomScene ? roomScene.setScene(id) : null; roomUI.refreshScenes(); return chosen; },
+  roomWeather: (w, place) => { if (roomScene) roomScene.setWeather(w, place); },
   /** Stato dell'ombra ai piedi. */
   shadow: () => shadow && { visible: shadow.visible, opacity: shadow.material.opacity, x: shadow.position.x, z: shadow.position.z },
   /** Converte in .vrma come l'import dal menu, senza la finestra di scelta. */
@@ -264,24 +313,31 @@ if (api && api.onPerchState) {
 // il bacino) e la seduta (seat, il bacino qualche centimetro piu' in basso,
 // dove poggiano le cosce). Si misura a riposo e non in braccio; si manda
 // quando cambia, e ogni 2 s perche' passando dal 2D al 3D il main tenga
-// quella giusta.
+// quella giusta. Posato su un bordo non si rimisura (la posa seduta abbassa
+// il bacino), ma i punti misurati si riproiettano con la camera di adesso:
+// girando la camera o zoomando, l'avatar resta sul bordo.
 const SEAT_BELOW_HIPS_M = 0.07;
 const seatPoint = new THREE.Vector3();
 const feetPoint = new THREE.Vector3();
+const projected = new THREE.Vector3();
+let seatMeasured = false;
 let seatSentAt = 0;
 let seatKey = '';
 function toWindowPx(point) {
-  point.project(camera);
-  return { x: Math.round((point.x + 1) / 2 * window.innerWidth), y: Math.round((1 - point.y) / 2 * window.innerHeight) };
+  projected.copy(point).project(camera);
+  return { x: Math.round((projected.x + 1) / 2 * window.innerWidth), y: Math.round((1 - projected.y) / 2 * window.innerHeight) };
 }
 function reportSeat(vrm) {
   const now = performance.now();
-  if (dragging || perchPhase || !api || !api.setSeatAnchor || now - seatSentAt < 500) return;
-  const hips = vrm.humanoid && vrm.humanoid.getRawBoneNode('hips');
-  if (!hips) return;
-  hips.getWorldPosition(seatPoint);
-  feetPoint.set(seatPoint.x, 0, seatPoint.z);
-  seatPoint.y -= SEAT_BELOW_HIPS_M;
+  if (dragging || roomMode || !api || !api.setSeatAnchor || now - seatSentAt < 500) return;
+  if (!perchPhase) {
+    const hips = vrm.humanoid && vrm.humanoid.getRawBoneNode('hips');
+    if (!hips) return;
+    hips.getWorldPosition(seatPoint);
+    feetPoint.set(seatPoint.x, 0, seatPoint.z);
+    seatPoint.y -= SEAT_BELOW_HIPS_M;
+    seatMeasured = true;
+  } else if (!seatMeasured) return;
   const feet = toWindowPx(feetPoint);
   const seat = toWindowPx(seatPoint);
   const key = feet.x + ',' + feet.y + ',' + seat.y;
@@ -307,7 +363,10 @@ function updateLook(vrm) {
   head.getWorldPosition(headPos);
   ndc.set((cursorPos.x / window.innerWidth) * 2 - 1, -(cursorPos.y / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
-  lookPlane.constant = -(headPos.z + LOOK_PLANE_M);
+  // Il piano del cursore sta fra la testa e la camera, di fronte alla camera:
+  // con la camera ruotata il cursore resta "davanti" a chi guarda.
+  toCamera.copy(camera.position).sub(headPos).normalize();
+  lookPlane.setFromNormalAndCoplanarPoint(toCamera, planePoint.copy(headPos).addScaledVector(toCamera, LOOK_PLANE_M));
   if (!raycaster.ray.intersectPlane(lookPlane, lookPoint)) return null;
   const dx = lookPoint.x - headPos.x;
   const dy = lookPoint.y - headPos.y;
@@ -362,16 +421,17 @@ function readHit() {
   gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, hitPixel);
   window.CompanionInput.setOverModel(hitPixel[3] > 20);
 }
-if (api && api.getMood) api.getMood().then((mood) => { moodWeights = moodExpressions(mood); }).catch(() => {});
+if (api && api.getMood) api.getMood().then((mood) => { moodWeights = moodExpressions(mood); lastMood = mood; if (roomScene) roomScene.setMood(mood); }).catch(() => {});
 
 // Il loop gira solo con il 3D visibile: tornando al 2D si ferma del tutto,
 // invece di continuare a chiedere un frame al browser per poi non disegnarlo.
 let looping = false;
 
 function animate() {
-  if (!window.__threeVisible) { looping = false; return; }
+  if (!window.__threeVisible && !roomMode) { looping = false; return; }
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.05);
+  roomScene.update(delta);
 
   // Oscillazione in braccio, con il perno alla testa (rig), e sollevamento.
   const { side, forward } = sway.update(delta, dragging ? dragVel.vx : 0, dragging ? dragVel.vy : 0);
@@ -380,7 +440,7 @@ function animate() {
   const lift = dragging ? DRAG_LIFT : 0;
   body.position.y += (-PIVOT_Y + lift - body.position.y) * Math.min(1, delta * 10);
 
-  if (currentVrm) {
+  if (currentVrm && window.__threeVisible) {
     const lookTarget = updateLook(currentVrm);
     updateAnimation(currentVrm, delta);
     updateFace(currentVrm, delta, lookTarget);
@@ -390,13 +450,15 @@ function animate() {
     updateShadow(currentVrm, delta);
     reportSeat(currentVrm);
   }
+  controls.update();
   renderer.render(scene, camera);
   readHit();
 }
 
 // Seduto a terra le gambe vengono verso la camera e uscivano dal fondo della
 // finestra: la camera abbassa lo sguardo in proporzione a quanto e' sceso il
-// bacino, e lo rialza quando l'avatar si rimette in piedi.
+// bacino, e lo rialza quando l'avatar si rimette in piedi. Lo sguardo e' il
+// punto intorno a cui gira OrbitControls.
 const CAMERA_LOOK_Y = 0.85;
 const SEATED_LOOK_DROP = 0.3;
 let seated = 0;
@@ -405,8 +467,27 @@ function frameSeated(vrm, delta) {
   const rest = hips && hips.userData.__baseY;
   const target = rest > 0 ? Math.max(0, Math.min(1, 1 - hips.position.y / rest)) : 0;
   seated += (target - seated) * Math.min(1, delta * 3);
-  camera.lookAt(0, CAMERA_LOOK_Y - SEATED_LOOK_DROP * seated, 0);
+  controls.target.y = CAMERA_LOOK_Y - SEATED_LOOK_DROP * seated;
 }
+
+// Inquadratura di partenza: sul desktop la finestra e' stretta attorno
+// all'avatar; nella stanza la camera sta piu' indietro, perche' si veda la
+// scena e la testa non finisca sotto la barra del titolo.
+const CAMERA_HOME = {
+  desktop: { position: [0, 0.95, 2.7], maxDistance: 5 },
+  room: { position: [0, 1.05, 3.9], maxDistance: 9 },
+};
+
+/** Camera com'era all'avvio (o all'apertura della stanza): dal menu e con il doppio clic centrale. */
+function resetCamera() {
+  if (!controls) return;
+  const home = CAMERA_HOME[roomMode ? 'room' : 'desktop'];
+  controls.maxDistance = home.maxDistance;
+  camera.position.set(...home.position);
+  controls.target.set(0, CAMERA_LOOK_Y, 0);
+  controls.update();
+}
+window.addEventListener('companion-camera-reset', () => { if (window.__threeVisible) resetCamera(); });
 
 function startLoop() {
   if (looping) return;
@@ -475,6 +556,7 @@ async function loadVRMModel(avatar) {
   if (currentGltf) { body.remove(currentGltf); VRMUtils.deepDispose(currentGltf); currentGltf = null; }
   clips.attach(null);
   windActive = false;
+  seatMeasured = false;
   sway.reset();
 
   let model;
@@ -495,6 +577,7 @@ async function loadVRMModel(avatar) {
     if (!vrm) {
       // Nessuno scheletro umano: anteprima statica, mai animazioni finte.
       currentGltf = model.object;
+      keepAvatarLook(currentGltf);
       body.add(currentGltf);
       showBubble('Modello statico: nessuno scheletro umano da animare', 3600);
       return;
@@ -522,7 +605,18 @@ async function loadVRMModel(avatar) {
 
   currentVrm = vrm;
   clips.attach(vrm);
+  keepAvatarLook(vrm.scene);
   body.add(vrm.scene);
+}
+
+// Nella stanza cielo e foto HDR usano il tone mapping; l'avatar deve restare
+// com'e' sul desktop, quindi i suoi materiali ne restano fuori. Le luci della
+// scena lo illuminano comunque.
+function keepAvatarLook(object) {
+  object.traverse((o) => {
+    const list = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of list) m.toneMapped = false;
+  });
 }
 
 // ─── Animazioni .vrma ──────────────────────────────────────────────────────
@@ -677,11 +771,14 @@ function show2D() {
   const pixi = document.getElementById('pixi-mount');
   const three = document.getElementById('three-mount');
   window.__threeVisible = false;
+  // Nella stanza la scena resta dietro l'avatar 2D, e la camera gira ancora.
+  if (controls) controls.enabled = roomMode;
+  if (body) body.visible = false;
   window.CompanionInput.setProbe(window.hitTest2D);
   document.body.classList.remove('mode-3d');
   if (window.app) window.app.ticker.start();
   pixi.style.display = 'block';
-  three.style.display = 'none';
+  three.style.display = roomMode ? 'block' : 'none';
   three.style.pointerEvents = 'none';
   if (renderer) renderer.domElement.style.pointerEvents = 'none';
 }
@@ -692,6 +789,8 @@ function show3D() {
   window.unload2DAvatar();
   window.CompanionInput.setProbe(probe3D);
   ensureThree();
+  controls.enabled = true;
+  body.visible = true;
   window.__threeVisible = true;
   document.body.classList.add('mode-3d');
   if (window.app) window.app.ticker.stop();
@@ -966,6 +1065,7 @@ if (api && api.onMenuCommand) {
     if (data.cmd === 'avatar' && typeof data.id === 'string') switchModel(data.id);
     else if (data.cmd === 'import') importAvatar();
     else if (data.cmd === 'import-animation') importAnimation();
+    else if (data.cmd === 'camera-reset') resetCamera();
     else if (data.cmd === 'preview-clip' && typeof data.url === 'string' && data.url.startsWith('motion://')) {
       previewClip(data.url, String(data.name || 'clip')).catch((error) => {
         console.error('Prova non riuscita:', error);
@@ -977,6 +1077,57 @@ if (api && api.onMenuCommand) {
     }
   });
 }
+
+// ─── Stanza ────────────────────────────────────────────────────────────────
+// Il main dice la modalita' (view-mode). Nella stanza la scena gira sempre,
+// il sinistro ruota la camera, e la barra del titolo e i bordi li gestisce
+// room-ui.js.
+const roomUI = initRoomUI({
+  api,
+  scenes: () => (roomScene ? roomScene.list() : []),
+  currentScene: () => (roomScene ? roomScene.current() : null),
+  onScene: (id) => {
+    if (!roomScene) return;
+    const chosen = roomScene.setScene(id);
+    if (api && api.setConfig) api.setConfig({ roomScene: chosen }).catch(() => {});
+  },
+});
+
+async function applyViewMode(data) {
+  const next = !!data && data.mode === 'room';
+  chatInset = next ? Math.max(0, Number(data.chatInset) || 0) : 0;
+  window.__roomInset = chatInset;
+  roomUI.setState({ room: next, maximized: !!(data && data.maximized) });
+  if (next !== roomMode) {
+    roomMode = next;
+    window.CompanionInput.setRoom(roomMode);
+    document.body.classList.toggle('mode-room', roomMode);
+    if (roomMode) {
+      ensureThree();
+      await roomScene.ready;
+      const cfg = api && api.getConfig ? await api.getConfig().catch(() => ({})) : {};
+      roomScene.setScene(cfg.roomScene);
+      roomScene.setMood(lastMood);
+      roomScene.setActive(true);
+      roomUI.refreshScenes();
+      controls.enabled = true;
+      controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+      resetCamera();
+      document.getElementById('three-mount').style.display = 'block';
+      if (body) body.visible = window.__threeVisible;
+      startLoop();
+    } else if (roomScene) {
+      roomScene.setActive(false);
+      controls.mouseButtons.LEFT = -1;
+      controls.enabled = window.__threeVisible;
+      resetCamera();
+      if (!window.__threeVisible) document.getElementById('three-mount').style.display = 'none';
+    }
+  }
+  onWindowResize();
+}
+if (api && api.onViewMode) api.onViewMode((data) => { applyViewMode(data).catch(e => console.error('Stanza non aperta:', e)); });
+if (api && api.onRoomWeather) api.onRoomWeather((data) => { if (roomScene) roomScene.setWeather(data && data.weather, data && data.place); });
 
 // All'avvio: l'avatar salvato se esiste ancora, altrimenti il predefinito.
 (async () => {

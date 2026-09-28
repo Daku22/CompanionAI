@@ -301,6 +301,11 @@ formato: `.vrma`, lo standard VRM per le animazioni umanoidi.
   `.gltf`, `.fbx`, `.bvh` (le esportazioni di Kimodo), convertiti nel renderer
   e poi salvati. Si sceglie il gesto, con un suggerimento dal nome del file.
   Per toglierne una si cancella il file ("Apri la cartella delle animazioni").
+- **Prova** (tasto destro, "Animazioni → Prova"): ogni clip per nome, divisa
+  per gesto, con la fase e la cartella da cui viene, si riproduce una volta
+  con il nome nel fumetto. I gesti senza clip mostrano la posa procedurale.
+  "Prova i movimenti di Kimodo" elenca quelli in cache con la frase da cui
+  sono nati (salvata in `index.json` accanto ai file).
 
 **Uno scheletro per tutti i modelli.** Clip e modelli si incontrano
 nell'umanoide VRM normalizzato: ogni osso a riposo ha rotazione nulla, con il
@@ -382,6 +387,9 @@ secondo si siede, con le gambe a penzoloni davanti alla finestra.
   suo bordo resta il pavimento di sempre.
 - Seduto su una finestra non è più "sempre in primo piano": sta subito sopra
   di lei nell'ordine z (`SetWindowPos`), così le finestre davanti lo coprono.
+  Finché quella finestra è la finestra attiva torna in primo piano: Windows
+  non lascia salire sopra la finestra attiva quella di un altro programma, e
+  cliccandola le gambe sparivano dietro la sua barra del titolo.
 
 Le finestre degli altri programmi le legge `src/main/win-windows.js` con koffi
 (user32 e dwmapi, anche per il bordo visibile vero); le regole stanno in
@@ -391,6 +399,11 @@ tasto destro.
 
 **Clic e doppio clic.** Un clic fa sorridere l'avatar, il doppio clic apre la
 chat.
+
+**Camera (3D).** Destro o centrale + trascina girano la camera intorno
+all'avatar, la rotella zooma (OrbitControls, sullo strato che riceve il
+mouse). Il destro apre il menu solo se lo rilasci senza muoverti. Doppio clic
+centrale, o "Rimetti la camera" nel menu, riporta la vista di partenza.
 
 **Segue il mouse.** Il main manda la posizione del cursore rispetto alla
 finestra a 30 Hz, anche quando è fuori.
@@ -403,7 +416,9 @@ finestra a 30 Hz, anche quando è fuori.
 - Nel 2D lo sprite si volta verso il lato del cursore, se ci resta per 0,7 s.
 
 **Menu col tasto destro** (`showCompanionMenu` in `main.js`):
-- chat e avatar (con "Importa avatar…");
+- chat, "Stanza" e avatar (con "Importa avatar…");
+- animazioni: importa, apri la cartella, prova;
+- "Rimetti la camera" (3D e stanza);
 - dimensione: piccola, media, grande, molto grande. Sostituisce il
   ridimensionamento dai bordi, che con i clic che passano non si potrebbero
   afferrare;
@@ -412,6 +427,53 @@ finestra a 30 Hz, anche quando è fuori.
 
 Le opzioni si salvano in config come `followMouse`, `alwaysOnTop` e `scale`, e
 `guards.mergeConfig` accetta solo valori validi.
+
+## Stanza
+
+"Stanza" (menu col tasto destro o icona nella barra di sistema) trasforma la
+finestra dell'avatar in una stanza: grande, ridimensionabile, nella barra
+delle applicazioni, con una scena 3D dietro l'avatar e la chat agganciata a
+destra. Avatar, WebGL, umore e clip restano quelli: cambia solo la finestra.
+La ✕ della barra del titolo riporta l'avatar sul desktop, dov'era; alla
+riapertura dell'app si riparte dalla modalità in cui la si è chiusa.
+
+**La finestra.** È sempre trasparente e senza cornice (non si può cambiare
+dopo averla creata), quindi barra del titolo, pulsanti e bordi li disegna la
+pagina (`room-ui.js`):
+- la barra sposta la finestra con `-webkit-app-region: drag`;
+- i bordi dicono al main quale lato si è preso, e il main segue il cursore;
+- "Ingrandisci" copre l'area di lavoro: una finestra trasparente di Windows
+  non si massimizza da sola;
+- dimensioni, bordi e posto della chat sono funzioni pure in `src/main/room.js`,
+  con i loro test. La stanza ricorda dove era (`roomBounds` in config).
+
+Nella stanza il sinistro gira la camera (un clic fermo sull'avatar è ancora
+una carezza), niente clic che attraversano, niente "sempre in primo piano",
+niente camminate né sedute sulle finestre. La scena lascia alla chat il lato
+destro spostando la vista (`setViewOffset`), non stringendo il canvas: sotto
+la chat la scena continua. Un avatar 2D si disegna sopra la scena, che resta
+viva dietro.
+
+**Scene** (menu nella barra del titolo, `room-scene.js`):
+- **Studio**: fondale a gradiente e pavimento che sfuma, niente da scaricare;
+- **Giardino**: il cielo di `Sky.js` con il sole vero dell'ora, prato, stelle
+  di notte;
+- **Collina** e **Stanza vuota**: foto HDRI a 360° di Poly Haven (CC0, 2k),
+  proiettate su un pavimento con `GroundedSkybox`. C'è una foto per fase del
+  giorno, elencate in `modelli-3d/scenes/scenes.json` e controllate dal main.
+
+**Luce.** `scene-light.js`, puro e con i suoi test, calcola il sole da data,
+ora e latitudine (quella della città del meteo, altrimenti 42°), e ne ricava
+colori, intensità ed esposizione per l'alba, il giorno, il tramonto e la
+notte. L'umore aggiunge una tinta di pochi punti percentuali. Il cielo e le
+foto usano il tone mapping ACES; i materiali dell'avatar ne restano fuori,
+perché resti com'è sul desktop, e lo illuminano le luci della scena.
+
+**Meteo vero (facoltativo, spento di base).** Nelle impostazioni della chat,
+"Meteo vero nella stanza" e una città. `src/main/weather.js` chiede a
+Open-Meteo, senza chiave, le coordinate della città e il meteo attuale, solo
+con la stanza aperta e al massimo ogni 30 minuti. All'aperto le nuvole
+velano il cielo, e pioggia, neve e nebbia si vedono davvero.
 
 ## Azioni sul sistema
 
@@ -434,7 +496,7 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 
 ## Test
 
-`npm test` esegue quattordici suite senza chiavi API né finestre:
+`npm test` esegue diciannove suite senza chiavi API né finestre:
 
 | Suite | Cosa verifica |
 |---|---|
@@ -451,7 +513,12 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | CSP | Policy delle pagine, hash dell'importmap, niente script o gestori inline |
 | Ossa umanoidi | Riconoscimento su Fred e sui VRM privati (contro ciò che dichiarano), Mixamo, Unreal, Rigify, Biped, SOMA; scheletri non umani rifiutati |
 | Conversione .vrma | Sorgente Mixamo in centimetri, A-pose, girata: il .vrma riletto dal lettore di three-vrm muove le braccia giuste su VRM 1.0 e 0.x; BVH; livello delle clip con dissolvenze |
-| Libreria animazioni | Nome del file e gesto, varianti, salvataggio solo di glTF binari validi |
+| Libreria animazioni | Nome del file e gesto, varianti, salvataggio solo di glTF binari validi, un nome per ogni gesto nel menu Prova |
+| Seduta | Finestre su cui sedersi, bordo coperto, taskbar, posizione mentre la finestra si muove |
+| Kimodo | Avvio, richieste in coda, tempi massimi, cache con la frase in `index.json` |
+| Stanza | Dimensioni salvate e di partenza, bordi, chat agganciata, scene HDRI del manifest |
+| Luce della stanza | Sole a mezzogiorno, al tramonto e di notte, luci senza salti, meteo, tinta dell'umore |
+| Meteo | Richieste a Open-Meteo con un fetch finto: solo città o coordinate, 30 minuti di memoria, errori |
 
 `npm run check` aggiunge il controllo dei tipi. Il progetto è JavaScript, ma
 `allowJs` e `checkJs` lo sottopongono comunque a TypeScript, con i tipi
@@ -476,6 +543,11 @@ se punta a `127.0.0.1` o `localhost`. Lo script verifica:
 - nel 3D, che la testa segua il cursore a sinistra, a destra, in alto e in
   basso;
 - le dimensioni scelte dal menu;
+- nel 3D, la camera: destro + trascina gira senza aprire il menu, destro
+  fermo apre il menu, la rotella zooma, doppio clic centrale la rimette;
+- la stanza: finestra grande, barra del titolo, chat agganciata, il sole che
+  cala in giardino da mezzogiorno alla notte, la pioggia, la foto HDRI giusta
+  per l'ora, l'avatar 2D sopra la scena e il ritorno sul desktop;
 - una clip .vrma, convertita da uno scheletro Mixamo, che alza il braccio sul
   VRM e su una copia di Fred senza dati VRM (un glTF qualsiasi), e la posa di
   riposo quando finisce;

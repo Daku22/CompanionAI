@@ -41,6 +41,10 @@ const modelNote      = document.getElementById('model-note')
 const loginRow       = document.getElementById('login-row')
 const loginItem      = document.getElementById('login-item')
 const idleLife       = document.getElementById('idle-life')
+const weatherOn      = document.getElementById('weather-on')
+const weatherSection = document.getElementById('weather-section')
+const weatherCity    = document.getElementById('weather-city')
+const weatherStatus  = document.getElementById('weather-status')
 const moodChip       = document.getElementById('mood-chip')
 const setupCancel    = document.getElementById('setup-cancel')
 const keyUnreadable  = document.getElementById('key-unreadable')
@@ -69,6 +73,7 @@ async function init() {
   updateMemoryFooter()
   initLoginItem()
   idleLife.checked = config.idleLife !== false
+  showWeather()
   if (api && api.getMood) api.getMood().then(showMood).catch(() => {})
 
   // Mostra setup solo se non c'è key per il provider attivo
@@ -99,6 +104,22 @@ idleLife.addEventListener('change', async () => {
   try { config.idleLife = (await api.setConfig({ idleLife: idleLife.checked })).idleLife !== false } catch (_) {}
   idleLife.checked = config.idleLife !== false
 })
+// Meteo della stanza: l'interruttore e la citta' si salvano subito; il main
+// cerca la citta' e risponde con weatherStatus (trovata, o perche' no).
+function showWeather() {
+  weatherOn.checked = config.weather === true
+  weatherSection.classList.toggle('hidden', !weatherOn.checked)
+  if (document.activeElement !== weatherCity) weatherCity.value = config.weatherCity || ''
+  weatherStatus.textContent = config.weather && config.weatherStatus ? '→ ' + config.weatherStatus : ''
+}
+async function saveWeather(partial) {
+  try { config = { ...config, ...(await api.setConfig(partial)) } } catch (_) {}
+  showWeather()
+}
+weatherOn.addEventListener('change', () => saveWeather({ weather: weatherOn.checked, weatherCity: weatherCity.value }))
+weatherCity.addEventListener('change', () => saveWeather({ weatherCity: weatherCity.value }))
+weatherCity.addEventListener('keydown', (e) => { if (e.key === 'Enter') weatherCity.blur() })
+
 // "Vita autonoma" si cambia anche dal menu col tasto destro sull'avatar.
 if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
   if (!cfg) return

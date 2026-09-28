@@ -1,0 +1,13 @@
+{
+  "about": "Scene HDRI della stanza (room-scene.js). Foto a 360 gradi di Poly Haven, CC0: vedi ASSETS-LICENSE.md. Una foto per fase del giorno: day, dawn, dusk, night; manca una fase e si usa la piu' vicina, day e' obbligatoria. height: altezza in metri della fotocamera che ha scattato, per proiettare la foto sul pavimento. radius: raggio in metri della cupola, quanto la stanza al chiuso.",
+  "scenes": [
+    {
+      "id": "collina", "label": "Collina", "outdoor": true, "height": 1.7, "radius": 100,
+      "variants": { "day": "qwantani_noon_2k.hdr", "dawn": "qwantani_dawn_2k.hdr", "dusk": "qwantani_sunset_2k.hdr", "night": "qwantani_night_2k.hdr" }
+    },
+    {
+      "id": "stanza", "label": "Stanza vuota", "outdoor": false, "height": 1.5, "radius": 10,
+      "variants": { "day": "small_empty_room_1_2k.hdr", "night": "small_empty_room_2_2k.hdr" }
+    }
+  ]
+}
