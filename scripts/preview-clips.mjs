@@ -14,6 +14,7 @@
 // Esce con codice 1 se una clip non parte.
 
 import { spawn } from 'node:child_process'
+import { killTree } from './lib/kill-tree.mjs'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -106,7 +107,7 @@ try {
   failed++
   console.error('anteprima interrotta: ' + error.message)
 } finally {
-  app.kill()
+  killTree(app)
   await sleep(1000)
   try { fs.rmSync(WORK, { recursive: true, force: true }) } catch (_) {}
 }

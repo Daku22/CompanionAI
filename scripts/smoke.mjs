@@ -16,6 +16,7 @@
 // Esce con codice 1 se trova errori.
 
 import { spawn } from 'node:child_process'
+import { killTree } from './lib/kill-tree.mjs'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -131,6 +132,6 @@ try {
 } finally {
   // L'avatar scelto dall'utente torna com'era: la prova cambia la configurazione vera.
   if (comp && saved !== null) await comp.evaluate(`window.companion.setConfig({ avatarModel: ${JSON.stringify(saved)} })`).catch(() => {})
-  app.kill()
+  killTree(app)
 }
 process.exit(failed ? 1 : 0)

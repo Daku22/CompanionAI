@@ -21,6 +21,7 @@
 // Esce con codice 1 se un controllo fallisce.
 
 import { spawn } from 'node:child_process'
+import { killTree } from './lib/kill-tree.mjs'
 import { createRequire } from 'node:module'
 import http from 'node:http'
 import fs from 'node:fs'
@@ -580,7 +581,7 @@ try {
 } catch (error) {
   check(false, 'audit interrotto: ' + error.message)
 } finally {
-  app.kill()
+  killTree(app)
   fake.close()
   await sleep(1000)
   try { fs.rmSync(WORK, { recursive: true, force: true }) } catch (_) {}
