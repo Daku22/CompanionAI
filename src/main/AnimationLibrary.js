@@ -23,6 +23,13 @@ const { writeAtomic } = require('./write-atomic')
 // perch: seduto su una finestra vera. Non ha clip di serie (quella di Kimodo
 // per sit-edge abbassa il bacino), ma se ne puo' importare una con quel nome.
 const ANIMATION_SLOTS = ['idle', 'wave', 'think', 'walk-to', 'run-to', 'sit', 'sit-edge', 'perch', 'smoke', 'happy', 'click', 'dangle', 'search', 'stretch', 'yawn', 'doze', 'dance']
+// Nomi per il menu "Prova", nello stesso ordine di ANIMATION_SLOTS.
+const SLOT_LABELS = {
+  idle: 'A riposo', wave: 'Saluto', think: 'Pensa', 'walk-to': 'Camminata', 'run-to': 'Corsa',
+  sit: 'Seduto a terra', 'sit-edge': 'Seduto sul bordo', perch: 'Seduto su una finestra', smoke: 'Fuma',
+  happy: 'Contento', click: 'Clic', dangle: 'In braccio', search: 'Cerca', stretch: 'Si stiracchia',
+  yawn: 'Sbadiglio', doze: 'Sonnecchia', dance: 'Balla',
+}
 const FILE_RE = /^[a-z0-9][a-z0-9._-]{0,80}\.vrma$/i
 const MAX_ANIMATION_BYTES = 30 * 1024 * 1024
 const SOURCE_RE = /^[a-z]+$/
@@ -120,4 +127,4 @@ class AnimationLibrary {
   }
 }
 
-module.exports = { AnimationLibrary, ANIMATION_SLOTS, PHASES, slotOf, phaseOf, slug, isGlb }
+module.exports = { AnimationLibrary, ANIMATION_SLOTS, SLOT_LABELS, PHASES, slotOf, phaseOf, slug, isGlb }

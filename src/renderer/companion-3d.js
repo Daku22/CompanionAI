@@ -554,7 +554,7 @@ loadAnimationLibrary().catch(e => console.warn('Animazioni non caricate:', e.mes
 // Etichette dei gesti, nell'ordine in cui si propongono all'import.
 const SLOT_LABELS = {
   idle: 'A riposo', wave: 'Saluto', happy: 'Contento', think: 'Pensa', sit: 'Seduto a terra',
-  'sit-edge': 'Seduto sul bordo', dangle: 'In braccio', stretch: 'Si stiracchia', yawn: 'Sbadiglio',
+  'sit-edge': 'Seduto sul bordo', perch: 'Seduto su una finestra', dangle: 'In braccio', stretch: 'Si stiracchia', yawn: 'Sbadiglio',
   doze: 'Sonnecchia', dance: 'Balla', 'walk-to': 'Camminata', 'run-to': 'Corsa', search: 'Cerca',
   smoke: 'Fuma', click: 'Clic',
 };
@@ -782,6 +782,21 @@ async function playGeneratedMotion(data) {
   clearReactions();
 }
 
+// "Prova" nel menu col tasto destro: proprio quel file, una volta, con il
+// nome nel fumetto; poi si torna a riposo. Passa dallo slot dei movimenti
+// generati, che riproduce la clip che gli si da' invece di sceglierne una.
+async function previewClip(url, name) {
+  if (!window.__threeVisible || !currentVrm) { showBubble('Le animazioni si provano con un avatar 3D', 3000); return }
+  const gltf = await vrmaLoader.loadAsync(url);
+  const animation = gltf.userData.vrmAnimations && gltf.userData.vrmAnimations[0];
+  if (!animation) throw new Error('nessuna animazione VRMA nel file');
+  clips.setGenerated({ name, animation, phase: 'loop' });
+  const duration = clips.prepare(GENERATED);
+  animator.play(GENERATED, { duration, restart: true });
+  clearReactions();
+  showBubble(name.replace(/\.vrma$/i, ''), Math.max(2500, (duration || 3) * 1000));
+}
+
 if (api && api.onGeneratedMotion) {
   api.onGeneratedMotion((data) => {
     playGeneratedMotion(data).catch((error) => {
@@ -951,6 +966,15 @@ if (api && api.onMenuCommand) {
     if (data.cmd === 'avatar' && typeof data.id === 'string') switchModel(data.id);
     else if (data.cmd === 'import') importAvatar();
     else if (data.cmd === 'import-animation') importAnimation();
+    else if (data.cmd === 'preview-clip' && typeof data.url === 'string' && data.url.startsWith('motion://')) {
+      previewClip(data.url, String(data.name || 'clip')).catch((error) => {
+        console.error('Prova non riuscita:', error);
+        showBubble('Clip non riprodotta: ' + error.message, 3600);
+      });
+    } else if (data.cmd === 'preview-slot' && typeof data.slot === 'string') {
+      if (!window.__threeVisible || !currentVrm) showBubble('Le animazioni si provano con un avatar 3D', 3000);
+      else { clearReactions(); playClip(data.slot); showBubble(SLOT_LABELS[data.slot] || data.slot, 2500); }
+    }
   });
 }
 

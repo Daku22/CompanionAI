@@ -37,7 +37,9 @@
     closed, and stays where you leave it when you pick it up;
   - on the bottom taskbar it sits when the shadow falls on the taskbar itself;
   - on a window it is no longer always on top: it stays just above that
-    window, so the windows in front of it cover it;
+    window, so the windows in front of it cover it. While that window is the
+    active one the avatar goes back on top, or clicking the window hid the
+    dangling legs behind its title bar;
   - other windows are read through the Windows API with Koffi (MIT); toggle
     in the right-click menu.
 - Sitting poses had the thighs going backward and the knees bent the wrong
@@ -52,6 +54,10 @@
     rigs are handled;
   - import clips from the right-click menu: `.vrma`, or `.glb`/`.gltf`,
     `.fbx` and `.bvh` converted to `.vrma`;
+  - try any clip from the right-click menu (Animazioni → Prova): every
+    file by gesture, with its phase and folder, plus the Kimodo movements in
+    the cache, shown by the sentence they came from. Gestures without clips
+    show their procedural pose;
   - clips blend with the procedural poses and with each other; the gaze
     toward the mouse stays on top;
   - real Kimodo BVH exports (SOMA skeleton) convert correctly: its thigh is

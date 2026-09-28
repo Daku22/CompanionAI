@@ -183,6 +183,27 @@ async function main() {
     assert.equal(k.resolve(key), null, 'il piu' + "'" + ' vecchio esce per primo')
   })
 
+  await test("cache: la frase resta nell'indice, e esce con il suo file", async () => {
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-'))
+    const k = new KimodoService({ dir: fakeInstall(), cacheDir, spawn: fakeSpawn().spawn })
+    const old = cacheKey('An old motion.', 4)
+    fs.writeFileSync(path.join(cacheDir, old), 'x')
+    const bow = cacheKey('A person bows.', 4)
+    await k.store(bow, new Uint8Array([1]), 'A person bows.')
+    const list = await k.list()
+    assert.deepEqual(list.map(g => g.key).sort(), [old, bow].sort())
+    assert.equal(list.find(g => g.key === bow).prompt, 'A person bows.')
+    assert.equal(list.find(g => g.key === old).prompt, null, "salvato prima dell'indice")
+    fs.writeFileSync(path.join(cacheDir, 'index.json'), '[1,2]')
+    assert.deepEqual(k.readIndex(), {}, 'un indice rovinato non blocca niente')
+    await k.store(bow, new Uint8Array([1]), 'A person bows.')
+    for (let i = 0; i < 100; i++) await k.store(cacheKey('clip ' + i, 4), new Uint8Array([i]), 'clip ' + i)
+    const index = k.readIndex()
+    assert.equal(Object.keys(index).length, 100)
+    assert.ok(!(bow in index), 'la frase esce con il file')
+    assert.deepEqual(await new KimodoService({ dir: fakeInstall(), cacheDir: path.join(cacheDir, 'nessuna'), spawn: fakeSpawn().spawn }).list(), [])
+  })
+
   console.log('\n=== ' + passed + ' test superati ===')
 }
 

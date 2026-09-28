@@ -37,6 +37,7 @@ const TRANSITION = 5
 const MAX_CACHE = 100
 const MAX_PROMPT = 200
 const KEY_RE = /^[a-f0-9]{32}\.vrma$/
+const INDEX_FILE = 'index.json'
 
 /**
  * La descrizione del movimento proposta dal modello, ripulita: una riga di
@@ -109,19 +110,54 @@ class KimodoService {
 
   /**
    * Salva in cache il .vrma convertito dal renderer. Oltre MAX_CACHE file si
-   * tolgono i piu' vecchi.
+   * tolgono i piu' vecchi. La frase va in un indice accanto: dal nome del
+   * file (un hash) non si risale, e il menu "Prova" la mostra.
    * @param {string} key
    * @param {Uint8Array} data
+   * @param {string} [prompt]
    */
-  async store(key, data) {
+  async store(key, data, prompt) {
     if (!KEY_RE.test(key)) throw new Error('nome di cache non valido')
     await fs.promises.mkdir(this.cacheDir, { recursive: true })
     await writeAtomic(path.join(this.cacheDir, key), Buffer.from(data.buffer, data.byteOffset, data.byteLength))
     const files = (await fs.promises.readdir(this.cacheDir)).filter(f => KEY_RE.test(f))
-    if (files.length <= MAX_CACHE) return
-    const dated = await Promise.all(files.map(async f => ({ f, t: (await fs.promises.stat(path.join(this.cacheDir, f))).mtimeMs })))
-    dated.sort((a, b) => a.t - b.t)
-    for (const { f } of dated.slice(0, dated.length - MAX_CACHE)) await fs.promises.rm(path.join(this.cacheDir, f), { force: true })
+    let removed = []
+    if (files.length > MAX_CACHE) {
+      const dated = await Promise.all(files.map(async f => ({ f, t: (await fs.promises.stat(path.join(this.cacheDir, f))).mtimeMs })))
+      dated.sort((a, b) => a.t - b.t)
+      removed = dated.slice(0, dated.length - MAX_CACHE).map(d => d.f)
+      for (const f of removed) await fs.promises.rm(path.join(this.cacheDir, f), { force: true })
+    }
+    if (typeof prompt !== 'string' && !removed.length) return
+    const index = this.readIndex()
+    if (typeof prompt === 'string') index[key] = prompt.slice(0, MAX_PROMPT)
+    for (const f of removed) delete index[f]
+    await writeAtomic(path.join(this.cacheDir, INDEX_FILE), JSON.stringify(index))
+  }
+
+  /** @returns {Record<string, string>} chiave -> frase */
+  readIndex() {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(this.cacheDir, INDEX_FILE), 'utf8'))
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+    } catch (_) { return {} }
+  }
+
+  /**
+   * I movimenti in cache, dal piu' recente. prompt e' null per quelli salvati
+   * prima dell'indice.
+   * @returns {Promise<{ key: string, prompt: string | null, time: number }[]>}
+   */
+  async list() {
+    let files = []
+    try { files = (await fs.promises.readdir(this.cacheDir)).filter(f => KEY_RE.test(f)) } catch (_) { return [] }
+    const index = this.readIndex()
+    const out = await Promise.all(files.map(async key => ({
+      key,
+      prompt: typeof index[key] === 'string' ? index[key] : null,
+      time: (await fs.promises.stat(path.join(this.cacheDir, key))).mtimeMs,
+    })))
+    return out.sort((a, b) => b.time - a.time)
   }
 
   /**

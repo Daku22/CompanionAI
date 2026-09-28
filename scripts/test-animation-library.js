@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { AnimationLibrary, ANIMATION_SLOTS, slotOf, phaseOf, slug, isGlb } = require('../src/main/AnimationLibrary')
+const { AnimationLibrary, ANIMATION_SLOTS, SLOT_LABELS, slotOf, phaseOf, slug, isGlb } = require('../src/main/AnimationLibrary')
 
 let passed = 0
 async function test(name, fn) {
@@ -95,6 +95,10 @@ async function main() {
 
   await test('gli slot sono tutti gesti del player', () => {
     assert.ok(ANIMATION_SLOTS.includes('idle') && ANIMATION_SLOTS.includes('dangle'))
+  })
+
+  await test('ogni slot ha un nome per il menu Prova', () => {
+    assert.deepEqual(Object.keys(SLOT_LABELS).sort(), [...ANIMATION_SLOTS].sort())
   })
 
   fs.rmSync(work, { recursive: true, force: true })

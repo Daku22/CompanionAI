@@ -6,7 +6,7 @@ const os    = require('os')
 const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
-const { AnimationLibrary, isGlb } = require('./AnimationLibrary')
+const { AnimationLibrary, ANIMATION_SLOTS, SLOT_LABELS, isGlb } = require('./AnimationLibrary')
 const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
 const winWindows = require('./win-windows')
 const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated } = require('./perch')
@@ -742,8 +742,10 @@ on('os:execute', async (_e, action) => {
 
 const MOTION_SECONDS = 4
 let motionJob = 0
-// Chiavi di cache che il renderer puo' salvare: solo quelle appena generate.
-const expectedMotions = new Set()
+// Chiavi di cache che il renderer puo' salvare, solo quelle appena generate,
+// con la frase da cui vengono.
+/** @type {Map<string, string>} */
+const expectedMotions = new Map()
 
 /** Kimodo attivo, installato, e un avatar 3D (il 2D ha solo sprite). */
 async function motionsEnabled(cfg = loadConfig()) {
@@ -769,7 +771,7 @@ async function requestGeneratedMotion(prompt) {
   try {
     const raw = await kimodo.generate(prompt, { seconds: MOTION_SECONDS })
     const fresh = cacheKey(prompt, MOTION_SECONDS)
-    expectedMotions.add(fresh)
+    expectedMotions.set(fresh, prompt)
     console.log('[kimodo] pronto in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s, ' + raw.frames + ' fotogrammi')
     // Una richiesta piu' recente ha la precedenza: questa va solo in cache.
     sendCompanion('generated-motion', { key: fresh, prompt, rootPositions: raw.rootPositions, rotations: raw.rotations, play: job === motionJob })
@@ -785,8 +787,9 @@ handle('motions:store', async (_e, payload) => {
   if (typeof key !== 'string' || !expectedMotions.has(key)) throw new Error('Movimento non atteso')
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data || [])
   if (bytes.length > MAX_MOTION_BYTES || !isGlb(bytes)) throw new Error('Movimento non valido')
+  const prompt = expectedMotions.get(key)
   expectedMotions.delete(key)
-  await kimodo.store(key, bytes)
+  await kimodo.store(key, bytes, prompt)
   return { url: 'motion://generated/' + key }
 })
 
@@ -1040,6 +1043,7 @@ function startPerch(seat) {
   stopWalk()
   perch = { ...seat, timer: null, ticks: 0, landedAt: Date.now(), sitAt: 0 }
   // Sulla taskbar resta in primo piano come prima: la taskbar sta sopra tutto.
+  // Su una finestra, da qui in poi decide keepAboveSeat.
   if (seat.kind === 'window' && companionWindow.isAlwaysOnTop()) companionWindow.setAlwaysOnTop(false)
   sendCompanion('perch-state', { perched: true, kind: seat.kind, phase: 'stand' })
   perchTick()
@@ -1076,7 +1080,22 @@ function perchTick() {
   if (pos.x !== b.x || pos.y !== b.y) {
     try { moveCompanion(pos.x, pos.y) } catch (_) { leavePerch(); return }
   }
-  if (perch.kind === 'window' && perch.ticks++ % PERCH_ZORDER_EVERY === 0) {
+  if (perch.kind === 'window') keepAboveSeat()
+}
+
+// La finestra attiva sta in cima alle finestre normali, e Windows non lascia
+// salire sopra di lei quella di un altro processo con HWND_TOP: cliccato il
+// sedile, le gambe a penzoloni sparivano dietro la sua barra del titolo.
+// Finche' il sedile e' la finestra attiva l'avatar torna "sempre in primo
+// piano"; attivata un'altra finestra, torna subito sopra il sedile e sotto
+// di lei. La finestra attiva si legge a ogni tick, l'ordine z ogni 3.
+function keepAboveSeat() {
+  const seatActive = winWindows.foregroundWindow() === perch.hwnd
+  if (companionWindow.isAlwaysOnTop() !== seatActive) {
+    companionWindow.setAlwaysOnTop(seatActive, 'screen-saver')
+    perch.ticks = 0
+  }
+  if (!seatActive && perch.ticks++ % PERCH_ZORDER_EVERY === 0) {
     winWindows.placeAbove(winWindows.handleOf(companionWindow.getNativeWindowHandle()), perch.hwnd, ownHandles())
   }
 }
@@ -1233,9 +1252,56 @@ async function showCompanionMenu() {
     submenu: [
       { label: 'Importa animazione (VRMA, glTF, FBX, BVH)…', click: () => command({ cmd: 'import-animation' }) },
       { label: 'Apri la cartella delle animazioni', click: () => openAnimationsFolder() },
+      { type: 'separator' },
+      ...(current && kind(current) === '3D'
+        ? await previewMenu(command)
+        : [{ label: 'Prova (solo con un avatar 3D)', enabled: false }]),
     ],
   })
   Menu.buildFromTemplate(template).popup({ window: companionWindow })
+}
+
+const SOURCE_LABELS = { builtin: 'integrata', private: 'privata', user: 'importata' }
+const PHASE_TAGS = { enter: ' (entrata)', exit: ' (uscita)' }
+
+/**
+ * "Prova": ogni clip per nome, divise per gesto, e i movimenti di Kimodo in
+ * cache. Il renderer riproduce proprio quel file, una volta; un gesto senza
+ * clip mostra la sua posa procedurale.
+ * @param {(data: any) => void} command
+ * @returns {Promise<Electron.MenuItemConstructorOptions[]>}
+ */
+async function previewMenu(command) {
+  let clips = []
+  let generated = []
+  try { clips = animationLibrary ? await animationLibrary.list() : [] } catch (_) {}
+  try { generated = kimodo ? await kimodo.list() : [] } catch (_) {}
+  /** @type {Electron.MenuItemConstructorOptions[]} */
+  const slots = ANIMATION_SLOTS.map(slot => {
+    const label = SLOT_LABELS[slot] || slot
+    const own = clips.filter(c => c.slot === slot)
+    if (!own.length) return { label: label + '  (posa procedurale)', click: () => command({ cmd: 'preview-slot', slot }) }
+    return {
+      label: label + '  (' + own.length + ')',
+      submenu: own.map(c => ({
+        label: c.name.replace(/\.vrma$/i, '') + (PHASE_TAGS[c.phase] || '') + '  · ' + (SOURCE_LABELS[c.source] || c.source),
+        click: () => command({ cmd: 'preview-clip', url: c.url, name: c.name }),
+      })),
+    }
+  })
+  const moments = generated.slice(0, 30).map((g, i) => {
+    const text = g.prompt || 'senza frase, del ' + new Date(g.time).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })
+    return {
+      label: (text.length > 70 ? text.slice(0, 69) + '…' : text).replace(/&/g, '&&'),
+      click: () => command({ cmd: 'preview-clip', url: 'motion://generated/' + g.key, name: g.prompt || 'movimento generato ' + (i + 1) }),
+    }
+  })
+  return [
+    { label: 'Prova', submenu: slots },
+    moments.length
+      ? { label: 'Prova i movimenti di Kimodo', submenu: moments }
+      : { label: 'Prova i movimenti di Kimodo (nessuno)', enabled: false },
+  ]
 }
 
 // Per togliere un'animazione importata basta cancellarne il file.
