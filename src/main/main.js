@@ -9,7 +9,7 @@ const { AvatarLibrary } = require('./AvatarLibrary')
 const { AnimationLibrary, isGlb } = require('./AnimationLibrary')
 const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
 const { builtinAvatars } = require('./builtin-avatars')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, WINDOW_SCALES } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES } = require('./guards')
 const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
@@ -71,6 +71,10 @@ function loadEnvFile() {
 }
 loadEnvFile()
 
+// loadConfig gira a ogni messaggio e a ogni apertura della chat: l'avviso per
+// una chiave illeggibile va nel log una volta sola, non a ogni lettura.
+const warnedUnreadable = new Set()
+
 function loadConfig() {
   let cfg = null
   try {
@@ -92,7 +96,10 @@ function loadConfig() {
   if (cfg.keysEncrypted && cfg.keys && typeof cfg.keys === 'object') {
     for (const [provider, value] of Object.entries(cfg.keys)) {
       try { cfg.keys[provider] = safeStorage.decryptString(Buffer.from(value, 'base64')) } catch (e) {
-        console.warn('[config] chiave di ' + provider + ' non decifrabile, va reinserita: ' + e.message)
+        if (!warnedUnreadable.has(value)) {
+          warnedUnreadable.add(value)
+          console.warn('[config] chiave di ' + provider + ' non decifrabile, va reinserita: ' + e.message)
+        }
         cfg.unreadableKeys[provider] = value
         delete cfg.keys[provider]
       }
@@ -110,6 +117,18 @@ function loadConfig() {
 
   // Fallback: se manca la key salvata per il provider attivo, usa l'env var
   cfg.keys = (cfg.keys && typeof cfg.keys === 'object') ? cfg.keys : {}
+
+  // Vecchio formato: un `apiKey` in chiaro. Passa fra le chiavi, che il
+  // salvataggio cifra, e sparisce subito dal file. Prima della variabile
+  // d'ambiente: quella non deve finire su disco.
+  if ('apiKey' in cfg) {
+    const target = legacyKeyProvider(cfg.apiKey, cfg.keys)
+    if (target) cfg.keys[target] = String(cfg.apiKey).trim()
+    delete cfg.apiKey
+    console.log('[config] chiave del vecchio formato ' + (target ? 'spostata fra quelle di ' + target : 'tolta dal file'))
+    saveConfig(cfg)
+  }
+
   const envName = ENV_KEY_MAP[cfg.provider]
   if (envName && !cfg.keys[cfg.provider] && process.env[envName]) {
     cfg.keys[cfg.provider] = process.env[envName]

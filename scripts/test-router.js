@@ -10,7 +10,7 @@ const http = require('http')
 const {
   prepare, sanitizeHistory, parseResponse, PROVIDERS, ANIMATIONS, ACTION_TYPES, EMOTIONS,
   COMPANION_SCHEMA, SYSTEM_PROMPT, MOTION_PROMPT, route, fetchJSON, requestBudget,
-  describeError, parseOpenRouterModels, parseOllamaTags,
+  describeError, ollamaFailure, parseOpenRouterModels, parseOllamaTags,
   capsFromParams, outputMode, openRouterBody, readChoice, openRouterUrl, DIRECTIONS, DISTANCES,
 } = require('../src/main/ai-router')
 
@@ -482,6 +482,32 @@ async function main() {
     } finally {
       if (previous === undefined) delete process.env.OPENROUTER_URL; else process.env.OPENROUTER_URL = previous
     }
+  })
+
+  await testAsync('Ollama spento: il messaggio dice di avviarlo', async () => {
+    // Una porta appena liberata: nessuno ascolta, la connessione viene rifiutata.
+    const server = http.createServer()
+    await new Promise(r => server.listen(0, '127.0.0.1', () => r(null)))
+    const { port } = /** @type {import('net').AddressInfo} */ (server.address())
+    await new Promise(r => server.close(() => r(null)))
+    const previous = process.env.OLLAMA_PORT
+    process.env.OLLAMA_PORT = String(port)
+    try {
+      await assert.rejects(
+        () => route({ provider: 'ollama', model: 'x', history: [{ role: 'user', content: 'a' }] }),
+        /Ollama non raggiungibile/)
+    } finally {
+      if (previous === undefined) delete process.env.OLLAMA_PORT; else process.env.OLLAMA_PORT = previous
+    }
+  })
+
+  test('Ollama lento non viene scambiato per Ollama spento', () => {
+    // Al primo messaggio carica il modello: prima il timeout diceva "non raggiungibile".
+    const slow = ollamaFailure(new Error('Timeout dopo 120000ms'))
+    assert.match(slow.message, /non ha risposto in 120 s/)
+    assert.doesNotMatch(slow.message, /non raggiungibile/)
+    const off = ollamaFailure(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }))
+    assert.match(off.message, /non raggiungibile/)
   })
 
   await testAsync('route pretende una key tranne che per ollama', async () => {

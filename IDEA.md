@@ -20,8 +20,10 @@ c'e' ma va vissuta per settimane prima di sapere se regge.
 L'avatar deve poter essere 2D o 3D in formato VRM, perche' la scelta del
 personaggio non deve dipendere dall'architettura.
 
-Nessuna inferenza locale pesante e nessun layer di virtualizzazione. Il progetto
-deve girare su hardware modesto senza portarsi dietro un runtime da un gigabyte.
+Nessuna inferenza locale pesante obbligatoria e nessun layer di
+virtualizzazione. Il progetto deve girare su hardware modesto senza portarsi
+dietro un runtime da un gigabyte. Cio' che e' pesante (Kimodo, e piu' avanti la
+voce locale) e' facoltativo, spento di base, e si installa o si scarica a parte.
 
 Le azioni sul sistema operativo sono la parte pericolosa. La superficie resta
 ristretta per scelta, non per mancanza di tempo.
@@ -104,12 +106,23 @@ non c'e' ancora modo di accorgersene se non leggendo l'archivio.
 Vivere con il companion abbastanza a lungo da vedere se la memoria produce
 continuita' vera o solo un riassunto che invecchia male.
 
-Il tracciamento delle emozioni ispirato a companion-emergence c'e' (umore con
-emivite, 26 settembre 2026), insieme ai gesti a riposo. Il piano prosegue con:
-- iniziativa con freni rigidi;
-- memoria leggibile e correggibile dall'utente, che risponde al rischio del
-  riassunto che deriva;
-- presenza sul desktop (clic attraverso i pixel trasparenti, taskbar);
-- clip 3D generate con Kimodo come strumento di sviluppo, mai dentro l'app.
+Fatti a settembre 2026:
+- umore con emivite, ispirato a companion-emergence, e gesti a riposo;
+- clic attraverso i pixel trasparenti, presa in braccio e sguardo verso il
+  mouse;
+- clip 3D in un solo formato (.vrma);
+- movimenti nuovi generati da Kimodo in locale, dopo una richiesta in chat
+  (facoltativo).
 
-Voce e pubblicazione vengono dopo.
+La roadmap decisa il 28 settembre 2026 prosegue, in ordine, con:
+- seduta su finestre e taskbar;
+- modalita' stanza con scene 3D e camera libera;
+- voce;
+- Live2D;
+- tocchi e ballo;
+- persone con relazione che cresce e cala;
+- sensi e strumenti;
+- piu' companion insieme.
+
+La memoria leggibile e correggibile dall'utente, che risponde al rischio del
+riassunto che deriva, fa parte delle persone.

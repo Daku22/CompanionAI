@@ -596,6 +596,19 @@ async function callGemini(apiKey, model, history, opts) {
   return parseResponse(text, opts.jsonMode)
 }
 
+// Al primo messaggio Ollama carica il modello in memoria: mistral 7B su una
+// RTX 3060 ha risposto dopo 48 s. Con il vecchio limite di 30 s l'attesa finiva
+// in "Ollama non raggiungibile", con Ollama acceso.
+const OLLAMA_TIMEOUT_MS = 120000
+
+/** Errore per l'utente: Ollama spento e Ollama lento non sono la stessa cosa. */
+function ollamaFailure(err) {
+  if (err && /^Timeout/.test(err.message)) {
+    return new Error('Ollama non ha risposto in ' + Math.round(OLLAMA_TIMEOUT_MS / 1000) + ' s: forse sta ancora caricando il modello. Riprova tra poco.')
+  }
+  return new Error('Ollama non raggiungibile. Avvialo con: ollama serve')
+}
+
 async function callOllama(model, history, opts) {
   const { system, messages } = prepare(history, opts.systemPrompt)
   const { host, port } = ollamaAddress()
@@ -604,9 +617,9 @@ async function callOllama(model, history, opts) {
 
   let res
   try {
-    res = await requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, Math.max(30000, opts.timeoutMs))
-  } catch (_) {
-    throw new Error('Ollama non raggiungibile. Avvialo con: ollama serve')
+    res = await requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs))
+  } catch (err) {
+    throw ollamaFailure(err)
   }
   if (res.status !== 200) throw httpError('Ollama', res)
   return parseResponse(res.body.message?.content || '', opts.jsonMode)
@@ -799,6 +812,7 @@ module.exports = {
   normalizeDialog,
   requestBudget,
   describeError,
+  ollamaFailure,
   listModels,
   parseOpenRouterModels,
   parseOllamaTags,

@@ -89,7 +89,12 @@
   after one automatic retry with a format reminder.
 - An API key that cannot be decrypted on this PC is kept in the config instead
   of being erased by the next save, and the setup screen asks to enter it
-  again.
+  again. The log mentions it once, not at every message.
+- The setup screen shows when a key is already saved: the empty field looked
+  as if the key had just been lost.
+- Ollama gets two minutes to answer, since the first message loads the model
+  (48 s for Mistral 7B on an RTX 3060). A slow Ollama is no longer reported
+  as switched off.
 - 2D speech bubbles come from the sprite pack; other avatars get neutral ones.
 - Dragging ends when the mouse button is released. The 3D camera can only turn
   a little, so the model stays in view.
@@ -107,6 +112,8 @@
   - `explorer` opens only folders;
   - executables and scripts are never opened.
 - Settings sent from the UI cannot enable unsafe commands.
+- A plain-text `apiKey` left by an old config format is moved among the
+  encrypted keys and removed from the file.
 - Every IPC channel checks its sender, and all browser permissions are denied.
 - Content Security Policy without inline scripts or `eval`.
 - Packaged with Electron 44 and Electron Fuses.

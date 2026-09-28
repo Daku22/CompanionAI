@@ -9,7 +9,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const {
-  isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, WINDOW_SCALES,
+  isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -171,6 +171,18 @@ test('una chiave illeggibile non si perde al primo salvataggio', () => {
     { openrouter: 'cifrata(sk-or-2)' })
   // Senza cifratura non si mescolano chiavi cifrate e in chiaro.
   assert.deepEqual(keysForDisk({ claude: 'sk-ant-1' }, { openrouter: 'v10vecchia' }, null), { claude: 'sk-ant-1' })
+})
+
+test('la chiave in chiaro del vecchio formato va al provider del suo prefisso', () => {
+  assert.equal(legacyKeyProvider('sk-ant-1', {}), 'claude', '"sk-ant-" prima di "sk-"')
+  assert.equal(legacyKeyProvider('sk-or-1', {}), 'openrouter')
+  assert.equal(legacyKeyProvider('sk-proj-1', {}), 'openai')
+  assert.equal(legacyKeyProvider(' AIza1 ', {}), 'gemini')
+  assert.equal(legacyKeyProvider('senzaprefisso', {}), 'mistral', 'Mistral non ha un prefisso')
+  // Una chiave leggibile per lo stesso provider vince: quella vecchia si toglie.
+  assert.equal(legacyKeyProvider('sk-ant-vecchia', { claude: 'sk-ant-nuova' }), null)
+  assert.equal(legacyKeyProvider('', {}), null)
+  assert.equal(legacyKeyProvider(42, {}), null)
 })
 
 test('la vita autonoma si spegne e si riaccende solo con un booleano', () => {

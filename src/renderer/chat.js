@@ -44,6 +44,7 @@ const idleLife       = document.getElementById('idle-life')
 const moodChip       = document.getElementById('mood-chip')
 const setupCancel    = document.getElementById('setup-cancel')
 const keyUnreadable  = document.getElementById('key-unreadable')
+const keySaved       = document.getElementById('key-saved')
 
 // ── Init ────────────────────────────────────────────────────────────────────
 async function init() {
@@ -223,11 +224,14 @@ function updateKeyField() {
     keySection.style.opacity = '1'
     keySection.style.pointerEvents = 'auto'
     ollamaNote.style.display = 'none'
-    apiKeyInput.placeholder = p?.keyPlaceholder || 'API key...'
     // Le chiavi non tornano mai dal main process: campo vuoto significa
     // “mantieni la chiave già salvata”, non “cancella la configurazione”.
+    // Il segnaposto lo dice: con l'esempio "sk-or-..." sembrava che la chiave
+    // appena salvata fosse andata persa.
+    apiKeyInput.placeholder = config.keyConfigured?.[selectedProvider] ? '•••••••• chiave salvata' : (p?.keyPlaceholder || 'API key...')
     apiKeyInput.value = ''
   }
+  keySaved.style.display = selectedProvider !== 'ollama' && config.keyConfigured?.[selectedProvider] ? 'block' : 'none'
   // Chiave salvata ma illeggibile: senza questa nota la schermata di
   // configurazione ricompariva senza spiegazione, come se la chiave fosse sparita.
   keyUnreadable.style.display = selectedProvider !== 'ollama' && config.keyUnreadable?.[selectedProvider] ? 'block' : 'none'

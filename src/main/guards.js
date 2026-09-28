@@ -187,6 +187,30 @@ function keysForDisk(keys, unreadable, encrypt) {
 }
 
 /**
+ * Provider a cui va la chiave del vecchio formato di config.json: un solo
+ * `apiKey` in chiaro, senza provider. Il codice non lo leggeva piu', ma il
+ * salvataggio lo ricopiava com'era: una chiave in chiaro accanto a quelle
+ * cifrate. Decide il prefisso, il piu' lungo ("sk-ant-" prima di "sk-"); senza
+ * prefisso noto va al provider che non ne ha uno (Mistral). Se quel provider ha
+ * gia' una chiave leggibile, quella vecchia non serve.
+ * @param {unknown} legacy valore di `apiKey`
+ * @param {Record<string, string>} keys chiavi leggibili
+ * @returns {string|null} null se la chiave va solo tolta dal file
+ */
+function legacyKeyProvider(legacy, keys) {
+  if (typeof legacy !== 'string' || !legacy.trim()) return null
+  const value = legacy.trim()
+  let target = null
+  let best = 0
+  for (const [name, p] of Object.entries(PROVIDERS)) {
+    if (p.keyPrefix && value.startsWith(p.keyPrefix) && p.keyPrefix.length > best) { target = name; best = p.keyPrefix.length }
+  }
+  if (!target) target = Object.keys(PROVIDERS).find(name => PROVIDERS[name].keyPrefix === '') || null
+  if (!target || (keys && keys[target])) return null
+  return target
+}
+
+/**
  * Un messaggio IPC viene accettato solo dalle pagine del renderer del progetto.
  * Oggi l'app non apre altre pagine, ma ogni handler esegue azioni del main:
  * se un domani una pagina esterna finisse in una finestra (un link, un
@@ -213,4 +237,5 @@ module.exports = {
   WINDOW_SCALES,
   checkMotion,
   keysForDisk,
+  legacyKeyProvider,
 }

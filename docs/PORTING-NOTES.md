@@ -390,6 +390,36 @@ confermano i termini sulle uscite di Kimodo.
   `config.json` (`kimodoDir`), mai dalla UI; la frase del modello va in un
   file di prompt, non sulla riga di comando.
 
+## Prova dal vivo con computer use (2026-09-27)
+
+L'app è stata provata sul desktop vero: mouse, menu, cambio di avatar, chat con
+OpenRouter e Ollama, Kimodo dalla chat. Funziona:
+- clic sul vuoto;
+- trascinamento;
+- sguardo verso il cursore;
+- sottomenu;
+- passaggio da 3D a 2D;
+- inchino generato da Kimodo in 16,7 s (120 fotogrammi) e riprodotto.
+
+Difetti trovati e corretti:
+- **Chiave in chiaro:** un `apiKey` del vecchio formato di `config.json` restava
+  su disco accanto alle chiavi cifrate, perché il salvataggio ricopiava i campi
+  sconosciuti. Ora `legacyKeyProvider` (`guards.js`) lo assegna al provider del
+  suo prefisso, e il primo `loadConfig` lo cifra e lo toglie dal file. Nel caso
+  vero era una chiave Anthropic vecchia, già rifiutata dall'API.
+- **Chiave che sembrava persa:** il campo mostrava sempre l'esempio "sk-or-...".
+  Ora, se la chiave c'è, mostra "chiave salvata" con una nota.
+- **Ollama:** qualunque errore diventava "non raggiungibile", anche il timeout
+  di 30 s. Mistral 7B a freddo ha risposto in 48 s. Ora il limite è 120 s e il
+  timeout ha un messaggio suo (`ollamaFailure`).
+- **Log:** l'avviso per una chiave illeggibile veniva scritto a ogni
+  `loadConfig`: 287 righe. Ora compare una volta per chiave.
+
+Restano aperti:
+- Laguna S 2.1 gratuito risponde fuori formato in circa metà dei messaggi;
+- la chat si apre sopra l'avatar ed è molto trasparente;
+- nelle risposte in prosa gli asterischi del markdown restano visibili.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)
