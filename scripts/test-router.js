@@ -221,6 +221,10 @@ test('gli errori dei provider diventano messaggi che dicono cosa fare', () => {
   const err = (status, message) => Object.assign(new Error(message), { status })
   assert.match(describeError(err(401, 'invalid x-api-key'), 'claude'), /rifiutato la chiave/)
   assert.match(describeError(err(401, 'invalid x-api-key'), 'claude'), /invalid x-api-key/, 'il testo originale resta per le segnalazioni')
+  // 403: la chiave e' buona, e' il modello a non essere permesso.
+  const forbidden = describeError(err(403, 'inkling:free is only available on agentic harnesses'), 'openrouter')
+  assert.match(forbidden, /non ti permette di usare questo modello/)
+  assert.doesNotMatch(forbidden, /rifiutato la chiave/)
   assert.match(describeError(err(402, 'Insufficient credits'), 'openrouter'), /Credito esaurito/)
   assert.match(describeError(err(404, 'model_not_found'), 'openai'), /non esiste più/)
   assert.match(describeError(err(429, 'rate limited'), 'openrouter'), /altro modello gratuito/)
@@ -463,6 +467,51 @@ async function main() {
       assert.equal(again.via, 'fallback')
       assert.equal(again.reply, 'Ciao! Ti saluto con la mano.')
       assert.equal(seen.length, 2)
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_URL; else process.env.OPENROUTER_URL = previous
+      server.close()
+    }
+  })
+
+  await testAsync('limite giornaliero dei modelli gratuiti: nessun altro tentativo', async () => {
+    const seen = []
+    let answer = { status: 429, body: { error: { message: 'Rate limit exceeded: free-models-per-day.', code: 429 } } }
+    const server = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', c => { body += c })
+      req.on('end', () => {
+        if (req.url === '/api/v1/models') {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ data: [{ id: 'finto/limite:free', name: 'x', supported_parameters: ['response_format'] }] }))
+          return
+        }
+        seen.push(JSON.parse(body).model)
+        res.writeHead(answer.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(answer.body))
+      })
+    })
+    await new Promise(r => server.listen(0, '127.0.0.1', () => r(null)))
+    const previous = process.env.OPENROUTER_URL
+    try {
+      const { port } = /** @type {import('net').AddressInfo} */ (server.address())
+      process.env.OPENROUTER_URL = 'http://127.0.0.1:' + port
+      const ask = (fallback, retries) => route({ provider: 'openrouter', model: 'finto/limite:free', apiKey: 'sk-or-test',
+        history: [{ role: 'user', content: 'ciao' }], fallback, retries })
+      // Prima si ritentava tre volte e poi si provavano gli altri modelli gratuiti.
+      const err = await ask(true).then(() => null, e => e)
+      assert.ok(err && err.daily, 'errore segnato come limite giornaliero')
+      assert.deepEqual(seen, ['finto/limite:free'], 'una richiesta sola')
+      assert.match(describeError(err, 'openrouter'), /richieste gratuite di oggi/)
+      // Un 429 qualsiasi si ritenta, ma senza scorta resta sullo stesso modello.
+      seen.length = 0
+      answer = { status: 429, body: { error: { message: 'Provider busy', code: 429 } } }
+      await assert.rejects(() => ask(false))
+      assert.ok(seen.length > 1, 'un 429 qualsiasi si ritenta')
+      assert.ok(seen.every(m => m === 'finto/limite:free'), 'fallback: false non passa ad altri modelli')
+      // retries: 0 (bench-models.js): una richiesta sola, si rifa' al giro dopo.
+      seen.length = 0
+      await assert.rejects(() => ask(false, 0))
+      assert.equal(seen.length, 1)
     } finally {
       if (previous === undefined) delete process.env.OPENROUTER_URL; else process.env.OPENROUTER_URL = previous
       server.close()

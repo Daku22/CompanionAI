@@ -120,6 +120,7 @@ npm start
 | `npm run build` | Build the Windows installer |
 | `npm run strips -- --masters <folder>` | Turn sprite master sheets into a 2D avatar |
 | `npm run check:publish` | Verify that no private asset or secret would be published |
+| `npm run bench -- --max 20` | Measure how well each free OpenRouter model follows the reply format, with your saved key; a few calls a day, resumable |
 
 The code is plain JavaScript on Electron, type-checked by TypeScript through
 JSDoc. The renderer uses PixiJS for 2D and three.js with `@pixiv/three-vrm`

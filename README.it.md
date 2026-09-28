@@ -35,6 +35,7 @@ lo sviluppo, copia `.env.example` in `.env` e compila le variabili che ti servon
 | `npm run smoke` | Avvia l'app vera e la controlla dall'interno: errori, CSP, ogni avatar |
 | `npm run audit` | Avvia l'app con dati e OpenRouter finti e verifica che le richieste in chat muovano davvero l'avatar |
 | `npm run preview -- clip.vrma=wave` | Mostra delle clip su un avatar vero, con dati finti, e salva le schermate |
+| `npm run bench -- --max 20` | Misura quanto ogni modello gratuito di OpenRouter rispetta il formato della risposta, con la tua chiave salvata; poche chiamate al giorno, si riprende da dove si era rimasti |
 | `npm run kimodo -- --out clip.vrma "prompt"` | Genera una clip con Kimodo in locale (vedi [docs/kimodo-locale.md](docs/kimodo-locale.md)). `--series scripts/kimodo-series.json --out <cartella>` genera tutta la serie di base |
 | `npm run build` | Installer Windows (NSIS). `npm run dist` produce solo la cartella |
 | `npm run strips -- --masters <cartella>` | Genera un avatar 2D dalle immagini master |

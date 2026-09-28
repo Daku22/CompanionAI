@@ -13,6 +13,16 @@ are released under the MIT License, whose full text is in each package's
 | [@pixiv/three-vrm](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 | [@pixiv/three-vrm-animation](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 
+The main process uses one library, installed as a regular dependency and
+packed by electron-builder:
+
+| Library | Version | License | Copyright |
+|---|---|---|---|
+| [Koffi](https://koffi.dev/) (`koffi`, with its Windows binary `@koromix/koffi-win32-x64`) | 3.3.2 | MIT | © 2026 Niels Martignène |
+
+Koffi calls the Windows API (user32, dwmapi) to read the other windows' size
+and position, so the avatar can sit on them.
+
 Data copied into the source:
 
 - `src/renderer/kimodo-raw.js` contains the names, parents and rest offsets

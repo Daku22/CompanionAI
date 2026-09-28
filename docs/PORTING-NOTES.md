@@ -420,6 +420,31 @@ Restano aperti:
 - la chat si apre sopra l'avatar ed è molto trasparente;
 - nelle risposte in prosa gli asterischi del markdown restano visibili.
 
+## Prova dei modelli gratuiti (2026-09-28)
+
+`npm run bench` (`scripts/bench-models.js`) manda gli stessi 6 messaggi a ogni
+modello gratuito di OpenRouter. Gira dentro Electron per decifrare la chiave
+salvata con una copia della Local State dell'app, e non la stampa mai.
+- Ogni modello è misurato da solo: `route` ha `fallback: false` (nessun
+  modello di scorta) e `retries: 0`. Gli errori temporanei si rifanno alla
+  sessione successiva.
+- L'account senza credito ha circa 50 richieste al giorno sui gratuiti, in
+  comune fra tutti i modelli: la prova procede 20 chiamate al giorno e riprende
+  dal file in `%APPDATA%\CompanionAI\bench`.
+
+Trovati nel primo giro:
+- **Limite giornaliero:** il router ritentava tre volte e poi passava agli
+  altri modelli, consumando richieste per nulla. Ora `dailyLimitReached` si
+  ferma subito e la chat dice di riprovare domani.
+- **403:** Inkling risponde "only available on agentic harnesses", e l'app lo
+  presentava come chiave rifiutata. Il 403 ora ha il suo messaggio, e Inkling
+  è uscito dalla lista di scorta.
+
+Primi risultati (un messaggio per modello, "cammina verso destra"): Nemotron 3
+Super, Nemotron 3 Ultra, LFM 2.5, Ling Sante, North Mini Code e i due Laguna
+rispondono nel formato con l'azione giusta. Dots 3 Note arriva a 142 s. I
+numeri completi alla fine della prova.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

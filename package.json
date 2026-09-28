@@ -25,6 +25,7 @@
     "audit": "npm run assets && node scripts/audit.mjs",
     "preview": "npm run assets && node scripts/preview-clips.mjs",
     "kimodo": "node scripts/kimodo-generate.mjs",
+    "bench": "electron scripts/bench-models.js",
     "check:publish": "node scripts/check-publish.js",
     "prebuild": "npm run assets",
     "build": "node scripts/build.js",
@@ -89,5 +90,8 @@
   "bugs": {
     "url": "https://github.com/Daku22/CompanionAI/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "koffi": "3.3.2"
+  }
 }

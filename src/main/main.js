@@ -8,6 +8,7 @@ const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
 const { AnimationLibrary, isGlb } = require('./AnimationLibrary')
 const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
+const winWindows = require('./win-windows')
 const { builtinAvatars } = require('./builtin-avatars')
 const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES } = require('./guards')
 const { walkTarget } = require('./walk-target')
@@ -1193,6 +1194,11 @@ if (!isPrimaryInstance) {
 app.whenReady().then(() => {
   if (!isPrimaryInstance) return
   setupLogging(path.join(app.getPath('userData'), 'logs'))
+
+  // Finestre degli altri programmi, per sedersi su finestre e taskbar (koffi).
+  // Se non si leggono la funzione resta spenta, e il log dice perche'.
+  if (winWindows.available()) console.log('[win] finestre di Windows leggibili: ' + winWindows.listWindows().length)
+  else console.warn('[win] finestre di Windows non disponibili: ' + winWindows.unavailableReason())
 
   // Nessun permesso del browser: l'app non usa microfono, fotocamera,
   // notifiche o posizione, e una pagina non deve poterli chiedere.

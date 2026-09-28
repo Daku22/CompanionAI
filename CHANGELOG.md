@@ -95,6 +95,14 @@
 - Ollama gets two minutes to answer, since the first message loads the model
   (48 s for Mistral 7B on an RTX 3060). A slow Ollama is no longer reported
   as switched off.
+- OpenRouter's daily limit on free models is recognized: the app stops
+  retrying and trying other models, which only used up more requests, and
+  says to try again tomorrow.
+- An HTTP 403 no longer reads as a rejected key: the key is fine, the model is
+  not allowed. Inkling, usable only from "agentic harnesses", left the
+  fallback list.
+- `npm run bench` measures how well each free OpenRouter model follows the
+  reply format, a few calls a day, and resumes where it stopped.
 - 2D speech bubbles come from the sprite pack; other avatars get neutral ones.
 - Dragging ends when the mouse button is released. The 3D camera can only turn
   a little, so the model stays in view.

@@ -97,7 +97,6 @@ const PROVIDERS = {
       { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super (free)' },
       { id: 'google/gemma-4-26b-a4b-it:free',         label: 'Gemma 4 26B A4B (free)'  },
       { id: 'poolside/laguna-s-2.1:free',             label: 'Laguna S 2.1 (free)'     },
-      { id: 'thinkingmachines/inkling:free',          label: 'Inkling (free)'          },
     ],
     keyPrefix: 'sk-or-',
     keyPlaceholder: 'sk-or-...',
@@ -314,7 +313,11 @@ function describeError(err, provider) {
   const code = err && err.code
   const detail = (err && err.message) || String(err)
   let message = null
-  if (status === 401 || status === 403) message = name + ' ha rifiutato la chiave API: controlla che sia giusta e attiva nelle impostazioni (⚙).'
+  if (err && err.daily) message = 'Hai finito le richieste gratuite di oggi su ' + name + ': riprova domani, oppure aggiungi credito o scegli un altro provider nelle impostazioni (⚙).'
+  else if (status === 401) message = name + ' ha rifiutato la chiave API: controlla che sia giusta e attiva nelle impostazioni (⚙).'
+  // 403 non e' la chiave sbagliata: la chiave vale, ma quel modello non e'
+  // permesso (Inkling di OpenRouter si usa solo dagli "agentic harness").
+  else if (status === 403) message = name + ' non ti permette di usare questo modello: scegline un altro nelle impostazioni (⚙).'
   else if (status === 402) message = 'Credito esaurito su ' + name + ": ricarica l'account o scegli un modello gratuito."
   else if (status === 404) message = 'Il modello scelto non esiste più su ' + name + ': scegline un altro nelle impostazioni (⚙).'
   else if (status === 429) message = name + ' riceve troppe richieste in questo momento: riprova tra poco' + (provider === 'openrouter' ? ' o scegli un altro modello gratuito.' : '.')
@@ -704,6 +707,12 @@ function readChoice(body, mode, jsonMode) {
   return result
 }
 
+// Limite giornaliero dei modelli gratuiti: vale per tutti insieme, quindi
+// ritentare o passare a un altro modello consumerebbe solo altre richieste.
+function dailyLimitReached(res) {
+  return res.status === 429 && /free-models-per-day/i.test(JSON.stringify(res.body || ''))
+}
+
 // OpenRouter risponde cosi' quando nessun fornitore rispetta i parametri chiesti.
 function noEndpointForParams(res) {
   if (res.status !== 400 && res.status !== 404) return false
@@ -713,8 +722,11 @@ function noEndpointForParams(res) {
 
 async function callOpenRouter(apiKey, model, history, opts) {
   // I modelli free sono spesso saturi: il modello scelto viene ritentato con
-  // backoff, poi si passa agli altri della lista come scorta.
-  const candidates = [model, ...PROVIDERS.openrouter.models.map(m => m.id).filter(id => id !== model)]
+  // backoff, poi si passa agli altri della lista come scorta. Senza scorta
+  // (fallback: false) si misura un modello solo: lo usa bench-models.js.
+  const candidates = opts.fallback === false
+    ? [model]
+    : [model, ...PROVIDERS.openrouter.models.map(m => m.id).filter(id => id !== model)]
   const { system, messages } = prepare(history, opts.systemPrompt)
   const chat = [{ role: 'system', content: system }, ...messages]
   let lastRes = null
@@ -735,7 +747,7 @@ async function callOpenRouter(apiKey, model, history, opts) {
       body = openRouterBody(candidate, chat, budget, mode, { strictRouting: false })
       res = await send()
     }
-    for (let attempt = 1; attempt <= (isPrimary ? 3 : 0) && RETRYABLE.has(res.status); attempt++) {
+    for (let attempt = 1; attempt <= (isPrimary ? opts.retries : 0) && RETRYABLE.has(res.status) && !dailyLimitReached(res); attempt++) {
       await new Promise(r => setTimeout(r, attempt * 1500))
       res = await send()
     }
@@ -757,6 +769,12 @@ async function callOpenRouter(apiKey, model, history, opts) {
     }
 
     lastRes = res
+    if (dailyLimitReached(res)) {
+      const err = httpError('OpenRouter', res)
+      // @ts-ignore: proprieta' aggiunta all'errore, letta da describeError()
+      err.daily = true
+      throw err
+    }
     // Una key invalida o un 400 non migliorano cambiando modello: esci subito.
     if (!RETRYABLE.has(res.status)) break
     await new Promise(r => setTimeout(r, 600))
@@ -775,9 +793,11 @@ async function callOpenRouter(apiKey, model, history, opts) {
  * @param {string}  [req.systemPrompt]  sovrascrive il prompt del companion
  * @param {boolean} [req.jsonMode=true] false per testo libero (es. riassunti di memoria)
  * @param {number}  [req.maxTokens=1024]
+ * @param {boolean} [req.fallback=true] false: su OpenRouter niente altri modelli come scorta
+ * @param {number}  [req.retries=3]     tentativi in piu' su OpenRouter quando il fornitore e' occupato
  * @returns {Promise<{reply: string, emotion?: string, action?: object, via?: string, raw?: string, retried?: boolean}>}
  */
-async function route({ provider, model, apiKey, history, systemPrompt, jsonMode = true, maxTokens = 1024 }) {
+async function route({ provider, model, apiKey, history, systemPrompt, jsonMode = true, maxTokens = 1024, fallback = true, retries = 3 }) {
   if (!provider || !PROVIDERS[provider]) throw new Error('Provider "' + provider + '" non supportato')
   if (!model || typeof model !== 'string') throw new Error('Modello non valido')
   const clean = sanitizeHistory(history)
@@ -792,7 +812,7 @@ async function route({ provider, model, apiKey, history, systemPrompt, jsonMode 
 
   const caps = provider === 'openrouter' ? await modelCaps(provider, model) : null
   const budget = requestBudget(provider, model, maxTokens, caps)
-  const opts = { systemPrompt: systemPrompt || SYSTEM_PROMPT, jsonMode, caps, ...budget }
+  const opts = { systemPrompt: systemPrompt || SYSTEM_PROMPT, jsonMode, caps, fallback, retries, ...budget }
 
   switch (provider) {
     case 'claude':     return callClaude(apiKey, model, clean, opts)
