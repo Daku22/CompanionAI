@@ -445,6 +445,55 @@ Super, Nemotron 3 Ultra, LFM 2.5, Ling Sante, North Mini Code e i due Laguna
 rispondono nel formato con l'azione giusta. Dots 3 Note arriva a 142 s. I
 numeri completi alla fine della prova.
 
+## Fase B, seconda parte: seduta su finestre e taskbar (2026-09-28)
+
+**koffi nell'installer.** Il rischio della fase era koffi con le Fuses
+(`onlyLoadAppFromAsar`, integrita' dell'asar). Il binario sta in
+`@koromix/koffi-win32-x64`; electron-builder lo estrae da solo in
+`app.asar.unpacked`, e il pacchetto ha letto 10 finestre al primo avvio. Lo
+script di installazione di koffi, bloccato dalle "allow-scripts" di npm, non
+serve: prova il binario gia' pronto e compila solo se manca.
+
+**Come funziona.**
+- `win-windows.js` legge le finestre con user32 e dwmapi: il bordo visibile
+  vero, le finestre nascoste da DWM, lo stato di una sola finestra per
+  seguirla, e `placeAbove` per l'ordine z.
+- `perch.js` (funzioni pure, 8 test) decide dove sedersi, dove stare mentre
+  la finestra si muove e quando scendere. Regole e numeri come idea da
+  AvatarWindowHandler di Mate Engine:
+  - scarta le finestre senza titolo, piccole, trasparenti ai clic, strumenti,
+    ridotte, massimizzate o a schermo intero;
+  - il bordo sotto l'ancora non deve essere coperto da finestre piu' in alto.
+- L'ancora e' l'ombra ai piedi, idea dell'utente: si vede mentre lo si
+  trascina e mostra dove atterrera'. Al rilascio sta in piedi sul bordo, dopo
+  1,2 s si siede e la finestra scende finche' il bacino poggia sul bordo. Il
+  renderer manda entrambe le altezze (`feet` e `seat`).
+
+**Difetti trovati provandolo.**
+- **Tolleranza:** con 24 px anche sotto il bordo, posarlo "chiaramente li'"
+  non bastava. Ora vale 24 px sopra e 48 sotto.
+- **Taskbar:** con la regola delle finestre ogni rilascio in basso lo faceva
+  sedere. Ora conta solo con l'ombra sulla taskbar stessa.
+- **Pose di seduta sbagliate da sempre:** per un arto che pende, x positivo lo
+  porta in avanti. `sit` e `sit-edge` avevano le cosce a -1,45, cioe'
+  all'indietro, e le ginocchia piegate al contrario; nessuno se n'era
+  accorto, perche' nella copia privata la seduta a terra usa la clip di
+  Kimodo. Controllato con schermate su Fred (VRM 1.0), Neko (VRM 0.x) e Dust.
+- **Mani:** le dita non venivano mai toccate e restavano tese come nella
+  T-pose. Ora in `REST_POSE` c'e' una piega leggera.
+- **Ombra tagliata e ombra 2D invisibile:** con la camera a 35° il pavimento
+  cadeva sul bordo basso della finestra, e l'ombra ai piedi restava tagliata:
+  ora la camera e' a 38°. Nel 2D l'ombra aveva 0,18 di alpha nel riempimento
+  e di nuovo 0,18 a ogni frame, cioe' il 3%.
+- **Slot `perch` separato da `sit-edge`:** la clip Kimodo "seduto sul bordo"
+  e' in realta' una sedia e abbassa il bacino. `perch` e' solo procedurale,
+  e l'animatore ha `setRest` per tornare li' dopo ogni gesto.
+
+**Verifica dal vivo** sul Blocco note: l'avatar si posa, si siede, segue la
+finestra spostata e scende quando la finestra viene ridotta a icona. La
+taskbar di questo PC si nasconde da sola, quindi non ha un bordo su cui
+sedersi: quel caso e' coperto solo dai test.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

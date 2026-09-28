@@ -42,9 +42,13 @@ yourself from source if you prefer (see below).
 - Grab the avatar to carry it around: it sways as you move it, and in 3D its
   hair follows the motion.
 - In 3D it turns its head toward the mouse; in 2D it faces the mouse's side.
+- Drop it with the shadow under its feet on the top edge of a window: it
+  stands there, then sits with its legs dangling and follows the window. It
+  can sit on the bottom taskbar too.
 - Right-click for a menu with the chat, avatars, size (small to extra large),
   "Segue il mouse" (follow the mouse), "Vita autonoma" (idle life), "Sempre in
-  primo piano" (always on top), hide and quit.
+  primo piano" (always on top), "Si siede su finestre e taskbar" (sit on
+  windows and the taskbar), hide and quit.
 
 Ask things like "open my Documents folder", "search the news about AI" or just
 chat. Anything that touches your system shows a confirmation dialog first.

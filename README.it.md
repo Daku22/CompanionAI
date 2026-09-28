@@ -372,6 +372,23 @@ destro apriva il menu di sistema. La finestra si muove con `setBounds` a
 dimensione fissa, perché `setPosition` fra schermi con scala diversa ne
 cambiava la dimensione.
 
+**Sedersi su finestre e taskbar.** L'ombra ai piedi fa da mirino: posato con
+l'ombra sul bordo alto di una finestra, l'avatar ci sta in piedi e dopo un
+secondo si siede, con le gambe a penzoloni davanti alla finestra.
+- Segue la finestra quando si sposta o si allarga.
+- Scende a terra se la finestra viene ridotta a icona, massimizzata, messa a
+  schermo intero o chiusa, e resta dove lo lasci se lo riprendi in braccio.
+- Sulla taskbar in basso ci si siede se l'ombra cade sulla taskbar stessa: il
+  suo bordo resta il pavimento di sempre.
+- Seduto su una finestra non è più "sempre in primo piano": sta subito sopra
+  di lei nell'ordine z (`SetWindowPos`), così le finestre davanti lo coprono.
+
+Le finestre degli altri programmi le legge `src/main/win-windows.js` con koffi
+(user32 e dwmapi, anche per il bordo visibile vero); le regole stanno in
+`src/main/perch.js`, funzioni pure con test. Se koffi non si carica la
+funzione resta spenta e il menu lo dice. Si accende e spegne dal menu col
+tasto destro.
+
 **Clic e doppio clic.** Un clic fa sorridere l'avatar, il doppio clic apre la
 chat.
 
@@ -498,6 +515,7 @@ Fatto:
 - mouse alla Mate Engine: clic che passano sul vuoto, presa in braccio con
   oscillazione e capelli che si muovono, sguardo che segue il cursore, menu
   col tasto destro;
+- seduta su finestre e taskbar, con l'ombra ai piedi come mirino;
 - clip .vrma su VRM, glTF e FBX con scheletro umano, import da VRMA, glTF,
   FBX e BVH;
 - router a sette provider con output vincolato ed elenchi dal vivo;
@@ -515,7 +533,8 @@ Da fare:
   solo nella copia privata, finché non si confermano i termini sulle uscite;
 - prova con un FBX vero (Mixamo): il percorso è lo stesso del glTF, ma i test
   non hanno un file FBX;
-- seduta su finestre e taskbar (resto della Fase B, con koffi);
+- modalità stanza con scene 3D e camera libera, voce, Live2D: vedi la roadmap
+  in `IDEA.md`;
 - Fase D: nascondersi ai bordi, chibi, danza con l'audio, mano verso il
   cursore;
 - iniziativa con freni, memoria leggibile;

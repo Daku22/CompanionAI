@@ -39,7 +39,9 @@ function ensureThree() {
   threeMount.appendChild(renderer.domElement);
 
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 1000);
+  // 38 gradi e non 35: con 35 il pavimento cadeva sul bordo basso della
+  // finestra, e l'ombra ai piedi (l'ancora per le finestre) restava tagliata.
+  camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 0.95, 2.7);
   camera.lookAt(0, 0.85, 0);
 
@@ -52,6 +54,8 @@ function ensureThree() {
   body.position.y = -PIVOT_Y;
   rig.add(body);
   scene.add(rig);
+  shadow = makeShadow();
+  scene.add(shadow);
 
   // Environment & Lighting
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.4);
@@ -64,6 +68,52 @@ function ensureThree() {
 
   loader = new GLTFLoader();
   loader.register(parser => new VRMLoaderPlugin(parser));
+}
+
+// ─── Ombra ai piedi ────────────────────────────────────────────────────────
+// Un disco sfumato sul pavimento (y = 0), fuori da rig e body: quando l'avatar
+// e' in braccio resta a terra e mostra dove si posera'. E' l'ancora per le
+// finestre: se al rilascio cade sul bordo alto di una finestra, l'avatar ci
+// sale (perch.js nel main). Seduto sul bordo sparisce, non c'e' pavimento.
+let shadow = null;
+const SHADOW_SIZE_M = 0.6;
+let shadowOpacity = 0;
+let perchPhase = null;   // null, 'stand' o 'sit'
+
+function makeShadow() {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  // Scura al centro: e' un mirino, deve vedersi anche su uno sfondo chiaro.
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 0.9)');
+  gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.65)');
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false, opacity: 0 });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(SHADOW_SIZE_M, SHADOW_SIZE_M), material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.002;
+  mesh.renderOrder = -1;
+  return mesh;
+}
+
+const shadowHips = new THREE.Vector3();
+function updateShadow(vrm, delta) {
+  if (!shadow) return;
+  const hips = vrm && vrm.humanoid && vrm.humanoid.getRawBoneNode('hips');
+  if (hips) {
+    hips.getWorldPosition(shadowHips);
+    shadow.position.x = shadowHips.x;
+    shadow.position.z = shadowHips.z;
+  }
+  // Sempre ben visibile: in braccio e' il mirino per posarlo su una finestra.
+  const target = !hips || perchPhase === 'sit' ? 0 : dragging ? 1 : 0.9;
+  shadowOpacity += (target - shadowOpacity) * Math.min(1, delta * 8);
+  shadow.material.opacity = shadowOpacity;
+  shadow.visible = shadowOpacity > 0.01;
 }
 
 function onWindowResize() {
@@ -171,6 +221,11 @@ window.__companion3DTest = {
   },
   /** Riproduce un movimento generato come se arrivasse dal main. */
   generated: (data) => playGeneratedMotion(data),
+  /** Avvia un gesto per nome, e la posa di riposo (idle, perch), senza il main. */
+  play: (name) => playClip(name),
+  rest: (name) => animator.setRest(name),
+  /** Stato dell'ombra ai piedi. */
+  shadow: () => shadow && { visible: shadow.visible, opacity: shadow.material.opacity, x: shadow.position.x, z: shadow.position.z },
   /** Converte in .vrma come l'import dal menu, senza la finestra di scelta. */
   convert: async (ext, data) => convertToVRMA(ext, data),
   /** Direzione nel mondo da un osso all'altro, sulle ossa vere del modello. */
@@ -191,6 +246,49 @@ if (api && api.onWindowDragState) {
     playClip(dragging ? 'drag' : 'idle');
     if (dragging) react('surprised', 0.6, 1200);
   });
+}
+
+// Posato su una finestra o sulla taskbar (perch.js nel main): prima in piedi
+// sul bordo (phase 'stand'), poi seduto (phase 'sit'). Da seduto il riposo
+// diventa la seduta, e ogni gesto torna li' invece che in piedi.
+if (api && api.onPerchState) {
+  api.onPerchState((data) => {
+    perchPhase = data && data.perched ? (data.phase === 'sit' ? 'sit' : 'stand') : null;
+    const sitting = perchPhase === 'sit';
+    animator.setRest(sitting ? 'perch' : 'idle');
+    if (window.__threeVisible && !dragging) playClip(sitting ? 'perch' : 'idle');
+  });
+}
+
+// Ancora per il main, in px della finestra: l'ombra (feet, il pavimento sotto
+// il bacino) e la seduta (seat, il bacino qualche centimetro piu' in basso,
+// dove poggiano le cosce). Si misura a riposo e non in braccio; si manda
+// quando cambia, e ogni 2 s perche' passando dal 2D al 3D il main tenga
+// quella giusta.
+const SEAT_BELOW_HIPS_M = 0.07;
+const seatPoint = new THREE.Vector3();
+const feetPoint = new THREE.Vector3();
+let seatSentAt = 0;
+let seatKey = '';
+function toWindowPx(point) {
+  point.project(camera);
+  return { x: Math.round((point.x + 1) / 2 * window.innerWidth), y: Math.round((1 - point.y) / 2 * window.innerHeight) };
+}
+function reportSeat(vrm) {
+  const now = performance.now();
+  if (dragging || perchPhase || !api || !api.setSeatAnchor || now - seatSentAt < 500) return;
+  const hips = vrm.humanoid && vrm.humanoid.getRawBoneNode('hips');
+  if (!hips) return;
+  hips.getWorldPosition(seatPoint);
+  feetPoint.set(seatPoint.x, 0, seatPoint.z);
+  seatPoint.y -= SEAT_BELOW_HIPS_M;
+  const feet = toWindowPx(feetPoint);
+  const seat = toWindowPx(seatPoint);
+  const key = feet.x + ',' + feet.y + ',' + seat.y;
+  if (key === seatKey && now - seatSentAt < 2000) return;
+  seatKey = key;
+  seatSentAt = now;
+  api.setSeatAnchor({ x: feet.x, feet: feet.y, seat: seat.y });
 }
 
 // Un clic sull'avatar: sorride.
@@ -289,6 +387,8 @@ function animate() {
     updateWind(currentVrm);
     currentVrm.update(delta);
     frameSeated(currentVrm, delta);
+    updateShadow(currentVrm, delta);
+    reportSeat(currentVrm);
   }
   renderer.render(scene, camera);
   readHit();

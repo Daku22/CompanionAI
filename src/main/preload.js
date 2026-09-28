@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('companion', {
   startDrag:        ()       => ipcRenderer.send('drag:start'),
   endDrag:          ()       => ipcRenderer.send('drag:end'),
   showMenu:         ()       => ipcRenderer.send('companion:menu'),
+  // Dove sono l'ombra ai piedi (feet) e il bacino (seat) dentro la finestra:
+  // il main posa l'ombra sul bordo di una finestra o della taskbar, e seduto
+  // ci mette il bacino.
+  setSeatAnchor:    (a)      => ipcRenderer.send('companion:seat-anchor', { x: Number(a && a.x), feet: Number(a && a.feet), seat: Number(a && a.seat) }),
 
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),
@@ -99,6 +103,12 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('generated-motion', handler)
     return () => ipcRenderer.removeListener('generated-motion', handler)
+  },
+  // Seduto su una finestra o sulla taskbar (perched), o sceso
+  onPerchState: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('perch-state', handler)
+    return () => ipcRenderer.removeListener('perch-state', handler)
   },
   // Verso della camminata deciso dal main (che conosce l'area di lavoro reale)
   onCompanionFacing: (cb)    => {

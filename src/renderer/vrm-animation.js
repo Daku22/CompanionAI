@@ -16,16 +16,61 @@
 // Non dipende da three: le ossa arrivano da un accessor, cosi' il modulo si
 // testa da Node con oggetti finti (vedi scripts/test-animation.js).
 
-// Posa di riposo: braccia lungo i fianchi invece della T-pose di default.
+// Dita piegate appena, come una mano rilassata: lo scheletro normalizzato le
+// ha tese come nella T-pose, e le mani sembravano di legno. z positivo piega
+// verso il palmo a sinistra, negativo a destra (stessa convenzione delle
+// braccia); il mignolo si piega piu' dell'indice.
+const FINGER_CURL = {
+  Index:  [0.15, 0.25, 0.20],
+  Middle: [0.20, 0.30, 0.20],
+  Ring:   [0.25, 0.35, 0.25],
+  Little: [0.30, 0.40, 0.30],
+}
+const FINGER_JOINTS = ['Proximal', 'Intermediate', 'Distal']
+
+function relaxedHands() {
+  const pose = {}
+  for (const [finger, curls] of Object.entries(FINGER_CURL)) {
+    FINGER_JOINTS.forEach((joint, i) => {
+      pose['left' + finger + joint] = { z: curls[i] }
+      pose['right' + finger + joint] = { z: -curls[i] }
+    })
+  }
+  return pose
+}
+
+// Posa di riposo: braccia lungo i fianchi invece della T-pose di default, e
+// mani rilassate.
 export const REST_POSE = {
   rightUpperArm: { z: -1.22 },
   leftUpperArm:  { z:  1.22 },
   rightLowerArm: { y: -0.15 },
   leftLowerArm:  { y:  0.15 },
+  ...relaxedHands(),
 }
 
 // Slot dei movimenti generati: non ha file suoi nella libreria delle clip.
 export const GENERATED = 'generated'
+
+// Seduto su un bordo: cosce in avanti, gambe che dondolano, bacino fermo, mani
+// appoggiate sul bordo accanto ai fianchi. Per un arto che pende, x positivo
+// lo porta in avanti (vedi applyPose): prima le cosce avevano -1.45 e andavano
+// indietro, con il ginocchio piegato al contrario.
+function sittingOnEdge(t) {
+  const swing = Math.sin(t * 1.7) * 0.22
+  return {
+    leftUpperLeg:  { x: 1.45 },
+    rightUpperLeg: { x: 1.45 },
+    leftLowerLeg:  { x: -1.25 + swing },
+    rightLowerLeg: { x: -1.25 - swing },
+    leftUpperArm:  { x: 0.15, z: -0.08 },
+    rightUpperArm: { x: 0.15, z:  0.08 },
+    leftLowerArm:  { y: -0.25 },
+    rightLowerArm: { y:  0.25 },
+    spine: { x: 0.08 },
+    chest: { x: Math.sin(t * 1.8) * 0.025 },
+  }
+}
 
 // duration 0 = ciclica finche' non arriva un altro trigger.
 // pose(t) restituisce SOLO gli scostamenti dalla posa di riposo.
@@ -94,10 +139,10 @@ export const CLIPS = {
   sit: {
     duration: 0,
     pose: (t) => ({
-      leftUpperLeg:  { x: -1.45 },
-      rightUpperLeg: { x: -1.45 },
-      leftLowerLeg:  { x:  1.35 },
-      rightLowerLeg: { x:  1.35 },
+      leftUpperLeg:  { x:  1.45 },
+      rightUpperLeg: { x:  1.45 },
+      leftLowerLeg:  { x: -1.35 },
+      rightLowerLeg: { x: -1.35 },
       leftUpperArm:  { z: -0.18 },
       rightUpperArm: { z:  0.18 },
       spine: { x: 0.08 },
@@ -141,16 +186,15 @@ export const CLIPS = {
   // Seduto su un bordo (finestra, taskbar): come sit, con le gambe che dondolano.
   'sit-edge': {
     duration: 0,
-    pose: (t) => ({
-      leftUpperLeg:  { x: -1.45 },
-      rightUpperLeg: { x: -1.45 },
-      leftLowerLeg:  { x: 1.25 + Math.sin(t * 1.7) * 0.22 },
-      rightLowerLeg: { x: 1.25 - Math.sin(t * 1.7) * 0.22 },
-      leftUpperArm:  { z: -0.18 },
-      rightUpperArm: { z:  0.18 },
-      spine: { x: 0.08 },
-      chest: { x: Math.sin(t * 1.8) * 0.025 },
-    }),
+    pose: (t) => sittingOnEdge(t),
+  },
+  // Seduto davvero su una finestra o sulla taskbar (perch.js). Stessa posa di
+  // sit-edge, ma senza clip .vrma: quella di Kimodo e' "seduto su una sedia" e
+  // abbassa il bacino, mentre qui il bacino deve restare sul bordo, al punto
+  // di seduta misurato dal main.
+  perch: {
+    duration: 0,
+    pose: (t) => sittingOnEdge(t),
   },
   // Braccia in alto, busto all'indietro, e giu' di nuovo.
   stretch: {
@@ -249,7 +293,7 @@ export const CLIP_ALIAS = {
   click: 'click',
   search: 'search', scroll: 'search', 'open-file': 'search',
   drag: 'dangle', dangle: 'dangle',
-  'sit-edge': 'sit-edge', stretch: 'stretch', yawn: 'yawn',
+  'sit-edge': 'sit-edge', perch: 'perch', stretch: 'stretch', yawn: 'yawn',
   doze: 'doze', sleep: 'doze', dance: 'dance',
   [GENERATED]: GENERATED,
 }
@@ -260,6 +304,8 @@ export const TOUCHED_BONES = [
   'hips', 'spine', 'chest', 'neck', 'head',
   'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
   'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
+  // Le dita, per la mano rilassata di REST_POSE. Un modello senza dita le salta.
+  ...Object.keys(FINGER_CURL).flatMap(finger => FINGER_JOINTS.flatMap(joint => ['left' + finger + joint, 'right' + finger + joint])),
 ]
 
 // ─── Sguardo che segue il mouse ────────────────────────────────────────────
@@ -276,7 +322,7 @@ export const LOOK_LIMITS = {
 }
 // Quanto segue il mouse durante ogni clip: pieno a riposo, per niente mentre
 // cammina, siede o penzola, dove girare la testa sembrerebbe un difetto.
-export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5 }
+export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8 }
 const LOOK_RATE = 7          // inseguimento del bersaglio, 1/s
 const LOOK_WEIGHT_RATE = 3   // entrata e uscita del peso, 1/s
 
@@ -344,6 +390,8 @@ export function createVRMAnimator(getBone) {
     (vrm && vrm.humanoid) ? vrm.humanoid.getNormalizedBoneNode(name) : null)
 
   let clipName     = 'idle'
+  // Dove si torna finito un gesto: idle, o perch se e' seduto su una finestra.
+  let restName     = 'idle'
   let clipDuration = null   // durata della clip .vrma, se c'e': prevale su CLIPS
   let clipElapsed  = 0
   let clipWeight   = 0
@@ -379,31 +427,51 @@ export function createVRMAnimator(getBone) {
     }
   }
 
+  /** Nome della clip per un nome o alias; idle vuol dire la posa di riposo. */
+  function resolveClip(name) {
+    const resolved = CLIP_ALIAS[name] || 'idle'
+    return resolved === 'idle' ? restName : resolved
+  }
+
+  function play(name, options = {}) {
+    const duration = options.duration
+    const resolved = resolveClip(name)
+    if (resolved === clipName && !clipEnding && !options.restart) return resolved
+    clipName    = resolved
+    clipDuration = Number.isFinite(duration) && duration > 0 ? duration : null
+    clipElapsed = 0
+    clipEnding  = false
+    // Il peso riparte da zero: senza, la clip nuova entrerebbe di scatto al
+    // peso pieno ereditato dalla precedente e la fusione non servirebbe.
+    clipWeight  = 0
+    if (resolved === restName) facingTarget = 0
+    return resolved
+  }
+
   return {
     /** Nome della clip per un nome o alias, senza avviarla. */
-    resolve(name) { return CLIP_ALIAS[name] || 'idle' },
+    resolve: resolveClip,
 
     /**
-     * Avvia una clip per nome o alias. Sconosciuto significa idle.
+     * Avvia una clip per nome o alias. Sconosciuto significa idle, cioe' la
+     * posa di riposo (setRest).
      * @param {string} name
      * @param {{ duration?: number, restart?: boolean }} [options] duration:
      *        durata della clip .vrma che la riproduce (clip-layer.js), il
-     *        player torna a idle quando finisce lei; restart: riparte anche se
-     *        e' gia' in corso
+     *        player torna a riposo quando finisce lei; restart: riparte anche
+     *        se e' gia' in corso
      */
-    play(name, options = {}) {
-      const duration = options.duration
-      const resolved = CLIP_ALIAS[name] || 'idle'
-      if (resolved === clipName && !clipEnding && !options.restart) return resolved
-      clipName    = resolved
-      clipDuration = Number.isFinite(duration) && duration > 0 ? duration : null
-      clipElapsed = 0
-      clipEnding  = false
-      // Il peso riparte da zero: senza, la clip nuova entrerebbe di scatto al
-      // peso pieno ereditato dalla precedente e la fusione non servirebbe.
-      clipWeight  = 0
-      if (resolved === 'idle') facingTarget = 0
-      return resolved
+    play,
+
+    /**
+     * Posa a cui tornare finito un gesto: 'idle' in piedi, 'perch' seduto su
+     * una finestra. Se in quel momento l'avatar e' a riposo, cambia subito.
+     * @param {string} name
+     */
+    setRest(name) {
+      const previous = restName
+      restName = (CLIP_ALIAS[name] || 'idle')
+      if (clipName === previous || clipName === 'idle') play(restName)
     },
 
     /** Verso della marcia deciso dal processo main: 1 destra, -1 sinistra. */
@@ -425,7 +493,7 @@ export function createVRMAnimator(getBone) {
 
     /** Riporta l'avatar alla sola posa di riposo. */
     reset(vrm) {
-      clipName = 'idle'; clipElapsed = 0; clipWeight = 0; clipEnding = false; clipDuration = null
+      clipName = restName; clipElapsed = 0; clipWeight = 0; clipEnding = false; clipDuration = null
       facingYaw = 0; facingTarget = 0
       look = { yaw: 0, pitch: 0 }; lookWeight = 0
       applyPose(vrm, {})
@@ -449,7 +517,7 @@ export function createVRMAnimator(getBone) {
       clipWeight  += Math.sign(target - clipWeight) * Math.min(rate, Math.abs(target - clipWeight))
 
       if (clipEnding && clipWeight <= 0.001) {
-        clipName = 'idle'; clipElapsed = 0; clipEnding = false; clipWeight = 0; clipDuration = null
+        clipName = restName; clipElapsed = 0; clipEnding = false; clipWeight = 0; clipDuration = null
       }
 
       const active   = CLIPS[clipName] || CLIPS.idle
@@ -484,7 +552,7 @@ export function createVRMAnimator(getBone) {
 
     /** Stato interno, per i test. */
     debug() {
-      return { clipName, clipElapsed, clipWeight, clipEnding, facingYaw, facingTarget, look, lookWeight }
+      return { clipName, restName, clipElapsed, clipWeight, clipEnding, facingYaw, facingTarget, look, lookWeight }
     },
   }
 }

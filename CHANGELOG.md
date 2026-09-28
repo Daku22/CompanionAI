@@ -29,6 +29,21 @@
   - click for a small reaction, double-click to open the chat;
   - right-click menu: chat, avatars, window size, follow the mouse, idle life,
     always on top, hide, quit.
+- Sitting on windows and the taskbar, as in Mate Engine (ideas only):
+  - a shadow under the feet shows where the avatar will land. Drop it with
+    the shadow on the top edge of a window: it stands there, then sits with
+    its legs dangling, and follows the window when it moves or grows;
+  - it gets down when the window is minimized, maximized, fullscreen or
+    closed, and stays where you leave it when you pick it up;
+  - on the bottom taskbar it sits when the shadow falls on the taskbar itself;
+  - on a window it is no longer always on top: it stays just above that
+    window, so the windows in front of it cover it;
+  - other windows are read through the Windows API with Koffi (MIT); toggle
+    in the right-click menu.
+- Sitting poses had the thighs going backward and the knees bent the wrong
+  way. Hands are relaxed instead of flat, in every pose.
+- The 3D camera is a little wider (38°), so the shadow under the feet is not
+  cut by the window's bottom edge.
 - The window starts in the right place when the taskbar is on the top or left.
 - Animations in one format, `.vrma`, on every humanoid model:
   - GLB/glTF and FBX avatars with a human skeleton are now animated like VRM

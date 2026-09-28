@@ -157,6 +157,7 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.alwaysOnTop === 'boolean') merged.alwaysOnTop = incoming.alwaysOnTop
   // Solo l'interruttore: la cartella di Kimodo (kimodoDir) si scrive a mano.
   if (typeof incoming.kimodo === 'boolean') merged.kimodo = incoming.kimodo
+  if (typeof incoming.perch === 'boolean') merged.perch = incoming.perch
   if (typeof incoming.scale === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_SCALES, incoming.scale)) merged.scale = incoming.scale
   if (incoming.keys && typeof incoming.keys === 'object') {
     for (const [provider, value] of Object.entries(incoming.keys)) {

@@ -66,8 +66,9 @@ rootC.addChild(overlayG);
 charC.x = window.innerWidth / 2;
 charC.y = window.innerHeight - 12;
 
-// Ground shadow
-shadowG.beginFill(0x000000, 0.18);
+// Ground shadow: e' anche l'ancora per sedersi sulle finestre, quindi scura
+// abbastanza da vedersi (l'alpha a ogni frame la decide il ticker).
+shadowG.beginFill(0x000000, 1);
 shadowG.drawEllipse(0, 0, 28, 6);
 shadowG.endFill();
 shadowG.x = window.innerWidth / 2;
@@ -173,6 +174,7 @@ const State = {
   posX:      90,
   dir:       1,       // 1 = right, -1 = left (lo decide il main durante la camminata)
   dragging:  false,
+  perched:   false,   // seduto su una finestra o sulla taskbar (perch.js nel main)
   smokeTick: 0,
 };
 
@@ -183,6 +185,8 @@ let charSprite  = null;
 let baseScale   = 1;     // ricalcolata a ogni frame da updateScale()
 
 function setAnim(name) {
+  // Seduto su una finestra, il riposo e' la seduta: ogni gesto torna li'.
+  if (name === 'idle' && State.perched && animations.sit) name = 'sit';
   // Un pacchetto puo' non avere tutte le animazioni: quelle assenti diventano idle.
   if (!animations[name]) name = 'idle';
   if (!animations[name]) return;
@@ -213,6 +217,9 @@ app.ticker.add((delta) => {
   if (!charSprite) return;
 
   updateScale();
+  reportSeat2D();
+  // L'ombra segue il fondo della finestra anche quando cambia dimensione.
+  shadowG.y = window.innerHeight - 12;
 
   const groundY = window.innerHeight - 8;
   const centerX = window.innerWidth / 2;
@@ -245,8 +252,10 @@ app.ticker.add((delta) => {
     charSprite.y = -H + H * Math.cos(theta) - 22 + Math.sin(t * 5) * 2;
     charSprite.scale.set(baseScale * State.dir * 1.05, baseScale * 1.05);
 
-    shadowG.alpha = 0.05;
-    shadowG.scale.set(0.45);
+    // In braccio l'ombra resta a terra e si vede bene: e' il mirino per
+    // posarlo sul bordo di una finestra (perch.js nel main).
+    shadowG.alpha = 0.5;
+    shadowG.scale.set(1.1);
     shadowG.x = State.posX;
     tickSmoke(delta);
     return;
@@ -266,7 +275,7 @@ app.ticker.add((delta) => {
     charSprite.rotation = Math.sin(t * 6) * 0.04;
     charSprite.scale.set(baseScale * State.dir, baseScale);
 
-    shadowG.alpha = 0.18;
+    shadowG.alpha = 0.35;
     shadowG.scale.set(1);
     shadowG.x = State.posX;
     charC.x = State.posX;
@@ -284,7 +293,7 @@ app.ticker.add((delta) => {
     if (Math.random() < 0.3 * delta) spawnSmoke(State.posX + 22 * State.dir, 140 + bob);
     tickSmoke(delta);
 
-    shadowG.alpha = 0.18;
+    shadowG.alpha = 0.35;
     shadowG.scale.set(1);
     shadowG.x = State.posX;
     charC.x   = State.posX;
@@ -299,7 +308,7 @@ app.ticker.add((delta) => {
     charSprite.rotation = wag;
     charSprite.scale.set(baseScale * State.dir * breath, baseScale * breath);
 
-    shadowG.alpha = 0.18; shadowG.scale.set(1); shadowG.x = State.posX;
+    shadowG.alpha = 0.35; shadowG.scale.set(1); shadowG.x = State.posX;
     charC.x = State.posX;
     overlayG.clear();
     return;
@@ -312,7 +321,7 @@ app.ticker.add((delta) => {
     charSprite.rotation = 0;
     charSprite.scale.set(baseScale * State.dir, baseScale);
 
-    shadowG.alpha = 0.14; shadowG.scale.set(0.85); shadowG.x = State.posX;
+    shadowG.alpha = 0.3; shadowG.scale.set(0.85); shadowG.x = State.posX;
     charC.x = State.posX;
     overlayG.clear();
     return;
@@ -325,10 +334,36 @@ app.ticker.add((delta) => {
   charSprite.rotation = Math.sin(t * 1.6) * 0.02;
   charSprite.scale.set(baseScale * State.dir * breath, baseScale * breath);
 
-  shadowG.alpha = 0.18; shadowG.scale.set(1); shadowG.x = State.posX;
+  shadowG.alpha = 0.35; shadowG.scale.set(1); shadowG.x = State.posX;
   charC.x = State.posX;
   overlayG.clear();
 });
+
+// ── Seduta su finestre e taskbar ────────────────────────────────────────────
+// L'ancora per il main e' l'ombra ai piedi, al centro. La seduta 2D poggia
+// dove poggiavano i piedi, quindi ombra e seduta coincidono. Si manda quando
+// cambia, e ogni 2 s perche' passando dal 3D al 2D il main tenga quella giusta.
+let seat2DSentAt = 0;
+let seat2DKey = '';
+function reportSeat2D() {
+  if (window.__threeVisible || State.dragging || !api || !api.setSeatAnchor) return;
+  const x = Math.round(window.innerWidth / 2);
+  const y = Math.round(window.innerHeight - 12);
+  const key = x + ',' + y;
+  const now = performance.now();
+  if (key === seat2DKey && now - seat2DSentAt < 2000) return;
+  seat2DKey = key;
+  seat2DSentAt = now;
+  api.setSeatAnchor({ x, feet: y, seat: y });
+}
+
+// Posato su una finestra: prima in piedi sul bordo (phase 'stand'), poi seduto.
+if (api && api.onPerchState) {
+  api.onPerchState((data) => {
+    State.perched = !!(data && data.perched && data.phase === 'sit');
+    if (!window.__threeVisible && !State.dragging) setAnim('idle');
+  });
+}
 
 // ── Drag & Drop ─────────────────────────────────────────────────────────────
 // La finestra la muove il main (companion-input.js chiede drag:start): qui si

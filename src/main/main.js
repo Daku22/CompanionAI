@@ -9,6 +9,7 @@ const { AvatarLibrary } = require('./AvatarLibrary')
 const { AnimationLibrary, isGlb } = require('./AnimationLibrary')
 const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
 const winWindows = require('./win-windows')
+const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated } = require('./perch')
 const { builtinAvatars } = require('./builtin-avatars')
 const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES } = require('./guards')
 const { walkTarget } = require('./walk-target')
@@ -47,9 +48,10 @@ const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 // followMouse, alwaysOnTop e scale si cambiano dal menu col tasto destro.
 // kimodo: movimenti nuovi generati in locale (kimodo-service.js); kimodoDir
 // si scrive solo a mano in config.json, mai dalla UI.
+// perch: posato sul bordo di una finestra o della taskbar, ci si siede (perch.js).
 const DEFAULT_CONFIG = {
   provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true,
-  followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, keys: {},
+  followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, perch: true, keys: {},
 }
 
 function loadEnvFile() {
@@ -113,6 +115,7 @@ function loadConfig() {
   cfg.followMouse = cfg.followMouse !== false
   cfg.alwaysOnTop = cfg.alwaysOnTop !== false
   cfg.kimodo = cfg.kimodo === true
+  cfg.perch = cfg.perch !== false
   if (typeof cfg.scale !== 'string' || !Object.prototype.hasOwnProperty.call(WINDOW_SCALES, cfg.scale)) cfg.scale = DEFAULT_CONFIG.scale
   if (!PROVIDERS[cfg.provider]) { cfg.provider = DEFAULT_CONFIG.provider; cfg.model = DEFAULT_CONFIG.model }
 
@@ -796,8 +799,14 @@ handle('motions:store', async (_e, payload) => {
 function animateCompanion(action, motion = {}) {
   const { maxDistance = Infinity, direction, distance } = motion
   if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
+  const walking = action.animation === 'walk-to' || action.animation === 'run-to'
+  // Per camminare scende prima dal sedile, e parte una volta a terra.
+  if (walking && perch && !drag) {
+    leavePerch({ fall: true, then: () => animateCompanion(action, motion) })
+    return
+  }
   try { companionWindow?.webContents.send('trigger-animation', action) } catch (_) {}
-  if ((action.animation === 'walk-to' || action.animation === 'run-to') && !drag) {
+  if (walking && !drag) {
     startWalk({ run: action.animation === 'run-to', direction, distance, maxDistance })
   } else {
     stopWalk()
@@ -840,7 +849,8 @@ function onDragged() {
 }
 
 function idleTick() {
-  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || Date.now() < requestedPoseUntil) return
+  // Seduto su una finestra resta seduto: i gesti a riposo sono pose in piedi.
+  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || perch || Date.now() < requestedPoseUntil) return
   if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
   // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
   if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused()) { markActivity(); return }
@@ -912,6 +922,8 @@ function keepOnScreen() {
 
 function startDrag() {
   if (drag || !companionWindow || companionWindow.isDestroyed()) return
+  // Ripreso in braccio scende dal sedile, senza cadere: lo tiene l'utente.
+  leavePerch()
   stopWalk()
   if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
   const cursor = screen.getCursorScreenPoint()
@@ -943,11 +955,173 @@ function endDrag() {
   if (!drag) return
   clearInterval(drag.timer)
   drag = null
-  // Posato mezzo fuori dallo schermo, o dietro la taskbar, si perderebbe.
-  keepOnScreen()
   sendCompanion('drag-motion', { vx: 0, vy: 0 })
   sendCompanion('window-drag-state', { dragging: false })
+  // Posato con il punto di seduta sul bordo di una finestra si siede; se no,
+  // mezzo fuori dallo schermo o dietro la taskbar si perderebbe.
+  if (!tryPerch()) keepOnScreen()
   markActivity()
+}
+
+// ─── Seduta su finestre e taskbar ────────────────────────────────────────────
+// L'ancora e' l'ombra ai piedi: posato con l'ombra sul bordo alto di una
+// finestra, o sulla taskbar in basso, l'avatar ci sta in piedi, poi si siede
+// con le gambe a penzoloni e la segue. perch.js decide, qui ci sono il timer e
+// le chiamate a Windows (win-windows.js). Su una finestra non e' piu' "sempre
+// in primo piano": sta subito sopra di lei, e le finestre davanti lo coprono
+// come su una scrivania vera.
+
+const PERCH_TICK_MS = 33          // ~30 Hz: segue anche una finestra trascinata
+const PERCH_ZORDER_EVERY = 3      // l'ordine z ogni 3 tick, ~10 Hz
+const STAND_BEFORE_SIT_MS = 1200  // appena posato sta in piedi, poi si siede
+const SIT_DOWN_MS = 450           // il bacino scende sul bordo
+const FALL_MS = 280
+
+/** @type {null | (import('./perch').Seat & { timer: any, ticks: number, landedAt: number, sitAt: number })} */
+let perch = null
+let perchEnabled = true
+/**
+ * Dove sono ombra e seduta dentro la finestra, dal renderer: x comune, feet
+ * l'ombra ai piedi (dove atterra), seat il bacino (dove poggia seduto). Nel 2D
+ * coincidono: lo sprite seduto poggia dove poggiava in piedi.
+ * @type {{ x: number, feet: number, seat: number } | null}
+ */
+let seatAnchor = null
+
+/** @param {number} [sit] 0 in piedi, 1 seduto: l'altezza va dall'ombra al bacino */
+function currentAnchor(sit = 0) {
+  const [w, h] = companionWindow.getSize()
+  const a = seatAnchor
+  const valid = a && a.x >= 0 && a.x <= w && a.feet >= 0 && a.feet <= h && a.seat >= 0 && a.seat <= h
+  const { x, feet, seat } = valid ? a : { x: Math.round(w / 2), feet: h - 12, seat: Math.round(h * 0.55) }
+  return { x, y: Math.round(feet + (seat - feet) * sit) }
+}
+
+/** Quanto e' seduto adesso, da 0 (appena posato, in piedi) a 1. */
+function sitAmount(now = Date.now()) {
+  if (!perch || !perch.sitAt) return 0
+  return Math.min(1, (now - perch.sitAt) / SIT_DOWN_MS)
+}
+
+function displaysInfo() {
+  return screen.getAllDisplays().map(d => ({ id: d.id, bounds: d.bounds, workArea: d.workArea }))
+}
+
+// Windows da' pixel fisici, Electron lavora in DIP.
+function toDip(rect) {
+  return rect ? screen.screenToDipRect(null, rect) : null
+}
+
+function ownHandles() {
+  return BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => winWindows.handleOf(w.getNativeWindowHandle()))
+}
+
+/** Al rilascio: se l'ombra cade su un bordo, l'avatar si posa li'. */
+function tryPerch() {
+  if (!perchEnabled || !winWindows.available() || !companionWindow || companionWindow.isDestroyed()) return false
+  const b = companionWindow.getBounds()
+  const anchor = currentAnchor(0)
+  const shadow = { x: b.x + anchor.x, y: b.y + anchor.y }
+  const displays = displaysInfo()
+  const windows = winWindows.listWindows().map(w => ({ ...w, bounds: toDip(w.bounds) }))
+  const seat = findWindowSeat(windows, shadow, { ownPid: process.pid, displays }) || findTaskbarSeat(shadow, displays)
+  if (!seat) {
+    console.log('[perch] nessun bordo sotto l\'ombra ' + shadow.x + ',' + shadow.y)
+    return false
+  }
+  console.log('[perch] posato su ' + (seat.kind === 'window' ? 'una finestra' : 'la taskbar') + ', ombra ' + shadow.x + ',' + shadow.y)
+  startPerch(seat)
+  return true
+}
+
+/** @param {import('./perch').Seat} seat */
+function startPerch(seat) {
+  stopPerch()
+  stopWalk()
+  perch = { ...seat, timer: null, ticks: 0, landedAt: Date.now(), sitAt: 0 }
+  // Sulla taskbar resta in primo piano come prima: la taskbar sta sopra tutto.
+  if (seat.kind === 'window' && companionWindow.isAlwaysOnTop()) companionWindow.setAlwaysOnTop(false)
+  sendCompanion('perch-state', { perched: true, kind: seat.kind, phase: 'stand' })
+  perchTick()
+  perch.timer = setInterval(perchTick, PERCH_TICK_MS)
+}
+
+/** Bordo su cui stare adesso; null se non si puo' restare seduti. */
+function perchEdge() {
+  const displays = displaysInfo()
+  if (perch.kind === 'window') {
+    const state = winWindows.windowState(perch.hwnd)
+    const current = state && { ...state, bounds: toDip(state.bounds) }
+    if (!staysSeated(current, displays)) return null
+    return { x: current.bounds.x, y: current.bounds.y, width: current.bounds.width }
+  }
+  const display = displays.find(d => d.id === perch.displayId)
+  return display ? taskbarEdge(display) : null
+}
+
+function perchTick() {
+  if (!perch) return
+  if (!companionWindow || companionWindow.isDestroyed()) { stopPerch(); return }
+  const edge = perchEdge()
+  if (!edge) { leavePerch({ fall: true }); return }
+  const now = Date.now()
+  // Dopo un momento in piedi si siede: la posa cambia nel renderer, e qui la
+  // finestra scende finche' il bacino poggia sul bordo al posto dell'ombra.
+  if (!perch.sitAt && now - perch.landedAt >= STAND_BEFORE_SIT_MS) {
+    perch.sitAt = now
+    sendCompanion('perch-state', { perched: true, kind: perch.kind, phase: 'sit' })
+  }
+  const pos = perchPosition(edge, perch.fraction, currentAnchor(sitAmount(now)))
+  const b = companionWindow.getBounds()
+  if (pos.x !== b.x || pos.y !== b.y) {
+    try { moveCompanion(pos.x, pos.y) } catch (_) { leavePerch(); return }
+  }
+  if (perch.kind === 'window' && perch.ticks++ % PERCH_ZORDER_EVERY === 0) {
+    winWindows.placeAbove(winWindows.handleOf(companionWindow.getNativeWindowHandle()), perch.hwnd, ownHandles())
+  }
+}
+
+function stopPerch() {
+  if (!perch) return
+  clearInterval(perch.timer)
+  perch = null
+}
+
+/**
+ * Scende dal sedile. fall: cade fino a terra (la finestra e' sparita, o deve
+ * camminare); senza, resta dov'e' perche' l'ha preso in braccio l'utente.
+ * @param {{ fall?: boolean, then?: (() => void) | null }} [opts]
+ */
+function leavePerch({ fall = false, then = null } = {}) {
+  if (!perch) { if (then) then(); return }
+  stopPerch()
+  if (companionWindow && !companionWindow.isDestroyed() && loadConfig().alwaysOnTop !== false && !companionWindow.isAlwaysOnTop()) {
+    companionWindow.setAlwaysOnTop(true, 'screen-saver')
+  }
+  sendCompanion('perch-state', { perched: false })
+  if (fall) fallToGround(then)
+  else if (then) then()
+}
+
+/** Scende fino al bordo basso dell'area di lavoro, accelerando. */
+function fallToGround(then) {
+  if (!companionWindow || companionWindow.isDestroyed()) return
+  const area = companionWorkArea()
+  const b = companionWindow.getBounds()
+  const x = Math.max(area.x, Math.min(b.x, area.x + area.width - b.width))
+  const from = b.y
+  const to = area.y + area.height - b.height
+  const started = Date.now()
+  const timer = setInterval(() => {
+    // Ripreso in braccio o seduto di nuovo mentre cadeva: la caduta finisce li'.
+    if (!companionWindow || companionWindow.isDestroyed() || drag || perch) { clearInterval(timer); return }
+    const k = Math.min(1, (Date.now() - started) / FALL_MS)
+    try { moveCompanion(x, from + (to - from) * k * k) } catch (_) { clearInterval(timer); return }
+    if (k >= 1) {
+      clearInterval(timer)
+      if (then) then()
+    }
+  }, 16)
 }
 
 // Il cursore rispetto alla finestra, anche quando e' fuori: la pagina lo usa
@@ -980,17 +1154,22 @@ function applyScale(scale) {
     y: b.y + b.height - size.height,
     width: size.width, height: size.height,
   })
-  keepOnScreen()
+  // Seduto, la posizione la rimette perchTick con il punto di seduta nuovo.
+  if (!perch) keepOnScreen()
 }
 
 /** Applica le opzioni della config che toccano finestra e comportamento. */
 function applyWindowOptions(cfg) {
   idleLifeEnabled = cfg.idleLife !== false
   followMouse = cfg.followMouse !== false
+  perchEnabled = cfg.perch !== false
   // Spento Kimodo, la memoria video si libera subito.
   if (!cfg.kimodo && kimodo) kimodo.stop()
   if (!companionWindow || companionWindow.isDestroyed()) return
-  const onTop = cfg.alwaysOnTop !== false
+  if (!perchEnabled && perch) leavePerch({ fall: true })
+  // Seduto su una finestra sta sotto quelle davanti: "sempre in primo piano"
+  // torna quando scende (leavePerch).
+  const onTop = cfg.alwaysOnTop !== false && !(perch && perch.kind === 'window')
   if (companionWindow.isAlwaysOnTop() !== onTop) companionWindow.setAlwaysOnTop(onTop, 'screen-saver')
   applyScale(cfg.scale)
 }
@@ -1039,6 +1218,9 @@ async function showCompanionMenu() {
     { label: 'Segue il mouse', type: 'checkbox', checked: cfg.followMouse, click: (item) => setOption({ followMouse: item.checked }) },
     { label: 'Vita autonoma', type: 'checkbox', checked: cfg.idleLife, click: (item) => setOption({ idleLife: item.checked }) },
     { label: 'Sempre in primo piano', type: 'checkbox', checked: cfg.alwaysOnTop, click: (item) => setOption({ alwaysOnTop: item.checked }) },
+    winWindows.available()
+      ? { label: 'Si siede su finestre e taskbar', type: 'checkbox', checked: cfg.perch, click: (item) => setOption({ perch: item.checked }) }
+      : { label: 'Si siede su finestre e taskbar (non disponibile)', enabled: false },
     kimodo && kimodo.available()
       ? { label: 'Movimenti nuovi con Kimodo', type: 'checkbox', checked: cfg.kimodo, click: (item) => setOption({ kimodo: item.checked }) }
       : { label: 'Movimenti nuovi con Kimodo (non installato)', enabled: false },
@@ -1072,6 +1254,11 @@ on('mouse:capture', (_e, capture) => {
   companionWindow.setIgnoreMouseEvents(capture !== true, { forward: true })
 })
 on('companion:menu', () => { showCompanionMenu().catch(e => console.error('[menu]', e.message)) })
+// Ombra e seduta dentro la finestra, in px: solo numeri, la finestra li limita.
+on('companion:seat-anchor', (_e, anchor) => {
+  if (!anchor || ![anchor.x, anchor.feet, anchor.seat].every(Number.isFinite)) return
+  seatAnchor = { x: Math.round(anchor.x), feet: Math.round(anchor.feet), seat: Math.round(anchor.seat) }
+})
 
 // ─── OS Actions (hardened, standalone) ─────────────────────────────────────────
 // Le regole stanno in guards.js. run-command accetta solo l'allowlist; per

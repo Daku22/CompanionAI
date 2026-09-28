@@ -102,6 +102,23 @@ test('una clip a durata finita torna da sola a idle', () => {
   assert.equal(fine.clip, 'idle', 'dopo la durata la clip deve rilasciare il controllo')
 })
 
+test('seduto su una finestra, i gesti tornano alla seduta e non in piedi', () => {
+  const anim = makeAnimator()
+  const vrm = fakeVrm()
+  anim.setRest('perch')
+  assert.equal(anim.debug().clipName, 'perch', 'a riposo cambia subito')
+  assert.equal(anim.play('idle'), 'perch', 'idle vuol dire la posa di riposo')
+  anim.play('wave')
+  const fine = advance(anim, vrm, 4.0)
+  assert.equal(fine.clip, 'perch', 'finito il saluto resta seduto')
+  // Sceso dal sedile, si torna a idle anche nel mezzo di un gesto finito.
+  anim.setRest('idle')
+  assert.equal(anim.debug().clipName, 'idle')
+  anim.play('wave')
+  anim.setRest('perch')
+  assert.equal(anim.debug().clipName, 'wave', 'un gesto in corso non viene interrotto')
+})
+
 test('le clip cicliche non scadono da sole', () => {
   const anim = makeAnimator()
   const vrm = fakeVrm()
