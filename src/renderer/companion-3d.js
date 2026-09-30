@@ -11,8 +11,11 @@ import {
 import { createClipLayer, applyLook, isLoopSlot } from './clip-layer.js';
 import { prepareHumanoid, retargetClip, writeVRMA } from './motion-retarget.js';
 import { kimodoClip } from './kimodo-raw.js';
+import { repairFbxTextures, createFbxManager } from './fbx-textures.js';
+import { GLTFSpecularGlossinessPlugin } from './gltf-specgloss.js';
 import { createRoomScene } from './room-scene.js';
 import { initRoomUI } from './room-ui.js';
+import { initSceneAdjust } from './scene-adjust.js';
 
 
 window.__threeVisible = false;
@@ -56,13 +59,27 @@ function ensureThree() {
   camera.lookAt(0, CAMERA_LOOK_Y, 0);
 
   // Camera: il sinistro prende l'avatar (companion-input.js), destro o
-  // centrale + trascina girano intorno, la rotella zooma. OrbitControls sta
-  // sullo strato che riceve il mouse, non sul canvas; il mouse arriva solo
-  // sopra il modello, e durante la rotazione resta catturato.
+  // centrale + trascina girano intorno, con Alt premuto spostano la camera,
+  // la rotella zooma. OrbitControls sta sullo strato che riceve il mouse, non
+  // sul canvas; il mouse arriva solo sopra il modello, e durante la rotazione
+  // resta catturato.
   controls = new OrbitControls(camera, document.getElementById('drag-zone'));
   controls.target.set(0, CAMERA_LOOK_Y, 0);
   controls.mouseButtons = { LEFT: -1, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.ROTATE };
-  controls.enablePan = false;
+  // OrbitControls sposta con Ctrl o Shift, non con Alt: il tasto giusto lo
+  // sceglie questo ascoltatore, che arriva prima del suo (fase di cattura).
+  controls.enablePan = true;
+  controls.panSpeed = 0.8;
+  window.addEventListener('pointerdown', (e) => {
+    const mode = e.altKey ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+    controls.mouseButtons.MIDDLE = mode;
+    controls.mouseButtons.RIGHT = mode;
+    if (controls.mouseButtons.LEFT !== -1) controls.mouseButtons.LEFT = mode;
+  }, true);
+  // Quanto lontano dall'avatar puo' andare il punto guardato: poco sul
+  // desktop, dove la finestra e' stretta intorno a lui (resetCamera).
+  controls.cursor.set(0, CAMERA_LOOK_Y, 0);
+  controls.maxTargetRadius = CAMERA_HOME.desktop.maxTarget;
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   // La rotazione si misura sull'altezza della finestra, che qui e' piccola:
@@ -94,10 +111,11 @@ function ensureThree() {
   dirLight.position.set(1, 2, 3);
   scene.add(dirLight);
 
-  roomScene = createRoomScene({ scene, renderer, hemiLight, dirLight, listScenes: api && api.listScenes });
+  roomScene = createRoomScene({ scene, renderer, hemiLight, dirLight, listScenes: api && api.listScenes, onModel: onSceneModel });
 
   loader = new GLTFLoader();
   loader.register(parser => new VRMLoaderPlugin(parser));
+  loader.register(parser => new GLTFSpecularGlossinessPlugin(parser));
 }
 
 // ─── Ombra ai piedi ────────────────────────────────────────────────────────
@@ -462,20 +480,25 @@ function animate() {
 const CAMERA_LOOK_Y = 0.85;
 const SEATED_LOOK_DROP = 0.3;
 let seated = 0;
+let seatedDrop = 0;
 function frameSeated(vrm, delta) {
   const hips = vrm.humanoid && vrm.humanoid.getNormalizedBoneNode('hips');
   const rest = hips && hips.userData.__baseY;
   const target = rest > 0 ? Math.max(0, Math.min(1, 1 - hips.position.y / rest)) : 0;
   seated += (target - seated) * Math.min(1, delta * 3);
-  controls.target.y = CAMERA_LOOK_Y - SEATED_LOOK_DROP * seated;
+  // Solo la differenza: lo spostamento fatto con Alt resta dov'e'.
+  const drop = SEATED_LOOK_DROP * seated;
+  controls.target.y -= drop - seatedDrop;
+  seatedDrop = drop;
 }
 
 // Inquadratura di partenza: sul desktop la finestra e' stretta attorno
 // all'avatar; nella stanza la camera sta piu' indietro, perche' si veda la
 // scena e la testa non finisca sotto la barra del titolo.
+// maxTarget: quanto puo' spostarsi (Alt + trascina) il punto guardato.
 const CAMERA_HOME = {
-  desktop: { position: [0, 0.95, 2.7], maxDistance: 5 },
-  room: { position: [0, 1.05, 3.9], maxDistance: 9 },
+  desktop: { position: [0, 0.95, 2.7], maxDistance: 5, maxTarget: 0.6 },
+  room: { position: [0, 1.05, 3.9], maxDistance: 12, maxTarget: 25 },
 };
 
 /** Camera com'era all'avvio (o all'apertura della stanza): dal menu e con il doppio clic centrale. */
@@ -483,9 +506,11 @@ function resetCamera() {
   if (!controls) return;
   const home = CAMERA_HOME[roomMode ? 'room' : 'desktop'];
   controls.maxDistance = home.maxDistance;
+  controls.maxTargetRadius = home.maxTarget;
   camera.position.set(...home.position);
-  controls.target.set(0, CAMERA_LOOK_Y, 0);
+  controls.target.set(0, CAMERA_LOOK_Y - seatedDrop, 0);
   controls.update();
+  keepCameraInside();
 }
 window.addEventListener('companion-camera-reset', () => { if (window.__threeVisible) resetCamera(); });
 
@@ -504,6 +529,8 @@ let loadSeq = 0;
 // Altezza della testa per i modelli senza VRM: quella di un VRM tipico, cosi'
 // la camera li inquadra allo stesso modo.
 const HEAD_HEIGHT_M = 1.42;
+// Ingombro massimo di un modello statico: quello di un VRM tipico.
+const STATIC_HEIGHT_M = 1.6;
 
 /**
  * Un glTF o FBX con scheletro umano diventa un "VRM" minimo: stesso umanoide
@@ -511,8 +538,13 @@ const HEAD_HEIGHT_M = 1.42;
  * scheletro non e' umano.
  */
 function humanoidFromObject(object) {
+  // root raddrizza e scala il modello (0.01 per un FBX in centimetri); le ossa
+  // normalizzate stanno accanto, in scene, che resta in metri: dentro root
+  // erediterebbero la scala e il bacino finirebbe a terra.
+  const scene = new THREE.Group();
   const root = new THREE.Group();
   root.add(object);
+  scene.add(root);
   let nodes;
   try { nodes = prepareHumanoid(root); } catch (error) {
     console.warn('Modello senza scheletro umano:', error.message);
@@ -521,24 +553,67 @@ function humanoidFromObject(object) {
   const head = nodes.head.getWorldPosition(new THREE.Vector3()).y;
   if (head > 0.01) root.scale.multiplyScalar(HEAD_HEIGHT_M / head);
   root.updateMatrixWorld(true);
+  removePedestals(root);
   const box = new THREE.Box3().setFromObject(root);
   if (Number.isFinite(box.min.y)) root.position.y -= box.min.y;
   const hips = nodes.hips.getWorldPosition(new THREE.Vector3());
   root.position.x -= hips.x;
   root.position.z -= hips.z;
-  root.updateMatrixWorld(true);
+  scene.updateMatrixWorld(true);
   const humanoid = new VRMHumanoid(/** @type {any} */ (Object.fromEntries(Object.entries(nodes).map(([k, node]) => [k, { node }]))));
-  root.add(humanoid.normalizedHumanBonesRoot);
+  scene.add(humanoid.normalizedHumanBonesRoot);
   return {
-    scene: root, humanoid, meta: { metaVersion: '1' },
+    scene, humanoid, meta: { metaVersion: '1' },
     expressionManager: null, lookAt: null, springBoneManager: null,
     update() { humanoid.update(); },
   };
 }
 
+/**
+ * Toglie i piedistalli dei modelli presi da Sketchfab e simili: una mesh
+ * senza ossa, piatta e larga almeno mezzo personaggio. Sul desktop o nella
+ * stanza sarebbe un disco sotto i piedi, e allargherebbe l'ingombro del modello
+ * (Box3.setFromObject conta anche le mesh nascoste, quindi si rimuove).
+ */
+function removePedestals(root) {
+  const size = new THREE.Vector3();
+  const pedestals = [];
+  root.traverse((o) => {
+    if (!o.isMesh || o.isSkinnedMesh) return;
+    new THREE.Box3().setFromObject(o).getSize(size);
+    const wide = Math.max(size.x, size.z);
+    if (wide > HEAD_HEIGHT_M * 0.5 && size.y < wide * 0.05) pedestals.push(o);
+  });
+  for (const o of pedestals) { o.removeFromParent(); VRMUtils.deepDispose(o); }
+}
+
+/** Un modello senza umanoide, alto quanto un VRM tipico, centrato e a terra. */
+function staticPreview(object) {
+  const root = new THREE.Group();
+  root.add(object);
+  removePedestals(root);
+  const box = new THREE.Box3().setFromObject(root);
+  if (!Number.isFinite(box.min.y)) return root;
+  const size = box.getSize(new THREE.Vector3());
+  const tallest = Math.max(size.x, size.y, size.z);
+  if (tallest > 1e-6) root.scale.setScalar(STATIC_HEIGHT_M / tallest);
+  root.updateMatrixWorld(true);
+  box.setFromObject(root);
+  const center = box.getCenter(new THREE.Vector3());
+  root.position.set(-center.x, -box.min.y, -center.z);
+  return root;
+}
+
 /** Legge il file del modello: { vrm } per un VRM, { object } per il resto. */
 async function readModel(avatar) {
-  if (avatar.kind === 'fbx') return { vrm: null, object: await new FBXLoader().loadAsync(avatar.url) };
+  if (avatar.kind === 'fbx') {
+    const textures = avatar.textures || [];
+    const manager = createFbxManager(textures);
+    const object = await new FBXLoader(manager).loadAsync(avatar.url);
+    await manager.idle();
+    repairFbxTextures(object, textures);
+    return { vrm: null, object };
+  }
   const gltf = await loader.loadAsync(avatar.url);
   return { vrm: gltf.userData.vrm || null, object: gltf.scene };
 }
@@ -576,7 +651,9 @@ async function loadVRMModel(avatar) {
     vrm = humanoidFromObject(model.object);
     if (!vrm) {
       // Nessuno scheletro umano: anteprima statica, mai animazioni finte.
-      currentGltf = model.object;
+      // In scala e a terra come un umanoide, altrimenti un modello in
+      // centimetri resta fuori dall'inquadratura.
+      currentGltf = staticPreview(model.object);
       keepAvatarLook(currentGltf);
       body.add(currentGltf);
       showBubble('Modello statico: nessuno scheletro umano da animare', 3600);
@@ -1062,7 +1139,9 @@ document.getElementById('btn-import-avatar').addEventListener('click', importAva
 if (api && api.onMenuCommand) {
   api.onMenuCommand((data) => {
     if (!data) return;
-    if (data.cmd === 'avatar' && typeof data.id === 'string') switchModel(data.id);
+    if (data.cmd === 'scene' && typeof data.id === 'string') selectScene(data.id);
+    else if (data.cmd === 'scene-adjust') openSceneAdjust();
+    else if (data.cmd === 'avatar' && typeof data.id === 'string') switchModel(data.id);
     else if (data.cmd === 'import') importAvatar();
     else if (data.cmd === 'import-animation') importAnimation();
     else if (data.cmd === 'camera-reset') resetCamera();
@@ -1086,12 +1165,85 @@ const roomUI = initRoomUI({
   api,
   scenes: () => (roomScene ? roomScene.list() : []),
   currentScene: () => (roomScene ? roomScene.current() : null),
-  onScene: (id) => {
-    if (!roomScene) return;
-    const chosen = roomScene.setScene(id);
-    if (api && api.setConfig) api.setConfig({ roomScene: chosen }).catch(() => {});
-  },
+  onScene: (id) => selectScene(id),
+  onAdjust: () => openSceneAdjust(),
 });
+
+/** Mostra una scena e la ricorda; un id sparito torna alla prima. */
+function selectScene(id) {
+  if (!roomScene) return;
+  const chosen = roomScene.setScene(id);
+  if (api && api.setConfig) api.setConfig({ roomScene: chosen }).catch(() => {});
+  roomUI.refreshScenes();
+  if (sceneAdjust) sceneAdjust.sceneChanged(chosen);
+}
+
+// "Sistema la scena": nasce con il renderer, che serve per i clic sul pavimento.
+let sceneAdjust = null;
+function openSceneAdjust() {
+  if (!roomMode || !roomScene) return;
+  const id = roomScene.current();
+  const def = roomScene.list().find(s => s.id === id);
+  if (!def || !def.imported) { showBubble('Si sistemano solo le scene importate', 2600); return; }
+  if (!sceneAdjust) {
+    sceneAdjust = initSceneAdjust({
+      api, room: roomScene, camera, showBubble, onChange: () => keepCameraInside(),
+      currentLabel: () => { const s = roomScene.list().find(x => x.id === roomScene.current()); return s ? s.label : ''; },
+    });
+  }
+  sceneAdjust.open(id);
+}
+
+/** Caricamento di una scena importata: la prima volta la stima si salva. */
+function onSceneModel(event) {
+  if (event.state === 'loading') showBubble('Carico la scena…', 2400);
+  else if (event.state === 'error') showBubble('Scena non caricata: ' + event.error, 4200);
+  else if (event.state === 'ready') {
+    keepCameraInside();
+    if (!event.estimated) return;
+    if (api && api.updateScene) api.updateScene(event.id, event.settings).catch(() => {});
+    showBubble('Se la scena non torna: ⚙ in alto, "Sistema la scena"', 4200);
+  }
+}
+
+// Una scena importata puo' essere piu' stretta della distanza della camera:
+// dietro una parete o una tenda si vedrebbe solo quella. Se fra l'avatar e
+// la camera c'e' una parete, la camera viene avanti fino a starci davanti.
+// E' una parete se blocca anche un raggio piu' in alto: un banco o una
+// sedia no, e sopra quelli la camera guarda benissimo.
+const CAMERA_WALL_GAP = 0.25;
+const CAMERA_MIN_DISTANCE = 0.8;
+const WALL_PROBE_UP = 0.8;
+function keepCameraInside() {
+  if (!roomMode || !roomScene || !controls) return;
+  const offset = camera.position.clone().sub(controls.target);
+  const distance = offset.length();
+  if (!(distance > 0)) return;
+  offset.divideScalar(distance);
+  const low = roomScene.obstacle(controls.target, offset, distance);
+  if (low === null) return;
+  const high = roomScene.obstacle(controls.target.clone().setY(controls.target.y + WALL_PROBE_UP), offset, distance);
+  if (high === null) return;
+  camera.position.copy(controls.target).addScaledVector(offset, Math.max(CAMERA_MIN_DISTANCE, Math.min(low, high) - CAMERA_WALL_GAP));
+  controls.update();
+}
+
+// Scena importata (il main la fa gia' scegliere) o eliminata dal menu.
+if (api && api.onRoomScenes) {
+  api.onRoomScenes(async (data) => {
+    if (!roomScene) return;
+    await roomScene.reload();
+    if (data && typeof data.select === 'string') {
+      selectScene(data.select);
+      if (data.imported) showBubble('Scena importata: ' + data.imported, 3000);
+    } else if (data && data.removed) {
+      if (sceneAdjust) sceneAdjust.close();
+      if (roomScene.current() === data.removed) selectScene(data.removed);
+      else roomUI.refreshScenes();
+      showBubble('Scena eliminata', 2400);
+    } else roomUI.refreshScenes();
+  });
+}
 
 async function applyViewMode(data) {
   const next = !!data && data.mode === 'room';
@@ -1117,6 +1269,7 @@ async function applyViewMode(data) {
       if (body) body.visible = window.__threeVisible;
       startLoop();
     } else if (roomScene) {
+      if (sceneAdjust) sceneAdjust.close();
       roomScene.setActive(false);
       controls.mouseButtons.LEFT = -1;
       controls.enabled = window.__threeVisible;

@@ -52,6 +52,12 @@
     ones. Bones are recognized from the names used by Mixamo, VRoid, Unreal,
     Blender Rigify, 3ds Max Biped and Kimodo (SOMA). A-pose and centimetre
     rigs are handled;
+  - models from Sketchfab and similar sites: FBX textures are found in
+    `textures/` folders, by file name or by material name, TGA included;
+    glTF "specular-glossiness" materials are no longer black; bone names
+    with a character prefix ("Shibahu_Head", "ValveBiped.Bip01_…") are
+    recognized; display pedestals are removed. An FBX with a bone and a mesh
+    of the same name (Pomni) no longer stops loading;
   - import clips from the right-click menu: `.vrma`, or `.glb`/`.gltf`,
     `.fbx` and `.bvh` converted to `.vrma`;
   - try any clip from the right-click menu (Animazioni → Prova): every
@@ -94,9 +100,10 @@
 
 ### Camera and room
 - 3D camera: drag with the right or middle button to turn around the avatar,
-  wheel to zoom. The right button opens the menu only when released without
-  moving. Double-click the middle button, or "Rimetti la camera", to reset it.
-  The head still follows the mouse from any angle.
+  hold Alt to move the camera instead, wheel to zoom. The right button opens
+  the menu only when released without moving. Double-click the middle button,
+  or "Rimetti la camera", to reset it. The head still follows the mouse from
+  any angle.
 - The room ("Stanza", right-click or tray menu): the avatar's window becomes
   a bigger, resizable window in the taskbar, with its own title bar
   (minimize, maximize, back to the desktop), borders to resize it, the chat
@@ -106,6 +113,12 @@
 - Scenes: "Studio" (backdrop and floor), "Giardino" (computed sky with the
   real sun, stars at night) and two photo scenes from Poly Haven HDRIs (CC0):
   "Collina" (dawn, noon, sunset, night) and "Stanza vuota" (day, night).
+- Import your own 3D scenes (right-click → "Scena"): `.glb`/`.gltf`, `.fbx`
+  and `.obj` with its `.mtl` and textures. Scale, floor and the avatar's spot
+  (free floor, clear toward the camera) are estimated, and "Sistema la scena"
+  (⚙ in the title bar) fixes them live: size, rotation, floor height, and
+  "Metti l'avatar qui" to click the spot. The camera stays inside the walls.
+  Imported scenes can be deleted.
 - The light follows the local time (sun position from date, time and
   latitude) and, softly, the avatar's mood.
 - Optional real weather (off by default): "Meteo vero nella stanza" and a city

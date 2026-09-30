@@ -37,6 +37,7 @@ import { SOMA30 } from '../src/renderer/kimodo-raw.js'
 const require = createRequire(import.meta.url)
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const { AvatarLibrary } = require('../src/main/AvatarLibrary.js')
+const { SceneLibrary } = require('../src/main/SceneLibrary.js')
 const PORT = 9336
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
@@ -104,6 +105,35 @@ fs.copyFileSync(path.join(ROOT, 'src', 'renderer', 'assets', 'icon.png'), png)
 const library = new AvatarLibrary(path.join(USER_DATA, 'avatars'))
 const scan = await library.scan(png)
 const imported = await library.commit(scan.token, scan.candidates[0].id)
+
+// Una scena importata come quelle di Sketchfab: OBJ con il suo .mtl, in
+// centimetri, con un tavolo al centro. Stanza 6 x 3 x 6 m nelle unita' vere.
+function objRoom() {
+  const lines = ['# stanza per l\'audit', 'mtllib stanza audit.mtl']
+  let base = 1
+  const box = (name, material, [x0, y0, z0], [x1, y1, z1]) => {
+    lines.push('o ' + name, 'usemtl ' + material)
+    for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) lines.push(`v ${x} ${y} ${z}`)
+    // Vertici: indice = x*4 + y*2 + z (0 o 1), piu' base.
+    const f = (...ids) => lines.push('f ' + ids.map(i => i + base).join(' '))
+    f(0, 1, 3, 2); f(4, 6, 7, 5); f(0, 4, 5, 1); f(2, 3, 7, 6); f(0, 2, 6, 4); f(1, 5, 7, 3)
+    base += 8
+  }
+  box('pavimento', 'legno', [-300, -2, -300], [300, 0, 300])
+  box('parete-n', 'muro', [-300, 0, -310], [300, 300, -300])
+  box('parete-s', 'muro', [-300, 0, 300], [300, 300, 310])
+  box('parete-o', 'muro', [-310, 0, -300], [-300, 300, 300])
+  box('parete-e', 'muro', [300, 0, -300], [310, 300, 300])
+  box('tavolo', 'legno', [-80, 0, -45], [80, 75, 45])
+  return lines.join('\n') + '\n'
+}
+const sceneDir = path.join(WORK, 'scena-audit')
+fs.mkdirSync(sceneDir, { recursive: true })
+fs.writeFileSync(path.join(sceneDir, 'stanza audit.obj'), objRoom())
+fs.writeFileSync(path.join(sceneDir, 'stanza audit.mtl'), 'newmtl legno\nKd 0.55 0.36 0.2\nnewmtl muro\nKd 0.8 0.78 0.72\n')
+const sceneLibrary = new SceneLibrary(path.join(USER_DATA, 'scenes'))
+const sceneScan = await sceneLibrary.scan(sceneDir)
+const importedScene = await sceneLibrary.commit(sceneScan.token, sceneScan.candidates[0].id)
 
 // Una clip "wave" in .vrma, convertita da uno scheletro Mixamo in A-pose: il
 // braccio sinistro si alza dritto e resta su per quattro secondi.
@@ -434,6 +464,44 @@ try {
     check(variant === expect, sceneId + ' (' + name + '): foto ' + variant)
     await shot('4f-' + sceneId + '-' + name)
   }
+  // Scena importata (OBJ in centimetri): si carica, la stima di scala e
+  // posto si salva, e l'avatar non finisce sul tavolo.
+  await comp.evaluate(`window.__companion3DTest.roomScene(${JSON.stringify(importedScene.id)}); window.__companion3DTest.roomTime('2026-06-21T12:00:00'); true`)
+  for (let i = 0; i < 60 && !(r = await room()).model; i++) await sleep(250)
+  check(r.model === true && Math.abs(r.fit.scale - 4 / 300) < 1e-6, 'scena importata: caricata, scala stimata ' + (r.fit ? r.fit.scale.toFixed(4) : '?') + ' (centimetri)')
+  const [ox, , oz] = r.fit.offset.map(n => n / r.fit.scale)
+  check(Math.abs(ox) > 80 || Math.abs(oz) > 45, 'scena importata: l\'avatar non sta sul tavolo (' + (-ox).toFixed(0) + ', ' + (-oz).toFixed(0) + ' cm)')
+  await sleep(700)
+  const savedScene = () => JSON.parse(fs.readFileSync(path.join(USER_DATA, 'scenes', 'library.json'), 'utf8')).find(s => s.id === importedScene.id).settings
+  check(!!savedScene(), 'scena importata: la stima e\' salvata nella libreria')
+  await comp.evaluate('window.__companion3DTest.resetCamera(); true')
+  await sleep(1200)
+  await shot('4g-scena-importata')
+  // Alt + destro sposta la camera invece di girarla, e non apre il menu.
+  await comp.evaluate('window.__menuOpened = 0; true')
+  const [sx, sy] = [Math.round(rw * 0.35), Math.round(rh * 0.5)]
+  const altMouse = (type, x, y, button = 'none', buttons = 0) => comp.send('Input.dispatchMouseEvent', { type, x, y, button, buttons, clickCount: 1, modifiers: 1 })
+  const pan0 = await camera()
+  await altMouse('mouseMoved', sx, sy)
+  await altMouse('mousePressed', sx, sy, 'right', 2)
+  for (let i = 1; i <= 8; i++) { await altMouse('mouseMoved', sx + i * 15, sy, 'right', 2); await sleep(30) }
+  await altMouse('mouseReleased', sx + 120, sy, 'right', 0)
+  await sleep(800)
+  const pan1 = await camera()
+  const moved = Math.hypot(pan1.target[0] - pan0.target[0], pan1.target[2] - pan0.target[2])
+  check(moved > 0.1 && Math.abs(pan1.azimuth - pan0.azimuth) < 0.02 && await comp.evaluate('window.__menuOpened') === 0,
+    'stanza: Alt + destro sposta la camera (' + moved.toFixed(2) + ' m) senza girarla ne\' aprire il menu')
+  await comp.evaluate('window.__companion3DTest.resetCamera(); true')
+  // "Sistema la scena": la grandezza cambia dal vivo e si salva.
+  await comp.evaluate(`document.getElementById('room-adjust').click(); true`)
+  await sleep(300)
+  await comp.evaluate(`{ const s = document.getElementById('adj-scale'); s.value = '1'; s.dispatchEvent(new Event('input')); } true`)
+  await sleep(900)
+  r = await room()
+  check(Math.abs(r.fit.scale - 8 / 300) < 1e-6 && Math.abs(savedScene().scale - 8 / 300) < 1e-6, 'sistema la scena: grandezza x2 applicata e salvata')
+  await shot('4h-scena-x2')
+  await comp.evaluate(`document.getElementById('adj-done').click(); true`)
+
   // Avatar 2D nella stanza: disegnato sopra la scena, che resta viva.
   await pickAvatar('immagine-importata')
   await sleep(2500)

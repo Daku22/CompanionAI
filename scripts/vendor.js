@@ -41,6 +41,8 @@ const FILES = {
   'three/examples/jsm/curves/NURBSCurve.js':         'three-addons/curves/NURBSCurve.js',
   'three/examples/jsm/curves/NURBSUtils.js':         'three-addons/curves/NURBSUtils.js',
   'three/examples/jsm/loaders/BVHLoader.js':         'three-addons/loaders/BVHLoader.js',
+  // Texture TGA degli FBX (fbx-textures.js): i browser non le leggono.
+  'three/examples/jsm/loaders/TGALoader.js':         'three-addons/loaders/TGALoader.js',
   // Destro o centrale + trascina ruotano la camera 3D, la rotella zooma.
   'three/examples/jsm/controls/OrbitControls.js':    'three-addons/controls/OrbitControls.js',
   // Stanza (room-scene.js): cielo con il sole dell'ora, foto HDRI proiettate
@@ -48,6 +50,37 @@ const FILES = {
   'three/examples/jsm/objects/Sky.js':               'three-addons/objects/Sky.js',
   'three/examples/jsm/objects/GroundedSkybox.js':    'three-addons/objects/GroundedSkybox.js',
   'three/examples/jsm/loaders/RGBELoader.js':        'three-addons/loaders/RGBELoader.js',
+  // Scene importate (room-scene.js): OBJ con i suoi .mtl, e una stanza
+  // generata come luce riflessa per i materiali metallici.
+  'three/examples/jsm/loaders/OBJLoader.js':         'three-addons/loaders/OBJLoader.js',
+  'three/examples/jsm/loaders/MTLLoader.js':         'three-addons/loaders/MTLLoader.js',
+  'three/examples/jsm/environments/RoomEnvironment.js': 'three-addons/environments/RoomEnvironment.js',
+}
+
+// Correzioni ai file copiati: [testo originale, testo nuovo]. Se three cambia
+// e il testo non c'e' piu', vendor si ferma: la correzione va rivista.
+const PATCHES = {
+  // FBX con un osso e una mesh con lo stesso nome (Pomni: l'osso "EyeL" e
+  // l'occhio "EyeL" con le forme "Big", "Closed"...). getObjectByName trova
+  // l'osso, che non ha forme, e il caricamento si ferma con "reading 'Big'".
+  // Si cerca la mesh che ha la forma; se il nome e' condiviso la traccia
+  // punta al suo uuid, e senza mesh la traccia si salta.
+  'three/examples/jsm/loaders/FBXLoader.js': [
+    [
+      "const morphNum = sceneGraph.getObjectByName( rawTracks.modelName ).morphTargetDictionary[ rawTracks.morphName ];",
+      "let mesh = null;\n" +
+      "\t\tsceneGraph.traverse( function ( o ) {\n\n" +
+      "\t\t\tif ( ! mesh && o.name === rawTracks.modelName && o.morphTargetDictionary && o.morphTargetDictionary[ rawTracks.morphName ] !== undefined ) mesh = o;\n\n" +
+      "\t\t} );\n" +
+      "\t\tif ( ! mesh ) return undefined;\n" +
+      "\t\tconst node = sceneGraph.getObjectByName( rawTracks.modelName ) === mesh ? rawTracks.modelName : mesh.uuid;\n" +
+      "\t\tconst morphNum = mesh.morphTargetDictionary[ rawTracks.morphName ];",
+    ],
+    [
+      "return new NumberKeyframeTrack( rawTracks.modelName + '.morphTargetInfluences[' + morphNum + ']', curves.times, values );",
+      "return new NumberKeyframeTrack( node + '.morphTargetInfluences[' + morphNum + ']', curves.times, values );",
+    ],
+  ],
 }
 
 function copyOne(from, to) {
@@ -55,7 +88,14 @@ function copyOne(from, to) {
   const dst = path.join(OUT, to)
   if (!fs.existsSync(src)) throw new Error('manca in node_modules: ' + from + ' (esegui npm install)')
   fs.mkdirSync(path.dirname(dst), { recursive: true })
-  fs.copyFileSync(src, dst)
+  if (PATCHES[from]) {
+    let code = fs.readFileSync(src, 'utf8')
+    for (const [before, after] of PATCHES[from]) {
+      if (!code.includes(before)) throw new Error('correzione non applicabile a ' + from + ': ' + before.slice(0, 60) + '...')
+      code = code.replace(before, () => after)
+    }
+    fs.writeFileSync(dst, code)
+  } else fs.copyFileSync(src, dst)
   return { dst, bytes: fs.statSync(dst).size }
 }
 

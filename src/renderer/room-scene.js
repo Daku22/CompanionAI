@@ -7,7 +7,9 @@
 // - giardino: il cielo di Sky.js con il sole vero dell'ora, prato, stelle di
 //   notte, pioggia e neve dal meteo;
 // - quelle in modelli-3d/scenes/scenes.json: foto HDRI a 360 gradi proiettate
-//   su un pavimento (GroundedSkybox), una per fase del giorno.
+//   su un pavimento (GroundedSkybox), una per fase del giorno;
+// - quelle importate (SceneLibrary nel main, scene://): modelli glTF, FBX o
+//   OBJ messi intorno all'avatar con scala, rotazione e posto di scene-fit.js.
 //
 // I numeri della luce stanno in scene-light.js, puro e con i suoi test.
 
@@ -15,7 +17,14 @@ import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { sunPosition, lightFor, weatherEffect, moodTint } from './scene-light.js';
+import { createFbxManager, repairFbxTextures } from './fbx-textures.js';
+import { autoFit, applyFit } from './scene-fit.js';
 
 const BUILTIN_SCENES = [
   { id: 'studio', label: 'Studio', kind: 'studio' },
@@ -153,11 +162,65 @@ function precipitation(kind) {
   };
 }
 
+/** Libera geometrie, materiali e tutte le loro texture. */
+function disposeObject(object) {
+  object.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    const list = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of list) {
+      for (const value of Object.values(m)) if (value && value.isTexture) value.dispose();
+      m.dispose();
+    }
+  });
+}
+
+/**
+ * Legge il modello di una scena importata. Gli FBX e gli OBJ citano le
+ * texture in modi diversi: il LoadingManager di fbx-textures.js le ridirige
+ * alle immagini copiate con la scena.
+ * @param {{ url: string, format: string, label: string, textures?: string[] }} def
+ */
+async function readSceneModel(def) {
+  const textures = def.textures || [];
+  if (def.format === 'gltf') return (await new GLTFLoader().loadAsync(def.url)).scene;
+  const manager = createFbxManager(textures);
+  let object;
+  if (def.format === 'fbx') {
+    object = await new FBXLoader(manager).loadAsync(def.url);
+  } else {
+    const baseUrl = def.url.slice(0, def.url.lastIndexOf('/') + 1);
+    const res = await fetch(def.url);
+    if (!res.ok) throw new Error('file non leggibile (' + res.status + ')');
+    const text = await res.text();
+    const loader = new OBJLoader(manager);
+    const mtl = (text.match(/^mtllib[ \t]+(.+?)[ \t]*$/m) || [])[1];
+    if (mtl) {
+      try {
+        const materials = await new MTLLoader(manager).setResourcePath(baseUrl).loadAsync(baseUrl + mtl.split('/').map(encodeURIComponent).join('/'));
+        materials.preload();
+        loader.setMaterials(materials);
+      } catch (error) { console.warn('Scena ' + def.label + ': materiali non letti:', error.message); }
+    }
+    object = loader.parse(text);
+    // Blender scrive in Kd il colore del materiale anche quando c'e' una
+    // texture, e il colore la scurisce: in Blender la texture lo sostituisce.
+    object.traverse(o => {
+      for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+        if (m.map && m.color) m.color.set(0xffffff);
+      }
+    });
+  }
+  await manager.idle();
+  repairFbxTextures(object, textures);
+  return object;
+}
+
 /**
  * @param {{ scene: THREE.Scene, renderer: THREE.WebGLRenderer, hemiLight: THREE.HemisphereLight,
- *   dirLight: THREE.DirectionalLight, listScenes?: () => Promise<any[]> }} ctx
+ *   dirLight: THREE.DirectionalLight, listScenes?: () => Promise<any[]>,
+ *   onModel?: (event: { id: string, state: 'loading' | 'ready' | 'error', settings?: any, estimated?: boolean, error?: string }) => void }} ctx
  */
-export function createRoomScene({ scene, renderer, hemiLight, dirLight, listScenes }) {
+export function createRoomScene({ scene, renderer, hemiLight, dirLight, listScenes, onModel }) {
   const defaults = {
     hemiSky: hemiLight.color.clone(), hemiGround: hemiLight.groundColor.clone(), hemiIntensity: hemiLight.intensity,
     dirColor: dirLight.color.clone(), dirIntensity: dirLight.intensity, dirPosition: dirLight.position.clone(),
@@ -174,6 +237,7 @@ export function createRoomScene({ scene, renderer, hemiLight, dirLight, listScen
   let parts = null;               // oggetti della scena montata
   let hdrCache = new Map();       // file -> texture
   let hdrLoading = null;
+  let roomEnv = null;             // luce riflessa per le scene importate (RoomEnvironment)
   let mood = null;
   let weather = null;
   let place = {};
@@ -186,30 +250,48 @@ export function createRoomScene({ scene, renderer, hemiLight, dirLight, listScen
   root.add(rain.object, snow.object);
   let weatherNow = weatherEffect(null);
 
-  // Le scene HDRI le elenca il main (modelli-3d/scenes/scenes.json), gia'
-  // controllate: se non ce ne sono restano le integrate.
+  // Le scene HDRI (modelli-3d/scenes/scenes.json) e quelle importate le
+  // elenca il main, gia' controllate: se non ce ne sono restano le integrate.
   async function loadManifest() {
     try {
       const extra = listScenes ? await listScenes() : [];
-      scenes = [...BUILTIN_SCENES, ...extra.map(s => ({ ...s, kind: 'hdri' }))];
-    } catch (_) { /* nessuna scena HDRI: restano le integrate */ }
+      scenes = [...BUILTIN_SCENES, ...extra.map(s => ({ ...s, kind: s.kind || 'hdri' }))];
+    } catch (_) { /* nessuna scena in piu': restano le integrate */ }
   }
-  const ready = loadManifest();
+  let ready = loadManifest();
 
   function clearParts() {
     if (!parts) return;
     for (const obj of parts.objects) {
       root.remove(obj);
-      obj.traverse(o => {
-        if (o.geometry) o.geometry.dispose();
-        if (o.material) { if (o.material.map) o.material.map.dispose(); if (o.material.alphaMap) o.material.alphaMap.dispose(); o.material.dispose(); }
-      });
+      disposeObject(obj);
     }
     if (parts.background) parts.background.dispose();
     parts = null;
     scene.background = null;
     scene.environment = null;
+    scene.environmentIntensity = 1;
     scene.fog = null;
+  }
+
+  /** Scena importata: il modello arriva quando e' caricato, intanto un fondo scuro. */
+  async function showModel(def, own) {
+    if (onModel) onModel({ id: def.id, state: 'loading' });
+    try {
+      const model = await readSceneModel(def);
+      if (parts !== own) { disposeObject(model); return; }
+      model.updateMatrixWorld(true);
+      const estimated = !def.settings;
+      const settings = def.settings || autoFit(model, def.format);
+      def.settings = settings;
+      own.model = model;
+      own.holder.add(model);
+      applyFit(own.holder, settings);
+      if (onModel) onModel({ id: def.id, state: 'ready', settings, estimated });
+    } catch (error) {
+      console.error('Scena ' + def.label + ' non caricata:', error);
+      if (parts === own && onModel) onModel({ id: def.id, state: 'error', error: error.message });
+    }
   }
 
   function mount(def) {
@@ -230,12 +312,26 @@ export function createRoomScene({ scene, renderer, hemiLight, dirLight, listScen
     } else if (def.kind === 'hdri') {
       // La foto arriva quando e' caricata: intanto un colore neutro.
       scene.background = new THREE.Color(0x1d1b22);
+    } else if (def.kind === 'model') {
+      scene.background = new THREE.Color(0x121016);
+      // Senza qualcosa da riflettere i materiali metallici (glTF) sono neri.
+      if (!roomEnv) {
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        roomEnv = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        pmrem.dispose();
+      }
+      scene.environment = roomEnv;
+      scene.environmentIntensity = 0.6;
+      parts.holder = new THREE.Group();
+      parts.holder.name = 'scena-importata';
+      parts.objects.push(parts.holder);
+      showModel(def, parts);
     }
     for (const obj of parts.objects) root.add(obj);
-    // Tone mapping per cielo e foto HDR, che hanno luce "vera"; lo studio e'
-    // gia' nei colori dello schermo. L'avatar non ne risente (vedi
-    // keepAvatarLook in companion-3d.js).
-    renderer.toneMapping = def.kind === 'studio' ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    // Tone mapping per cielo e foto HDR, che hanno luce "vera"; lo studio e
+    // le scene importate (texture gia' nei colori dello schermo) no.
+    // L'avatar non ne risente (vedi keepAvatarLook in companion-3d.js).
+    renderer.toneMapping = def.kind === 'studio' || def.kind === 'model' ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     sinceLight = LIGHT_EVERY_S;
     target = null;
   }
@@ -351,9 +447,59 @@ export function createRoomScene({ scene, renderer, hemiLight, dirLight, listScen
 
   return {
     ready,
-    /** Scene disponibili: le integrate e quelle HDRI del manifest. */
-    list: () => scenes.map(({ id, label }) => ({ id, label })),
+    /** Scene disponibili: le integrate, le HDRI e le importate. */
+    list: () => scenes.map(({ id, label, imported }) => ({ id, label, imported: !!imported })),
     current: () => (current ? current.id : null),
+    /** Rilegge l'elenco dal main (scena importata o eliminata). */
+    reload() { ready = loadManifest(); return ready; },
+
+    /** Impostazioni della scena importata in vista, o null. */
+    fit: () => (current && current.kind === 'model' && current.settings ? { ...current.settings, offset: [...current.settings.offset] } : null),
+    /** Cambia scala, rotazione o posto della scena importata in vista (dal vivo). */
+    setFit(settings) {
+      if (!current || current.kind !== 'model' || !parts || !parts.holder) return;
+      current.settings = settings;
+      applyFit(parts.holder, settings);
+    },
+    /** Stima di nuovo scala e posto della scena importata in vista, o null. */
+    refit() {
+      if (!current || current.kind !== 'model' || !parts || !parts.model) return null;
+      // La stima lavora nelle coordinate del modello, fuori dal contenitore.
+      parts.holder.remove(parts.model);
+      parts.model.updateMatrixWorld(true);
+      const settings = autoFit(parts.model, current.format);
+      parts.holder.add(parts.model);
+      current.settings = settings;
+      applyFit(parts.holder, settings);
+      return { ...settings, offset: [...settings.offset] };
+    },
+    /** Il punto della scena importata sotto il raggio e la normale della faccia, nel mondo, o null. */
+    pick(raycaster) {
+      if (!parts || !parts.model) return null;
+      const hit = raycaster.intersectObject(parts.model, true)[0];
+      if (!hit) return null;
+      const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
+      return { point: hit.point.clone(), normal };
+    },
+    /**
+     * Distanza del primo ostacolo della scena importata lungo un raggio, o
+     * null. Conta anche il retro delle facce: da dentro la stanza pareti e
+     * tende si vedono spesso dal lato che il raggio altrimenti ignora.
+     */
+    obstacle(origin, direction, far) {
+      if (!parts || !parts.model) return null;
+      const sides = [];
+      parts.model.traverse(o => {
+        for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) { sides.push([m, m.side]); m.side = THREE.DoubleSide; }
+      });
+      try {
+        const ray = new THREE.Raycaster(origin, direction, 0, far);
+        const hit = ray.intersectObject(parts.model, true)[0];
+        return hit ? hit.distance : null;
+      } finally {
+        for (const [m, side] of sides) m.side = side;
+      }
+    },
 
     /** Accende o spegne la stanza: sul desktop tutto torna trasparente. */
     setActive(on) {
@@ -407,6 +553,7 @@ export function createRoomScene({ scene, renderer, hemiLight, dirLight, listScen
     debug() {
       return {
         active, scene: current && current.id, variant: parts && parts.variant,
+        model: !!(parts && parts.model), fit: current && current.kind === 'model' ? current.settings : undefined,
         exposure: renderer.toneMappingExposure, sun: dirLight.intensity, hemi: hemiLight.intensity,
         night: target ? target.light.night : null, rain: rain.object.visible, snow: snow.object.visible,
       };

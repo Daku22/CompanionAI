@@ -56,6 +56,32 @@ async function main() {
     assert.ok(await library.resolve(gltf.id, gltf.entry), 'l-entry del gltf deve essere raggiungibile da avatar://')
     scenari++
 
+    // Un FBX porta con se' le immagini vicine, e list() le passa al renderer
+    // per ricollegarle ai materiali quando il file non ne cita il nome.
+    const sketchfab = path.join(base, 'sketchfab')
+    await file(path.join(sketchfab, 'cane.fbx'), 'fbx')
+    await file(path.join(sketchfab, 'Texture', 'cane_body_dif.png'), 'png')
+    const fbxScan = await library.scan(path.join(sketchfab, 'cane.fbx'))
+    const fbx = await library.commit(fbxScan.token, fbxScan.candidates[0].id)
+    const fbxListed = (await library.list()).find(a => a.id === fbx.id)
+    assert.deepEqual(fbxListed.textures, ['avatar://' + fbx.id + '/Texture/cane_body_dif.png'])
+    scenari++
+
+    // Zip di Sketchfab: source/modello.fbx e textures/ accanto. Si copiano
+    // entrambe, e solo le cartelle con un nome da texture, non le vicine.
+    const zip = path.join(base, 'zip')
+    await file(path.join(zip, 'source', 'gatto.fbx'), 'fbx')
+    await file(path.join(zip, 'textures', 'gatto_dif.png'), 'png')
+    await file(path.join(zip, 'textures', 'gatto_nrm.tga'), 'tga')
+    await file(path.join(zip, 'foto', 'vacanze.jpg'), 'jpg')
+    const zipScan = await library.scan(path.join(zip, 'source', 'gatto.fbx'))
+    const gatto = await library.commit(zipScan.token, zipScan.candidates[0].id)
+    assert.deepEqual(await listFiles(path.join(base, 'library', gatto.id)), ['source/gatto.fbx', 'textures/gatto_dif.png', 'textures/gatto_nrm.tga'])
+    assert.equal(gatto.entry, 'source/gatto.fbx')
+    const gattoListed = (await library.list()).find(a => a.id === gatto.id)
+    assert.deepEqual(gattoListed.textures.sort(), ['avatar://' + gatto.id + '/textures/gatto_dif.png', 'avatar://' + gatto.id + '/textures/gatto_nrm.tga'])
+    scenari++
+
     // Un riferimento che esce dalla cartella del modello non viene seguito.
     const evil = path.join(base, 'evil')
     await file(path.join(evil, 'model', 'trap.gltf'), JSON.stringify({ buffers: [{ uri: '../../one/hero.vrm' }] }))

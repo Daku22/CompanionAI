@@ -401,9 +401,13 @@ tasto destro.
 chat.
 
 **Camera (3D).** Destro o centrale + trascina girano la camera intorno
-all'avatar, la rotella zooma (OrbitControls, sullo strato che riceve il
-mouse). Il destro apre il menu solo se lo rilasci senza muoverti. Doppio clic
-centrale, o "Rimetti la camera" nel menu, riporta la vista di partenza.
+all'avatar, con Alt premuto la spostano, la rotella zooma (OrbitControls,
+sullo strato che riceve il mouse). OrbitControls sposta solo con Ctrl o Shift:
+un ascoltatore in fase di cattura sceglie il modo del tasto prima di lui.
+Il punto guardato resta entro 60 cm dall'avatar sul desktop e 25 m nella
+stanza (`maxTargetRadius`). Il destro apre il menu solo se lo rilasci senza
+muoverti. Doppio clic centrale, o "Rimetti la camera" nel menu, riporta la
+vista di partenza.
 
 **Segue il mouse.** Il main manda la posizione del cursore rispetto alla
 finestra a 30 Hz, anche quando è fuori.
@@ -418,6 +422,8 @@ finestra a 30 Hz, anche quando è fuori.
 **Menu col tasto destro** (`showCompanionMenu` in `main.js`):
 - chat, "Stanza" e avatar (con "Importa avatar…");
 - animazioni: importa, apri la cartella, prova;
+- nella stanza, "Scena": quale mostrare, "Importa scena 3D…", "Sistema la
+  scena…" ed "Elimina scena";
 - "Rimetti la camera" (3D e stanza);
 - dimensione: piccola, media, grande, molto grande. Sostituisce il
   ridimensionamento dai bordi, che con i clic che passano non si potrebbero
@@ -460,7 +466,36 @@ viva dietro.
   di notte;
 - **Collina** e **Stanza vuota**: foto HDRI a 360° di Poly Haven (CC0, 2k),
   proiettate su un pavimento con `GroundedSkybox`. C'è una foto per fase del
-  giorno, elencate in `modelli-3d/scenes/scenes.json` e controllate dal main.
+  giorno, elencate in `modelli-3d/scenes/scenes.json` e controllate dal main;
+- le **scene importate** (vedi sotto).
+
+**Scene importate.** Menu → "Scena" → "Importa scena 3D…": `.glb`/`.gltf`,
+`.fbx` e `.obj`. Le copia `SceneLibrary.js` in `<userData>/scenes`, con le
+stesse regole degli avatar (solo i file dichiarati, le immagini vicine per
+FBX e OBJ, i `.mtl` citati da `mtllib`), e il renderer le legge da
+`scene://`. Una scena si mette intorno all'avatar con tre numeri salvati nel
+record (`settings`): scala, rotazione intorno all'avatar e `offset`.
+Alla prima apertura li stima `scene-fit.js`:
+- **scala**: la mesh col box più grande (pareti, tende, terreno) dà l'altezza
+  della stanza. Un glTF alto fra 2 e 6 m resta in metri, il resto diventa
+  alto 4 m (molti file di Sketchfab non sono in metri);
+- **pavimento**: la quota con più area di facce orizzontali nella metà bassa
+  di quella mesh;
+- **posto**: il centro del pavimento o il punto libero più vicino, meglio se
+  libero anche verso la camera. Lo cerca una mappa vista dall'alto in celle
+  di 10 cm, costruita in un passaggio sui triangoli (con un raggio per punto
+  una scena di 300 mila triangoli bloccava la finestra per secondi).
+
+La stima può sbagliare: ⚙ nella barra del titolo apre "Sistema la scena"
+(`scene-adjust.js`) con Grandezza (da ×1/8 a ×8), Rotazione, Pavimento (±1 m)
+e "Metti l'avatar qui", che prende il prossimo clic su una superficie
+orizzontale. Ogni modifica si vede subito e si salva. Se fra l'avatar e la
+camera c'è una parete, cioè qualcosa che blocca anche un raggio 80 cm più in
+alto, la camera viene avanti fino a starle davanti. Le scene importate usano
+`RoomEnvironment` come luce riflessa e niente tone mapping. Degli OBJ di
+Blender si ignora il colore `Kd` quando c'è una texture: in Blender la
+texture lo sostituisce, qui lo avrebbe scurito. "Elimina scena" chiede
+conferma con un dialogo del main e cancella la copia importata.
 
 **Luce.** `scene-light.js`, puro e con i suoi test, calcola il sole da data,
 ora e latitudine (quella della città del meteo, altrimenti 42°), e ne ricava

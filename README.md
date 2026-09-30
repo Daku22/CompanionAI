@@ -46,8 +46,9 @@ yourself from source if you prefer (see below).
   hair follows the motion.
 - In 3D it turns its head toward the mouse; in 2D it faces the mouse's side.
 - In 3D, drag with the right or middle button to turn the camera around it,
-  and use the wheel to zoom. Double-click the middle button (or "Rimetti la
-  camera" in the menu) to reset the view.
+  hold Alt while dragging to move the camera instead, and use the wheel to
+  zoom. Double-click the middle button (or "Rimetti la camera" in the menu)
+  to reset the view.
 - Drop it with the shadow under its feet on the top edge of a window: it
   stands there, then sits with its legs dangling and follows the window. It
   can sit on the bottom taskbar too.
@@ -63,6 +64,13 @@ docked on the right. Pick a scene from the title bar: "Studio", "Giardino" (a
 computed sky with the real sun, and stars at night), or the photo scenes
 "Collina" and "Stanza vuota". The light follows the local time and, softly,
 the avatar's mood. In the room the left button turns the camera too.
+You can also import your own 3D scenes: right-click → "Scena" → "Importa scena
+3D" accepts `.glb`/`.gltf`, `.fbx` and `.obj` (with its `.mtl` and textures).
+Scale and the avatar's spot are estimated; fix them with ⚙ in the title bar
+("Sistema la scena": size, rotation, floor height, "Metti l'avatar qui").
+Imported scenes can be deleted from the same menu or panel. Respect their
+licenses: many free scenes (for example CC-BY ones from Sketchfab) ask for
+credit if you share them.
 Optional: "Meteo vero nella stanza" in the chat settings adds clouds, rain,
 snow and fog from the real weather of a city you type (through Open-Meteo, see
 [PRIVACY.md](PRIVACY.md)). The ✕ in the title bar brings the avatar back to

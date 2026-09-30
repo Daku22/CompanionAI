@@ -42,6 +42,12 @@ function spritePackReferences(json) {
 // le immagini accanto, e nelle cartelle vicine ("textures", "<nome>.fbm").
 const FBX_TEXTURE_DEPTH = 2
 const FBX_MAX_TEXTURES = 100
+// TGA e BMP non sono avatar 2D, ma sono texture FBX comuni (fbx-textures.js
+// nel renderer le legge).
+const FBX_TEXTURE_EXTENSIONS = new Set([...IMAGE_EXTENSIONS, '.tga', '.bmp'])
+// Gli zip di Sketchfab e molti altri mettono il modello in source/ e le
+// immagini in una cartella accanto: textures/, Texture/, maps/...
+const TEXTURE_DIR = /^(textures?|tex|maps|images)$/i
 
 async function imagesNear(base, relative = '', depth = 0, out = []) {
   let entries = []
@@ -50,14 +56,39 @@ async function imagesNear(base, relative = '', depth = 0, out = []) {
     if (out.length >= FBX_MAX_TEXTURES) break
     const rel = path.join(relative, entry.name)
     if (entry.isDirectory() && depth < FBX_TEXTURE_DEPTH && !entry.name.startsWith('.')) await imagesNear(base, rel, depth + 1, out)
-    else if (entry.isFile() && IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) out.push(rel)
+    else if (entry.isFile() && FBX_TEXTURE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) out.push(rel)
   }
   return out
 }
 
+/**
+ * Texture di un FBX: le immagini accanto al modello o, se non ce ne sono,
+ * quelle di una cartella di texture accanto alla sua ("source/x.fbx" e
+ * "textures/"). Nel secondo caso la cartella del modello diventa quella che
+ * le contiene entrambe. Mai l'intera cartella superiore: solo le cartelle
+ * con un nome da texture.
+ */
+async function fbxFiles(sourcePath) {
+  const base = path.dirname(sourcePath)
+  const own = await imagesNear(base)
+  if (own.length) return { base, files: [path.basename(sourcePath), ...own] }
+  const parent = path.dirname(base)
+  if (parent === base) return { base, files: [path.basename(sourcePath)] }
+  let entries = []
+  try { entries = await fs.promises.readdir(parent, { withFileTypes: true }) } catch (_) { entries = [] }
+  const images = []
+  for (const entry of entries) {
+    if (entry.isDirectory() && TEXTURE_DIR.test(entry.name) && entry.name !== path.basename(base)) {
+      await imagesNear(parent, entry.name, 1, images)
+    }
+  }
+  if (!images.length) return { base, files: [path.basename(sourcePath)] }
+  return { base: parent, files: [path.join(path.basename(base), path.basename(sourcePath)), ...images] }
+}
+
 /** URL avatar:// di un file dentro la cartella di un avatar importato. */
-function avatarUrl(id, entry) {
-  return 'avatar://' + id + '/' + entry.split('/').map(encodeURIComponent).join('/')
+function avatarUrl(id, entry, scheme = 'avatar') {
+  return scheme + '://' + id + '/' + entry.split('/').map(encodeURIComponent).join('/')
 }
 
 class AvatarLibrary {
@@ -70,12 +101,31 @@ class AvatarLibrary {
     this.builtins = builtins
     this.manifestPath = path.join(root, 'library.json')
     this.pendingImports = new Map()
+    // Quello che cambia per SceneLibrary, che riusa scansione, copia ed eliminazione.
+    this.scheme = 'avatar'
+    this.kinds = SUPPORTED_KINDS
+    // Tipi senza un indice delle texture: il renderer le cerca fra le immagini copiate.
+    this.textureKinds = new Set(['fbx'])
+    this.tag = '[avatar]'
+    this.noneFound = 'Nessun avatar supportato: cerca .vrm, .glb, .gltf, .fbx, sprites.json o immagini'
   }
 
+  _url(id, entry) { return avatarUrl(id, entry, this.scheme) }
+
   async list() {
-    const stored = (await this._readManifest())
-      .filter(record => SUPPORTED_KINDS.has(record.kind))
-      .map(record => ({ ...record, url: avatarUrl(record.id, record.entry) }))
+    const stored = await Promise.all((await this._readManifest())
+      .filter(record => this.kinds.has(record.kind))
+      .map(async record => {
+        const item = { ...record, url: this._url(record.id, record.entry) }
+        // Molti FBX (quelli di Sketchfab, per esempio) citano texture senza
+        // nome di file: il renderer le ricollega ai materiali per nome, quindi
+        // gli servono le immagini importate accanto al modello.
+        if (this.textureKinds.has(record.kind)) {
+          item.textures = (await imagesNear(path.join(this.root, record.id)))
+            .map(rel => this._url(record.id, rel.split(path.sep).join('/')))
+        }
+        return item
+      }))
     return [...this.builtins, ...stored]
   }
 
@@ -92,14 +142,14 @@ class AvatarLibrary {
         const candidate = await this._scanFile(file, scanRoot)
         if (candidate) found.push(candidate)
       } catch (error) {
-        console.warn('[avatar] ' + file + ' scartato:', error.message)
+        console.warn(this.tag + ' ' + file + ' scartato:', error.message)
       }
     }
     // Le texture di un .gltf e le strip di un pacchetto sono immagini, ma non
     // avatar a se': proporle affollerebbe la scelta con pezzi del modello.
     const usedByModels = new Set(found.flatMap(c => c.files.slice(1).map(f => path.join(c.base, f))))
     const candidates = found.filter(c => !usedByModels.has(path.join(c.base, c.files[0])))
-    if (!candidates.length) throw new Error('Nessun avatar supportato: cerca .vrm, .glb, .gltf, .fbx, sprites.json o immagini')
+    if (!candidates.length) throw new Error(this.noneFound)
     const token = crypto.randomUUID()
     this.pendingImports.set(token, { candidates, expiresAt: Date.now() + PENDING_TTL_MS })
     // Al renderer vanno solo i metadati: mai i percorsi reali sul disco.
@@ -130,7 +180,7 @@ class AvatarLibrary {
       const all = await this._readManifest()
       all.push(record)
       await this._writeManifest(all)
-      return { ...record, url: avatarUrl(record.id, record.entry) }
+      return { ...record, url: this._url(record.id, record.entry) }
     } catch (error) {
       await fs.promises.rm(target, { recursive: true, force: true })
       throw error
@@ -152,7 +202,7 @@ class AvatarLibrary {
     await this._writeManifest(all.filter(record => !wanted.has(record.id)))
     for (const id of removed) {
       await fs.promises.rm(path.join(this.root, id), { recursive: true, force: true })
-        .catch(error => console.warn('[avatar] cartella ' + id + ' non eliminata:', error.message))
+        .catch(error => console.warn(this.tag + ' cartella ' + id + ' non eliminata:', error.message))
     }
     return removed
   }
@@ -195,8 +245,9 @@ class AvatarLibrary {
     else if (IMAGE_EXTENSIONS.has(ext)) { kind = 'sprite'; capabilities = ['preview'] }
     else return null
 
-    const base = path.dirname(sourcePath)
-    const files = [path.basename(sourcePath)]
+    let base = path.dirname(sourcePath)
+    let files = [path.basename(sourcePath)]
+    if (kind === 'fbx') ({ base, files } = await fbxFiles(sourcePath))
     if (references) {
       const json = JSON.parse(await fs.promises.readFile(sourcePath, 'utf8'))
       if (kind === 'sprite-pack' && typeof json.name === 'string' && json.name.trim()) name = json.name.trim().slice(0, 64)
@@ -208,8 +259,6 @@ class AvatarLibrary {
       }
       if (files.length > MAX_MODEL_FILES) throw new Error('troppi file dichiarati: ' + files.length)
     }
-
-    if (kind === 'fbx') files.push(...await imagesNear(base))
 
     let bytes = 0
     for (const file of files) bytes += (await fs.promises.stat(path.join(base, file))).size
@@ -246,4 +295,4 @@ class AvatarLibrary {
   }
 }
 
-module.exports = { AvatarLibrary, SPRITE_PACK_FORMAT, avatarUrl }
+module.exports = { AvatarLibrary, SPRITE_PACK_FORMAT, avatarUrl, fbxFiles, gltfReferences, MAX_IMPORT_BYTES }

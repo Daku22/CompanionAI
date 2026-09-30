@@ -6,6 +6,7 @@ const os    = require('os')
 const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
+const { SceneLibrary } = require('./SceneLibrary')
 const { AnimationLibrary, ANIMATION_SLOTS, SLOT_LABELS, isGlb } = require('./AnimationLibrary')
 const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
 const winWindows = require('./win-windows')
@@ -24,6 +25,7 @@ let chatWindow      = null
 let tray            = null
 let memoryManager   = null
 let avatarLibrary   = null
+let sceneLibrary    = null
 let animationLibrary = null
 let kimodo = null
 
@@ -1338,13 +1340,80 @@ function endRoomResize() {
   sendViewMode()
 }
 
-// Scene HDRI in modelli-3d/scenes (servite da vrm://scenes/...).
-handle('scenes:list', async () => {
+// Scene della stanza: le HDRI in modelli-3d/scenes (servite da
+// vrm://scenes/...) e i modelli 3D importati (SceneLibrary, scene://).
+async function listRoomScenes() {
   const dir = path.join(__dirname, '..', '..', 'modelli-3d', 'scenes')
-  let json = null
-  try { json = JSON.parse(await fs.promises.readFile(path.join(dir, 'scenes.json'), 'utf8')) } catch (_) { return [] }
-  return room.parseScenes(json, (file) => fs.existsSync(path.join(dir, file)))
+  let hdri = []
+  try {
+    const json = JSON.parse(await fs.promises.readFile(path.join(dir, 'scenes.json'), 'utf8'))
+    hdri = room.parseScenes(json, (file) => fs.existsSync(path.join(dir, file))).map(s => ({ ...s, kind: 'hdri' }))
+  } catch (_) { /* nessuna HDRI */ }
+  let imported = []
+  try { imported = sceneLibrary ? await sceneLibrary.list() : [] } catch (_) { /* libreria illeggibile */ }
+  return [...hdri, ...imported.map(s => ({
+    id: s.id, label: s.name, kind: 'model', format: s.kind, url: s.url, textures: s.textures || [], settings: s.settings, imported: true,
+  }))]
+}
+handle('scenes:list', () => listRoomScenes())
+handle('scenes:update', (_e, data) => {
+  const { id, settings } = data || {}
+  if (!sceneLibrary || typeof id !== 'string') return null
+  return sceneLibrary.update(id, settings)
 })
+on('scenes:import', () => { importScene().catch(e => console.error('[scene] importazione:', e)) })
+on('scenes:remove', (_e, id) => { if (typeof id === 'string') removeScene(id).catch(e => console.error('[scene] eliminazione:', e)) })
+
+/** Dialogo del main, legato alla finestra del companion se c'e'. */
+function companionDialog(options) {
+  const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+  return parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options)
+}
+
+// Importa una scena 3D: scelta del file o della cartella, e se dentro ci sono
+// piu' modelli la scelta fra quelli. La pagina riceve solo l'elenco nuovo e
+// quale scena mostrare.
+async function importScene() {
+  const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+  const options = {
+    title: 'Importa scena 3D',
+    properties: /** @type {('openFile' | 'openDirectory')[]} */ (['openFile', 'openDirectory']),
+    filters: [{ name: 'Scene 3D (glTF, FBX, OBJ)', extensions: ['glb', 'gltf', 'fbx', 'obj'] }],
+  }
+  const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+  if (picked.canceled || !picked.filePaths[0]) return
+  try {
+    const scan = await sceneLibrary.scan(picked.filePaths[0])
+    let candidate = scan.candidates[0]
+    if (scan.candidates.length > 1) {
+      const shown = scan.candidates.slice(0, 8)
+      const { response } = await companionDialog({
+        type: 'question', title: 'Importa scena 3D', message: 'Nella cartella ci sono piu\' modelli: quale importare?',
+        buttons: [...shown.map(c => c.name + ' (' + c.kind + ')'), 'Annulla'], cancelId: shown.length, noLink: true,
+      })
+      candidate = shown[response]
+    }
+    if (!candidate) return
+    const scene = await sceneLibrary.commit(scan.token, candidate.id)
+    setOption({ roomScene: scene.id })
+    sendCompanion('room-scenes', { select: scene.id, imported: scene.name })
+  } catch (error) {
+    await companionDialog({ type: 'error', title: 'Importa scena 3D', message: 'Importazione non riuscita', detail: error.message })
+  }
+}
+
+async function removeScene(id) {
+  const scene = (await sceneLibrary.list()).find(s => s.id === id)
+  if (!scene) return
+  const { response } = await companionDialog({
+    type: 'warning', title: 'Elimina scena', message: 'Eliminare la scena "' + scene.name + '"?',
+    detail: 'Si cancella la copia importata; il file originale resta dov\'era.',
+    buttons: ['Elimina', 'Annulla'], defaultId: 1, cancelId: 1, noLink: true,
+  })
+  if (response !== 0) return
+  await sceneLibrary.remove([id])
+  sendCompanion('room-scenes', { removed: id })
+}
 on('view:set', (_e, mode) => { if (mode === 'room' || mode === 'desktop') setView(mode) })
 on('room:minimize', () => { if (isRoomWindow()) companionWindow.minimize() })
 on('room:maximize', () => toggleRoomMaximize())
@@ -1486,7 +1555,8 @@ async function showCompanionMenu() {
         ...(is3D ? await previewMenu(command) : [{ label: 'Prova (solo con un avatar 3D)', enabled: false }]),
       ],
     },
-    // Destro o centrale + trascina girano la camera, la rotella zooma.
+    ...(inRoom ? [await sceneMenu(cfg, command)] : []),
+    // Destro o centrale + trascina girano la camera, con Alt la spostano, la rotella zooma.
     ...(is3D || inRoom ? [{ label: 'Rimetti la camera', click: () => command({ cmd: 'camera-reset' }) }] : []),
     // Sul desktop: dimensione della finestra; nella stanza la sceglie chi la ridimensiona.
     ...(inRoom ? [] : [{
@@ -1513,6 +1583,37 @@ async function showCompanionMenu() {
     { label: 'Esci', click: () => app.quit() },
   ]
   Menu.buildFromTemplate(template).popup({ window: companionWindow })
+}
+
+/**
+ * "Scena", nella stanza: quale mostrare, importarne una, sistemarla (scala,
+ * rotazione, posto dell'avatar) ed eliminarla.
+ * @param {any} cfg
+ * @param {(data: any) => void} command
+ * @returns {Promise<Electron.MenuItemConstructorOptions>}
+ */
+async function sceneMenu(cfg, command) {
+  const scenes = [{ id: 'studio', label: 'Studio' }, { id: 'giardino', label: 'Giardino' }, ...(await listRoomScenes())]
+  const current = scenes.find(s => s.id === cfg.roomScene) || scenes[0]
+  const imported = scenes.filter(s => s.imported)
+  const label = (s) => s.label.replace(/&/g, '&&')
+  return {
+    label: 'Scena',
+    submenu: [
+      ...scenes.map(s => ({
+        label: label(s) + (s.imported ? '  (importata)' : ''), type: /** @type {const} */ ('radio'), checked: s.id === current.id,
+        click: () => command({ cmd: 'scene', id: s.id }),
+      })),
+      { type: 'separator' },
+      { label: 'Importa scena 3D (glTF, FBX, OBJ)…', click: () => { importScene().catch(e => console.error('[scene] importazione:', e)) } },
+      current.imported
+        ? { label: 'Sistema la scena…', click: () => command({ cmd: 'scene-adjust' }) }
+        : { label: 'Sistema la scena (solo per quelle importate)', enabled: false },
+      imported.length
+        ? { label: 'Elimina scena', submenu: imported.map(s => ({ label: label(s) + '…', click: () => { removeScene(s.id).catch(e => console.error('[scene] eliminazione:', e)) } })) }
+        : { label: 'Elimina scena (nessuna importata)', enabled: false },
+    ],
+  }
 }
 
 const SOURCE_LABELS = { builtin: 'integrata', private: 'privata', user: 'importata' }
@@ -1678,6 +1779,11 @@ protocol.registerSchemesAsPrivileged([
     scheme: 'avatar',
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
   },
+  // Scene 3D importate per la stanza (SceneLibrary).
+  {
+    scheme: 'scene',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
+  },
   // Clip .vrma: motion://builtin, motion://private, motion://user.
   {
     scheme: 'motion',
@@ -1713,6 +1819,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler(() => false)
 
   avatarLibrary = new AvatarLibrary(path.join(app.getPath('userData'), 'avatars'), builtinAvatars(path.join(__dirname, '..', '..')))
+  sceneLibrary = new SceneLibrary(path.join(app.getPath('userData'), 'scenes'))
   // audit.mjs e preview-clips.mjs provano le proprie clip: con anche le
   // integrate e le private, uno slot sceglierebbe a caso fra piu' clip.
   const onlyUserClips = process.env.COMPANION_ONLY_USER_CLIPS === '1'
@@ -1783,6 +1890,18 @@ app.whenReady().then(() => {
       // La pagina viene da file:// e l'immagine da avatar://: senza questo
       // header WebGL la considera di un'altra origine e rifiuta di usarla come
       // texture, e un avatar 2D importato restava invisibile.
+      const res = await net.fetch(require('url').pathToFileURL(file).toString())
+      const headers = new Headers(res.headers)
+      headers.set('Access-Control-Allow-Origin', '*')
+      return new Response(res.body, { status: res.status, headers })
+    } catch (_) { return new Response('Forbidden', { status: 403 }) }
+  })
+  // Come avatar://: le texture delle scene diventano texture WebGL.
+  protocol.handle('scene', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const file = await sceneLibrary.resolve(url.hostname, decodeURIComponent(url.pathname.slice(1)))
+      if (!file) return new Response('Not found', { status: 404 })
       const res = await net.fetch(require('url').pathToFileURL(file).toString())
       const headers = new Headers(res.headers)
       headers.set('Access-Control-Allow-Origin', '*')

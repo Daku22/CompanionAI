@@ -548,6 +548,78 @@ una volta contro il servizio vero.
 **Audit** 68/68: 5 controlli per la camera e 16 per la stanza, con
 schermate a mezzogiorno, al tramonto, di notte e con la pioggia.
 
+## Blocco 2, revisione: modelli di Sketchfab, Alt e scene importate (2026-09-29/30)
+
+**Avatar presi da Sketchfab.** Provati con modelli veri dell'utente (Big Boss
+glTF, Shibahu, Pomni FBX):
+- texture FBX: `fbx-textures.js` ridirige i nomi di file citati con percorsi
+  del PC di chi ha esportato, legge le TGA e ricollega per nome del materiale
+  le texture senza nome ("Body_mt" -> "…_body_dif.png"). L'import copia anche
+  le cartelle `textures/` accanto a `source/`;
+- `gltf-specgloss.js` rimette i materiali `KHR_materials_pbrSpecularGlossiness`,
+  che three.js ignora dalla r147 (diventavano metallo pieno, quasi nero);
+- `humanoid-map.js` salta il prefisso comune dei nomi ("Shibahu_",
+  "ValveBiped.Bip01_"), preferisce "Forearm" a "Elbow" e simili quando ci
+  sono entrambi, e non gira piu' all'infinito se un osso risulta figlio di
+  se stesso; i piedistalli (mesh piatte senza ossa) si tolgono;
+- Pomni: un osso e una mesh si chiamano entrambi `EyeL`, e `generateMorphTrack`
+  di FBXLoader (r177) prendeva l'osso con `getObjectByName` e si fermava con
+  "reading 'Big'" (la forma dell'occhio). `vendor.js` ora corregge il file
+  copiato (`PATCHES`): cerca la mesh che ha la forma e, se il nome e'
+  condiviso, punta la traccia al suo uuid. Se three cambia quel codice,
+  `npm run vendor` si ferma invece di ignorare la correzione.
+
+**Alt + trascina sposta la camera**, come chiesto dall'utente ("come i
+vecchi OrbitControls"). OrbitControls sposta solo con Ctrl, Meta o Shift: un
+ascoltatore `pointerdown` in fase di cattura sceglie PAN o ROTATE per i tasti
+prima che lui legga `mouseButtons`. `maxTargetRadius` limita il punto
+guardato (60 cm sul desktop, dove la finestra e' stretta, 25 m nella stanza).
+`frameSeated` ora sposta lo sguardo della sola differenza, se no annullava
+lo spostamento in verticale a ogni frame.
+
+**Scene importate.** Chieste dall'utente con due scene di Sketchfab (CC-BY):
+il Black Lodge di Twin Peaks (.glb) e un'aula anime (.obj + .mtl, poi anche
+in .glb). `SceneLibrary` estende `AvatarLibrary` (schema dell'URL, tipi e
+messaggi diventano proprieta'), protocollo `scene://`, IPC `scenes:*`,
+dialoghi di import ed eliminazione nel main. Le scene stanno nell'area dati
+dell'utente, mai nei repo.
+
+Nessuno dei due file e' in metri: nel Lodge una poltrona e' alta 7,9 unita',
+nell'aula un banco 2,1, e la versione .glb dell'aula e' alta 10,2 "metri".
+Nessuna statistica sulle singole mesh funziona su entrambe (l'aula ha 238
+pezzi, la mediana delle altezze e' 0,13). Stima scelta: la mesh col box piu'
+grande da' l'altezza della stanza, che diventa 4 m se non e' credibile in
+metri (glTF fra 2 e 6 m). Lodge 0,084 (poltrone di 66 cm, un po' piccolo),
+aula 0,39 (banchi di 82 cm). Il pavimento si cerca nella meta' bassa di quella
+mesh, non del modello intero: il piano del cielo fuori dalla finestra
+dell'aula alzava la meta' e il soffitto passava per pavimento.
+
+Per il posto dell'avatar c'era prima un raggio per punto: veloce con i soli
+piedi (5 raggi), ma col corridoio libero verso la camera l'aula ci metteva
+6 s a caricarsi. Ora c'e' una mappa vista dall'alto in un passaggio sui
+triangoli (lati e interno proiettati), circa 80 ms. La mappa copre il
+modello intero: l'audit l'ha trovata ridotta alla striscia di una parete,
+quando la mesh piu' grande era una delle quattro pareti uguali.
+
+Dal vivo (CDP, home e dati finti, i tre file veri): caricamento 0,5-1,3 s,
+nessun errore in console. Nel Lodge la camera stava fuori dalle tende (stanza
+di 6,6 m, camera a 3,9 m): `keepCameraInside` la porta davanti alla parete,
+e conta come parete solo cio' che blocca anche un raggio 80 cm piu' in alto,
+se no una sedia fra i banchi la tirava a 80 cm dalla pancia. "Metti l'avatar
+qui" su un fianco verticale della cattedra metteva la camera dentro il legno:
+ora accetta solo facce con normale verso l'alto. Nell'OBJ dell'aula la
+finestra resta bianca dove il .glb mostra il tramonto: probabilmente il vetro,
+trasparente nel .glb e opaco nel .mtl; il .glb e' la versione da preferire.
+
+Trappola: gli script Python di modifica su Windows riscrivono i file in CRLF,
+e l'hash dell'importmap in `companion.html` (CSP) si calcola sui byte LF, come
+vuole `.gitattributes`. `npm test` se ne accorge.
+
+**Audit** 73/73: 5 controlli nuovi con una stanza OBJ generata (centimetri,
+tavolo al centro): scala stimata, avatar non sul tavolo, stima salvata,
+Alt + destro sposta senza girare ne' aprire il menu, grandezza x2 dal
+pannello applicata e salvata.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

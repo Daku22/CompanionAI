@@ -6,12 +6,13 @@
 // dicono al main quale lato si e' preso, e il main segue il cursore (room.js).
 
 /**
- * @param {{ api: any, scenes: () => { id: string, label: string }[], currentScene: () => string | null,
- *   onScene: (id: string) => void }} opts
+ * @param {{ api: any, scenes: () => { id: string, label: string, imported?: boolean }[], currentScene: () => string | null,
+ *   onScene: (id: string) => void, onAdjust: () => void }} opts
  */
-export function initRoomUI({ api, scenes, currentScene, onScene }) {
+export function initRoomUI({ api, scenes, currentScene, onScene, onAdjust }) {
   const select = /** @type {HTMLSelectElement} */ (document.getElementById('room-scene'));
   const maxBtn = document.getElementById('room-max');
+  const adjustBtn = document.getElementById('room-adjust');
   const click = (id, fn) => document.getElementById(id).addEventListener('click', fn);
 
   click('room-chat', () => api && api.toggleChat && api.toggleChat());
@@ -19,6 +20,7 @@ export function initRoomUI({ api, scenes, currentScene, onScene }) {
   click('room-max', () => api && api.roomMaximize && api.roomMaximize());
   click('room-close', () => api && api.setView && api.setView('desktop'));
   select.addEventListener('change', () => onScene(select.value));
+  click('room-adjust', () => onAdjust());
 
   for (const grip of document.querySelectorAll('.room-grip')) {
     const edge = /** @type {HTMLElement} */ (grip).dataset.edge;
@@ -47,7 +49,7 @@ export function initRoomUI({ api, scenes, currentScene, onScene }) {
       maxBtn.title = maximized ? 'Ripristina' : 'Ingrandisci';
       document.body.classList.toggle('room-maximized', !!room && !!maximized);
     },
-    /** Rilegge l'elenco delle scene e segna quella in uso. */
+    /** Rilegge l'elenco delle scene e segna quella in uso; ⚙ solo per le importate. */
     refreshScenes() {
       const list = scenes();
       select.replaceChildren(...list.map(({ id, label }) => {
@@ -57,6 +59,8 @@ export function initRoomUI({ api, scenes, currentScene, onScene }) {
         return option;
       }));
       select.value = currentScene() || (list[0] && list[0].id) || '';
+      const shown = list.find(s => s.id === select.value);
+      adjustBtn.classList.toggle('shown', !!(shown && shown.imported));
     },
   };
 }

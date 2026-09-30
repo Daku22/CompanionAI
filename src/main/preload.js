@@ -28,8 +28,13 @@ contextBridge.exposeInMainWorld('companion', {
   roomMaximize:     ()       => ipcRenderer.send('room:maximize'),
   roomResizeStart:  (edge)   => ipcRenderer.send('room:resize-start', String(edge)),
   roomResizeEnd:    ()       => ipcRenderer.send('room:resize-end'),
-  // Scene HDRI disponibili, gia' controllate dal main.
+  // Scene disponibili (HDRI e modelli importati), gia' controllate dal main.
   listScenes:       ()       => ipcRenderer.invoke('scenes:list'),
+  // Scala, rotazione e posto dell'avatar di una scena importata.
+  updateScene:      (id, settings) => ipcRenderer.invoke('scenes:update', { id, settings }),
+  // Scelta del file e conferma dell'eliminazione le fa il main, con i suoi dialoghi.
+  importScene:      ()       => ipcRenderer.send('scenes:import'),
+  removeScene:      (id)     => ipcRenderer.send('scenes:remove', String(id)),
 
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),
@@ -126,6 +131,12 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('view-mode', handler)
     return () => ipcRenderer.removeListener('view-mode', handler)
+  },
+  // Scene importate o eliminate: { select } la nuova da mostrare, { removed }
+  onRoomScenes: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('room-scenes', handler)
+    return () => ipcRenderer.removeListener('room-scenes', handler)
   },
   // Meteo vero per la scena della stanza (weather.js), o null se spento
   onRoomWeather: (cb) => {

@@ -51,8 +51,9 @@ export function tokenize(name) {
  * Cosa e' un osso, dal solo nome.
  * @returns {{ part: string, side: 'left'|'right'|null, finger?: string, number?: number, metacarpal?: boolean } | null}
  */
-export function classify(name) {
+export function classify(name, prefix = []) {
   const tokens = tokenize(name)
+  if (prefix.length && prefix.every((t, i) => tokens[i] === t)) tokens.splice(0, prefix.length)
   if (!tokens.length || tokens.some(t => SKIP_TOKENS.has(t))) return null
   /** @type {'left' | 'right' | null} */
   let side = null
@@ -79,17 +80,46 @@ export function classify(name) {
   if (/(hips|^hip$|pelvis)/.test(s)) return side ? null : { part: 'hips', side: null }
   if (/(spine|chest|torso|abdomen|ribcage)/.test(s)) return side ? null : { part: 'spine', side: null }
 
+  // rank: a parita' di ruolo vince il nome piu' esplicito. Gli scheletri dei
+  // giochi Source hanno "Elbow" e "Wrist" come ossa d'aiuto accanto a
+  // "Forearm" e "Hand"; in altri scheletri sono invece le ossa vere.
   let part = null
+  let rank = 0
   if (/(shoulder|clavicle|collar)/.test(s)) part = 'Shoulder'
-  else if (/(forearm|lowerarm|elbow)/.test(s)) part = 'LowerArm'
+  else if (/(forearm|lowerarm)/.test(s)) part = 'LowerArm'
+  else if (/elbow/.test(s)) { part = 'LowerArm'; rank = 1 }
   else if (/(upperarm|uparm)/.test(s) || s === 'arm') part = 'UpperArm'
-  else if (/^hand$|wrist/.test(s)) part = 'Hand'
+  else if (/^hand$/.test(s)) part = 'Hand'
+  else if (/wrist/.test(s)) { part = 'Hand'; rank = 1 }
   else if (/(upleg|upperleg|thigh)/.test(s)) part = 'UpperLeg'
-  else if (/(lowerleg|calf|shin|knee)/.test(s) || s === 'leg') part = 'LowerLeg'
+  else if (/(lowerleg|calf|shin)/.test(s) || s === 'leg') part = 'LowerLeg'
+  else if (/knee/.test(s)) { part = 'LowerLeg'; rank = 1 }
   else if (/(toe|ball)/.test(s)) part = 'Toes'
   else if (/(foot|ankle)/.test(s)) part = 'Foot'
   if (!part || !side) return null
-  return { part, side }
+  return rank ? { part, side, rank } : { part, side }
+}
+
+/**
+ * Parole iniziali condivise da almeno l'80% dei nomi (con almeno 10 ossa).
+ * Mai un lato o un numero da solo: "Left..." non e' un prefisso.
+ */
+export function commonPrefix(tokenLists) {
+  const prefix = []
+  if (tokenLists.length < 10) return prefix
+  for (;;) {
+    const counts = new Map()
+    for (const list of tokenLists) {
+      if (!prefix.every((t, i) => list[i] === t)) continue
+      const next = list[prefix.length]
+      // Resta almeno una parola dopo il prefisso: e' quella che dice il ruolo.
+      if (next && list.length > prefix.length + 1) counts.set(next, (counts.get(next) || 0) + 1)
+    }
+    let best = null
+    for (const [t, n] of counts) if (n >= tokenLists.length * 0.8 && (!best || n > best[1])) best = [t, n]
+    if (!best || LEFT.has(best[0]) || RIGHT.has(best[0])) return prefix
+    prefix.push(best[0])
+  }
 }
 
 /**
@@ -113,8 +143,11 @@ export function mapHumanoid(bones) {
     depthCache.set(name, d)
     return d
   }
+  // Con nomi ripetuti un osso puo' risultare figlio di se stesso: il limite
+  // di passi evita di girare per sempre (il renderer si bloccava).
   const isAncestor = (a, b) => {
-    for (let n = byName.get(b); n && n.parent != null; n = byName.get(n.parent)) if (n.parent === a) return true
+    let steps = 0
+    for (let n = byName.get(b); n && n.parent != null && steps++ <= bones.length; n = byName.get(n.parent)) if (n.parent === a) return true
     return false
   }
   const isLeaf = (name) => !(children.get(name) || []).length
@@ -124,19 +157,28 @@ export function mapHumanoid(bones) {
   const hasDef = bones.some(b => /^DEF[-_.]/i.test(b.name))
   const usable = hasDef ? bones.filter(b => /^DEF[-_.]/i.test(b.name)) : bones
 
+  // Prefisso col nome del personaggio o del programma ("Shibahu_Head",
+  // "ValveBiped.Bip01_Head1"): le prime parole che quasi tutte le ossa hanno
+  // in comune non dicono nulla sul ruolo.
+  const prefix = commonPrefix(usable.map(b => tokenize(b.name)))
+
   const slots = new Map()   // chiave -> [nomi]
   const metacarpals = new Set()
+  const rank = new Map()
   const push = (key, name) => { if (!slots.has(key)) slots.set(key, []); slots.get(key).push(name) }
   for (const b of usable) {
-    const c = classify(b.name)
+    const c = classify(b.name, prefix)
     if (!c) continue
+    if (c.rank) rank.set(b.name, c.rank)
     if (c.part === 'finger') { push(c.side + c.finger, b.name); if (c.metacarpal) metacarpals.add(b.name) }
     else if (c.part === 'eye') push(c.side + 'Eye', b.name)
     else if (c.side) push(c.side + c.part, b.name)
     else push(c.part, b.name)
   }
   const byDepth = (list) => [...list].sort((a, b) => depth(a) - depth(b))
-  const first = (key) => { const l = slots.get(key); return l && l.length ? byDepth(l)[0] : undefined }
+  // Prima il nome piu' esplicito (rank), poi il piu' vicino al bacino.
+  const byRank = (list) => byDepth(list).sort((a, b) => (rank.get(a) || 0) - (rank.get(b) || 0))
+  const first = (key) => { const l = slots.get(key); return l && l.length ? byRank(l)[0] : undefined }
 
   /** @type {Record<string, string>} */
   const out = {}

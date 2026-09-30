@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <!-- Nessuno script inline tranne l'importmap, ammesso per hash: se lo cambi,
        aggiorna l'hash (npm test lo ricalcola e dice quale mettere).
-       vrm: e avatar: servono i modelli 3D; blob: le texture estratte dai .glb. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-ZbtU6faAuNdPdmM0BcNga30v1JmQYiPkfUDkH4n65CY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: vrm: avatar:; connect-src 'self' data: blob: vrm: avatar: motion:">
+       vrm: e avatar: servono i modelli 3D, scene: le scene importate; blob: le
+       texture estratte dai .glb. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-ZbtU6faAuNdPdmM0BcNga30v1JmQYiPkfUDkH4n65CY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: vrm: avatar: scene:; connect-src 'self' data: blob: vrm: avatar: motion: scene:">
   <title>CompanionAI</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -165,6 +166,32 @@
     }
     #room-bar button:hover { background: rgba(180,140,255,0.18); }
     #room-bar #room-close:hover { background: rgba(232,72,85,0.85); color: white; }
+    #room-bar #room-adjust { display: none; }
+    #room-bar #room-adjust.shown { display: block; }
+
+    /* ── Sistema la scena (scene-adjust.js), per le scene importate ────── */
+    #scene-adjust {
+      display: none; position: absolute; top: 46px; left: 10px; z-index: 42; width: 250px;
+      padding: 10px 12px; border-radius: 10px;
+      background: rgba(14, 11, 22, 0.9); border: 1px solid rgba(180,140,255,0.22);
+      font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; color: #e8ddff;
+    }
+    body.mode-room #scene-adjust.open { display: block; }
+    #scene-adjust .title { font-weight: 600; margin-bottom: 8px; }
+    #scene-adjust .title span { font-weight: 400; opacity: 0.7; }
+    #scene-adjust label { display: grid; grid-template-columns: 70px 1fr 52px; align-items: center; gap: 6px; margin: 4px 0; }
+    #scene-adjust input[type=range] { width: 100%; accent-color: #b48cff; }
+    #scene-adjust output { text-align: right; opacity: 0.85; font-variant-numeric: tabular-nums; }
+    #scene-adjust .row { display: flex; gap: 6px; margin-top: 8px; }
+    #scene-adjust button {
+      flex: 1; padding: 5px 6px; border-radius: 6px; cursor: pointer; font: inherit; color: inherit;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(180,140,255,0.25);
+    }
+    #scene-adjust button:hover { background: rgba(180,140,255,0.18); }
+    #scene-adjust button.active { background: rgba(180,140,255,0.35); }
+    #scene-adjust button.danger { color: #ff9a9a; }
+    #scene-adjust .hint { margin-top: 6px; opacity: 0.75; min-height: 1em; }
+    body.scene-placing #drag-zone, body.scene-placing #drag-zone:active { cursor: crosshair; }
     /* Bordi per ridimensionare: 6 px sui lati, 12 agli angoli. */
     .room-grip[data-edge="n"]  { top: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
     .room-grip[data-edge="s"]  { bottom: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
@@ -212,10 +239,20 @@
   <div id="room-bar">
     <span class="room-title">CompanionAI · Stanza</span>
     <select id="room-scene" title="Scena"></select>
+    <button id="room-adjust" title="Sistema la scena">⚙</button>
     <button id="room-chat" title="Chat">💬</button>
     <button id="room-min" title="Riduci a icona">–</button>
     <button id="room-max" title="Ingrandisci">□</button>
     <button id="room-close" title="Torna sul desktop">✕</button>
+  </div>
+  <div id="scene-adjust">
+    <div class="title">Sistema la scena <span id="adj-name"></span></div>
+    <label>Grandezza <input type="range" id="adj-scale" min="-3" max="3" step="0.01" value="0"><output id="adj-scale-out"></output></label>
+    <label>Rotazione <input type="range" id="adj-rot" min="0" max="359" step="1" value="0"><output id="adj-rot-out"></output></label>
+    <label>Pavimento <input type="range" id="adj-lift" min="-100" max="100" step="1" value="0"><output id="adj-lift-out"></output></label>
+    <div class="row"><button id="adj-place">📍 Metti l'avatar qui</button><button id="adj-auto">Stima di nuovo</button></div>
+    <div class="row"><button id="adj-remove" class="danger">Elimina scena</button><button id="adj-done">Fatto</button></div>
+    <div class="hint" id="adj-hint"></div>
   </div>
   <div class="room-grip" data-edge="n"></div><div class="room-grip" data-edge="s"></div>
   <div class="room-grip" data-edge="e"></div><div class="room-grip" data-edge="w"></div>

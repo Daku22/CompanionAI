@@ -32,7 +32,11 @@ export function findHumanoid(root) {
   root.traverse(o => { if (o !== root) all.push(o) })
   // Con uno scheletro vero contano solo le ossa: mesh e luci hanno nomi come
   // "Body" o "Head_Mesh" che non devono finire nell'abbinamento.
-  const candidates = all.some(o => o.isBone) ? all.filter(o => o.isBone) : all
+  // FBXLoader, se piu' mesh usano lo stesso osso, ne crea copie con lo stesso
+  // nome agganciate come figlie dell'originale: seguono l'originale da sole,
+  // e contarle farebbe di ogni osso il genitore di se stesso.
+  const isCopy = (o) => o.parent && o.parent.isBone && o.parent.name === o.name
+  const candidates = all.some(o => o.isBone) ? all.filter(o => o.isBone && !isCopy(o)) : all
   const inSet = new Set(candidates)
   const list = candidates.map(o => ({ name: o.name, parent: o.parent && inSet.has(o.parent) ? o.parent.name : null }))
   const found = mapHumanoid(list)

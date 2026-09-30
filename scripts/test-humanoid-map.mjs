@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { mapHumanoid, classify, tokenize, REQUIRED_BONES } from '../src/renderer/humanoid-map.js'
+import { mapHumanoid, classify, tokenize, commonPrefix, REQUIRED_BONES } from '../src/renderer/humanoid-map.js'
 
 // argv[1] e non import.meta: il controllo dei tipi tratta gli script come CommonJS.
 const ROOT = path.join(path.dirname(process.argv[1]), '..')
@@ -199,6 +199,46 @@ test('un braccio che non contiene l-avambraccio viene scartato', () => {
   const found = mapHumanoid(bones)
   assert.equal(found.bones.leftUpperArm, undefined)
   assert.equal(found.ok, false)
+})
+
+test('il prefisso col nome del personaggio si ignora (Shibahu_Head)', () => {
+  const found = mapHumanoid(mixamo('Shibahu_'))
+  assert.deepEqual(found.missing, [])
+  assert.equal(found.bones.head, 'Shibahu_Head')
+  assert.equal(found.bones.leftUpperArm, 'Shibahu_LeftArm')
+  assert.equal(found.bones.leftLowerLeg, 'Shibahu_LeftLeg')
+})
+
+test('scheletro dei giochi Source (ValveBiped): prefisso lungo e ossa d-aiuto', () => {
+  const v = (s) => 'ValveBipedBip01_' + s
+  const pairs = [[v('Pelvis'), null], ...chain([v('Spine'), v('Spine1'), v('Spine2'), v('Spine4'), v('Neck1'), v('Head1')], v('Pelvis'))]
+  for (const side of ['L', 'R']) {
+    pairs.push(...chain([v(side + '_Clavicle'), v(side + '_UpperArm'), v(side + '_Forearm'), v(side + '_Hand')], v('Spine4')))
+    // Ossa d'aiuto: Elbow e Wrist sotto il braccio, prima dell'avambraccio vero.
+    pairs.push([v(side + '_Elbow'), v(side + '_UpperArm')], [v(side + '_Wrist'), v(side + '_Forearm')], [v(side + '_Ulna'), v(side + '_Forearm')])
+    pairs.push(...chain([v(side + '_Thigh'), v(side + '_Calf'), v(side + '_Foot'), v(side + '_Toe0')], v('Pelvis')))
+  }
+  pairs.push(['ValveBipedforward', v('Head1')])
+  const found = mapHumanoid(skel(pairs))
+  assert.deepEqual(found.missing, [])
+  assert.equal(found.bones.head, v('Head1'))
+  assert.equal(found.bones.leftLowerArm, v('L_Forearm'))
+  assert.equal(found.bones.leftHand, v('L_Hand'))
+})
+
+test('un lato non e- mai un prefisso', () => {
+  // Ossa quasi tutte "Left...": il prefisso resta vuoto, il lato conta.
+  const names = Array.from({ length: 12 }, (_, i) => ['left', 'finger', String(i)])
+  assert.deepEqual(commonPrefix(names), [])
+  assert.deepEqual(commonPrefix([...Array(10)].map(() => ['valve', 'biped', 'bip', '01', 'head'])), ['valve', 'biped', 'bip', '01'])
+})
+
+test('un osso figlio di uno col suo stesso nome non blocca il riconoscimento', () => {
+  // Le copie che FBXLoader crea per le mesh che condividono un osso.
+  const bones = mixamo('')
+  bones.push({ name: 'Hips', parent: 'Hips' }, { name: 'Head', parent: 'Head' })
+  const found = mapHumanoid(bones)
+  assert.equal(typeof found.ok, 'boolean')
 })
 
 console.log('\n=== ' + passed + ' test superati ===')
