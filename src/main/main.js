@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, protocol, net, dialog, safeStorage, session, powerMonitor, utilityProcess } = require('electron')
+const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, protocol, net, dialog, safeStorage, session, powerMonitor, utilityProcess, globalShortcut } = require('electron')
 const path  = require('path')
 const { spawn } = require('child_process')
 const fs    = require('fs')
@@ -14,7 +14,7 @@ const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated
 const { builtinAvatars } = require('./builtin-avatars')
 const room = require('./room')
 const { WeatherService } = require('./weather')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS } = require('./guards')
 const { VoiceService } = require('./voice')
 const { XttsEngine } = require('./xtts-engine')
 const xttsSetup = require('./xtts-setup')
@@ -179,6 +179,11 @@ function publicConfig(cfg) {
     // Meteo della stanza: la citta' trovata, o perche' non c'e'.
     weatherStatus,
     voice: voiceConfig(cfg),
+    // Microfono: installato, la scorciatoia davvero registrata (null se un
+    // altro programma la usa gia'), e le scorciatoie fra cui scegliere.
+    micInstalled: !!voiceService && voiceService.sttInstalled(),
+    micShortcutActive: micShortcut,
+    micShortcuts: Object.entries(MIC_SHORTCUTS).map(([id, s]) => ({ id, label: s.label })),
   }
 }
 
@@ -505,7 +510,8 @@ function sendSettings(channel, data) {
 // ─── Voce (voice.js) ─────────────────────────────────────────────────────────
 // Kokoro gira in un processo di utilita' (kokoro-worker.js): il main lo avvia
 // alla prima frase e gli passa la cartella con i file scaricati. XTTS e' un
-// servizio Python (xtts-engine.js), acceso finche' la voce XTTS e' in uso.
+// servizio Python (xtts-engine.js), acceso finche' la voce XTTS o il
+// microfono (faster-whisper, nello stesso servizio) sono in uso.
 
 function initVoice() {
   const dir = path.join(app.getPath('userData'), 'voice')
@@ -534,10 +540,78 @@ function initVoice() {
   syncVoice(loadConfig())
 }
 
-/** Il servizio XTTS acceso solo se la voce e' accesa e usa XTTS. */
+/**
+ * Il servizio della voce locale acceso solo se serve: voce accesa con XTTS,
+ * o microfono acceso. Con la config si aggiornano anche il permesso del
+ * microfono e la scorciatoia.
+ */
 function syncVoice(cfg) {
   const voice = voiceConfig(cfg)
-  if (voiceService) voiceService.syncXtts(voice.enabled && voice.engine === 'xtts')
+  micAllowed = !!voice.micEnabled
+  if (voiceService) voiceService.syncService({ tts: voice.enabled && voice.engine === 'xtts', stt: voice.micEnabled })
+  syncMicShortcut(voice)
+}
+
+// ─── Microfono ───────────────────────────────────────────────────────────────
+// La registrazione la fa la chat (mic-recorder.js), il testo lo scrive Whisper
+// nel servizio della voce. Qui: il permesso del browser, la scorciatoia
+// globale e il fumetto "Ti ascolto…" sul companion.
+//
+// La scorciatoia si tiene premuta per parlare: Electron dice solo quando la
+// si preme, quindi finche' si registra si guarda il tasto con koffi
+// (win-windows.js). Un tocco breve lascia il microfono aperto fino al tocco
+// successivo; senza koffi funziona sempre cosi'.
+
+let micAllowed = false   // voice.micEnabled, per i gestori dei permessi
+let micShortcut = null   // l'acceleratore registrato
+let micHold = null       // { started, toggle, poll } mentre la scorciatoia tiene aperto il microfono
+const MIC_TAP_MS = 350
+
+function syncMicShortcut(voice) {
+  const want = voice.micEnabled && voiceService && voiceService.sttInstalled() && voice.micShortcut !== 'off' ? voice.micShortcut : null
+  if (want === micShortcut) return
+  if (micShortcut) { try { globalShortcut.unregister(micShortcut) } catch (_) {} }
+  micShortcut = null
+  endMicHold(null)
+  if (!want) return
+  const vk = MIC_SHORTCUTS[want].vk
+  if (globalShortcut.register(want, () => onMicShortcut(vk))) micShortcut = want
+  else console.warn('[mic] la scorciatoia ' + want + ' e\' gia\' usata da un altro programma')
+}
+
+function sendMicCommand(cmd) {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    try { chatWindow.webContents.send('mic-command', { cmd }) } catch (_) {}
+  }
+}
+
+function onMicShortcut(vk) {
+  if (micHold) {
+    // Il tasto tenuto giu' si ripete: si ignora. Dopo un tocco breve, il
+    // tocco successivo chiude.
+    if (micHold.toggle) endMicHold('stop')
+    return
+  }
+  if (!chatWindow || chatWindow.isDestroyed()) return
+  // Con la voce spenta la risposta si vede solo nella chat: la si apre.
+  if (!voiceConfig(loadConfig()).enabled && !chatWindow.isVisible()) toggleChat()
+  micHold = { started: Date.now(), toggle: !winWindows.available(), poll: null }
+  sendMicCommand('start')
+  if (micHold.toggle) return
+  micHold.poll = setInterval(() => {
+    if (!micHold || winWindows.isKeyDown(vk)) return
+    clearInterval(micHold.poll)
+    micHold.poll = null
+    if (Date.now() - micHold.started < MIC_TAP_MS) micHold.toggle = true
+    else endMicHold('stop')
+  }, 40)
+}
+
+function endMicHold(cmd) {
+  const hold = micHold
+  micHold = null
+  if (hold && hold.poll) clearInterval(hold.poll)
+  if (hold && cmd) sendMicCommand(cmd)
 }
 
 // La voce di XTTS: il campione dell'utente se c'e', altrimenti una inclusa.
@@ -671,6 +745,8 @@ handle('config:set', async (_e, newCfg) => {
   if (memoryManager) memoryManager.setModel(memoryModelFrom(loadConfig()))
   applyWindowOptions(merged)
   syncVoice(merged)
+  // Il microfono acceso o spento dalle Impostazioni: il pulsante della chat.
+  if (JSON.stringify(voiceConfig(current)) !== JSON.stringify(voiceConfig(merged))) sendChatConfig(merged)
   return publicConfig(merged)
 })
 
@@ -774,6 +850,52 @@ handle('voice:xtts-install', async () => {
 on('voice:xtts-cancel', () => { if (voiceService) voiceService.cancelXttsInstall() })
 handle('voice:xtts-remove', () => (voiceService ? voiceService.removeXtts() : null))
 handle('voice:xtts-speakers', () => (voiceService ? voiceService.xttsSpeakers() : []))
+// Microfono: si aggiunge a XTTS installato. Finita l'installazione (o la
+// disinstallazione) la chat mostra o nasconde 🎙 e la scorciatoia si registra.
+handle('voice:stt-install', async () => {
+  if (!voiceService) return null
+  const status = await voiceService.installStt()
+  syncVoice(loadConfig())
+  sendChatConfig(loadConfig())
+  return status
+})
+on('voice:stt-cancel', () => { if (voiceService) voiceService.cancelSttInstall() })
+handle('voice:stt-remove', async () => {
+  if (!voiceService) return null
+  const status = await voiceService.removeStt()
+  syncVoice(loadConfig())
+  sendChatConfig(loadConfig())
+  return status
+})
+// Il testo di una registrazione (Float32Array mono a 16 kHz). Nel log solo
+// quanto e' durata: quello che l'utente ha detto non si scrive.
+handle('mic:transcribe', async (_e, pcm) => {
+  if (!voiceService) return { ok: false, error: 'voce non pronta' }
+  if (!micAllowed) return { ok: false, error: 'il microfono è spento nelle Impostazioni' }
+  if (!(pcm instanceof Float32Array)) return { ok: false, error: 'audio non valido' }
+  try {
+    const res = await voiceService.transcribe(pcm)
+    console.log('[mic] ' + res.seconds + ' s di audio trascritti in ' + res.took + ' s' + (res.text ? '' : ' (niente testo)'))
+    return { ok: true, ...res }
+  } catch (e) {
+    console.warn('[mic] trascrizione non riuscita: ' + e.message)
+    return { ok: false, error: e.message }
+  }
+})
+// Mentre ascolta il companion tace e lo dice con un fumetto.
+on('mic:state', (_e, state) => {
+  if (state === 'listening') {
+    if (voiceService) voiceService.stop()
+    markActivity()
+    sendCompanion('companion-bubble', { text: '🎙 Ti ascolto…', ms: 65000 })
+  } else if (state === 'transcribing') {
+    endMicHold(null)
+    sendCompanion('companion-bubble', { text: '…', ms: 30000 })
+  } else {
+    endMicHold(null)
+    sendCompanion('companion-bubble', { text: '' })
+  }
+})
 on('voice:open-license', () => { shell.openExternal(XTTS_LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
 handle('voice:import-sample', async () => {
   if (!voiceService) return { canceled: true }
@@ -1674,14 +1796,19 @@ function applyWindowOptions(cfg) {
   applyScale(cfg.scale)
 }
 
-/** Cambia un'opzione dal menu e avvisa la chat, che mostra gli stessi interruttori. */
+/** Manda la config alla chat, che mostra gli stessi interruttori e il pulsante 🎙. */
+function sendChatConfig(cfg) {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    try { chatWindow.webContents.send('config-changed', publicConfig(cfg)) } catch (_) {}
+  }
+}
+
+/** Cambia un'opzione dal menu e avvisa la chat. */
 function setOption(partial) {
   const merged = mergeConfig(loadConfig(), partial)
   saveConfig(merged)
   applyWindowOptions(merged)
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    try { chatWindow.webContents.send('config-changed', publicConfig(merged)) } catch (_) {}
-  }
+  sendChatConfig(merged)
 }
 
 async function showCompanionMenu() {
@@ -1980,10 +2107,13 @@ app.whenReady().then(() => {
   if (winWindows.available()) console.log('[win] finestre di Windows leggibili: ' + winWindows.listWindows().length)
   else console.warn('[win] finestre di Windows non disponibili: ' + winWindows.unavailableReason())
 
-  // Nessun permesso del browser: l'app non usa microfono, fotocamera,
-  // notifiche o posizione, e una pagina non deve poterli chiedere.
-  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
-  session.defaultSession.setPermissionCheckHandler(() => false)
+  // Dei permessi del browser solo il microfono, e solo per le pagine dell'app
+  // con il microfono acceso (allowPermission in guards.js). Fotocamera,
+  // notifiche, posizione e il resto: no.
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) =>
+    callback(allowPermission(permission, details, RENDERER_DIR_URL, micAllowed)))
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) =>
+    allowPermission(permission, details, RENDERER_DIR_URL, micAllowed))
 
   avatarLibrary = new AvatarLibrary(path.join(app.getPath('userData'), 'avatars'), builtinAvatars(path.join(__dirname, '..', '..')))
   sceneLibrary = new SceneLibrary(path.join(app.getPath('userData'), 'scenes'))
@@ -2109,6 +2239,8 @@ app.on('window-all-closed', () => {
   if (global.__memoryTimer) clearInterval(global.__memoryTimer)
   if (kimodo) kimodo.stop()
   if (voiceService) voiceService.shutdown()
+  endMicHold(null)
+  globalShortcut.unregisterAll()
   if (process.platform !== 'darwin') app.quit()
 })
 

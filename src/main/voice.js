@@ -16,11 +16,15 @@
 //   scaricano dalle Impostazioni (voice-assets.js).
 // Se XTTS non e' installato o si guasta, parla Kokoro, se c'e'.
 // Fra una frase e l'altra il companion riceve una pausa ({ type: 'gap' }).
+//
+// Il microfono (transcribe) usa lo stesso servizio di XTTS, con faster-whisper:
+// si installa a parte, dopo XTTS, e il servizio resta acceso finche' il
+// microfono e' attivo, anche se a parlare e' Kokoro.
 
 const fs = require('fs')
 const path = require('path')
 const { KOKORO_FILES, packStatus, downloadPack, removePack } = require('./voice-assets')
-const { cleanForSpeech, splitSentences } = require('./speech-text')
+const { cleanForSpeech, splitSentences, cleanTranscript } = require('./speech-text')
 const setupDefaults = require('./xtts-setup')
 
 const IDLE_STOP_MS = 5 * 60 * 1000
@@ -38,8 +42,9 @@ const SAMPLE_RE = /^voce-\d{8,16}\.wav$/
 class VoiceService {
   /**
    * @param {{ dir: string, spawn: () => VoiceWorker, play: (msg: any) => void,
-   *   onStatus?: (status: any) => void, baseUrl?: string, idleMs?: number,
-   *   xtts?: any, setup?: { installXtts: Function, uninstallXtts: Function, xttsInstalled: Function } }} opts
+   *   onStatus?: (status: any) => void, baseUrl?: string, idleMs?: number, xttsIdleMs?: number,
+   *   xtts?: any, setup?: { installXtts: Function, uninstallXtts: Function, xttsInstalled: Function, STEPS?: any[],
+   *     installStt?: Function, uninstallStt?: Function, sttInstalled?: Function, STT_STEPS?: any[] } }} opts
    *   play: messaggi per il companion ({ type: 'chunk' | 'gap' | 'stop', ... })
    *   baseUrl: solo per i test, la fonte dei file
    *   xtts: un XttsEngine (o un finto nei test); setup: xtts-setup.js
@@ -68,6 +73,10 @@ class VoiceService {
     this.xttsError = null
     this.xttsIdleMs = xttsIdleMs || XTTS_IDLE_STOP_MS
     this.xttsStopTimer = null
+    this.sttInstall = null       // come xttsInstall, per il microfono
+    this.sttAbort = null
+    this.sttError = null
+    this.need = { tts: false, stt: false }  // cosa chiede la config (syncService)
     if (this.xtts) this.xtts.onState = () => this._emit()
   }
 
@@ -82,9 +91,20 @@ class VoiceService {
         error: (x && x.error) || this.xttsError,
         info: x ? x.info : null,
         installing: this.xttsInstall,
+        loaded: x && x.loaded ? [...x.loaded] : [],
+      },
+      stt: {
+        installed: this.sttInstalled(),
+        installing: this.sttInstall,
+        error: this.sttError,
+        loading: !!x && !!x.loading && x.loading.has('stt'),
+        ready: !!x && x.state === 'ready' && !!x.loaded && x.loaded.has('stt'),
       },
     }
   }
+
+  /** Il microfono e' installato (XTTS, pacchetti e modello Whisper). */
+  sttInstalled() { return !!this.xtts && !!this.setup.sttInstalled && this.setup.sttInstalled(this.dir) }
 
   samplesDir() { return path.join(this.dir, 'samples') }
 
@@ -271,19 +291,29 @@ class VoiceService {
   // ─── XTTS ────────────────────────────────────────────────────────────────
 
   /**
-   * Accende o spegne il servizio XTTS secondo la config: acceso con la voce
-   * attiva, XTTS scelto e installato. Caricare il modello richiede decine di
-   * secondi, quindi si fa prima che arrivi una risposta. Lo spegnimento
-   * aspetta un poco: chi sistema le impostazioni (motore, poi voce attiva)
-   * lo spegnerebbe e riaccenderebbe a ogni clic.
+   * Accende o spegne il servizio secondo la config: acceso se serve la voce
+   * XTTS (voce attiva, XTTS scelto e installato) o il microfono (attivo e
+   * installato), con i modelli che servono gia' caricati. Caricare XTTS
+   * richiede decine di secondi, quindi si fa prima che arrivi una risposta.
+   * Lo spegnimento aspetta un poco: chi sistema le impostazioni (motore, poi
+   * voce attiva) lo spegnerebbe e riaccenderebbe a ogni clic.
+   * @param {{ tts?: boolean, stt?: boolean }} need
    */
-  syncXtts(active) {
+  syncService(need) {
     if (!this.xtts) return
+    this.need = { tts: !!need.tts, stt: !!need.stt }
     clearTimeout(this.xttsStopTimer)
     this.xttsStopTimer = null
-    if (active && this.setup.xttsInstalled(this.dir) && !this.xttsInstall) {
-      this.xtts.start().catch(() => { /* l'errore e' nello stato */ })
-    } else if (!active && !this.xttsInstall && this.xtts.state !== 'off') {
+    const busy = !!this.xttsInstall || !!this.sttInstall
+    const want = []
+    if (this.need.tts && this.setup.xttsInstalled(this.dir)) want.push('tts')
+    if (this.need.stt && this.sttInstalled()) want.push('stt')
+    if (want.length && !busy) {
+      this.xtts.start(want)
+        .then(() => Promise.all(want.map(kind => this.xtts.ensure(kind))))
+        .catch(() => { /* l'errore e' nello stato */ })
+        .finally(() => this._emit())
+    } else if (!want.length && !busy && this.xtts.state !== 'off') {
       this.xttsStopTimer = setTimeout(() => { this.xttsStopTimer = null; this.xtts.stop() }, this.xttsIdleMs)
       if (this.xttsStopTimer.unref) this.xttsStopTimer.unref()
     }
@@ -325,10 +355,12 @@ class VoiceService {
 
   cancelXttsInstall() { if (this.xttsAbort) this.xttsAbort.abort() }
 
-  /** Toglie XTTS (i campioni della voce restano). */
+  /** Toglie XTTS, e con lui il microfono (i campioni della voce restano). */
   async removeXtts() {
     this.stop()
     this.cancelXttsInstall()
+    this.cancelSttInstall()
+    this.sttError = null
     // Il processo deve aver lasciato i file prima di cancellarli.
     clearTimeout(this.xttsStopTimer)
     if (this.xtts) await this.xtts.stop()
@@ -342,9 +374,12 @@ class VoiceService {
     return this.status()
   }
 
-  /** Le voci incluse in XTTS, se il servizio e' acceso. */
+  /**
+   * Le voci incluse in XTTS, se il servizio e' acceso con XTTS caricato. Acceso
+   * solo per il microfono non si carica XTTS per un elenco: 30 s e 2 GB.
+   */
   async xttsSpeakers() {
-    if (!this.xtts || this.xtts.state !== 'ready') return []
+    if (!this.xtts || this.xtts.state !== 'ready' || !this.xtts.loaded || !this.xtts.loaded.has('tts')) return []
     try { return await this.xtts.speakers() } catch (_) { return [] }
   }
 
@@ -372,9 +407,82 @@ class VoiceService {
     return fs.existsSync(full) ? full : null
   }
 
+  // ─── Microfono ───────────────────────────────────────────────────────────
+
+  /** Aggiunge il microfono (pacchetti e modello Whisper) a XTTS installato. */
+  async installStt() {
+    if (!this.xtts || !this.setup.installStt || this.sttInstall || this.xttsInstall) return this.status()
+    this.sttAbort = new AbortController()
+    this.sttError = null
+    this.sttInstall = { step: 'packages', index: 0, count: this.setup.STT_STEPS ? this.setup.STT_STEPS.length : 3, label: '', done: 0, total: 0 }
+    this._emit()
+    let last = 0
+    try {
+      await this.setup.installStt(this.dir, {
+        signal: this.sttAbort.signal,
+        baseUrl: this.baseUrl,
+        onProgress: (p) => {
+          const changed = !this.sttInstall || this.sttInstall.step !== p.step
+          this.sttInstall = p
+          const now = Date.now()
+          if (changed || now - last > 500) { last = now; this._emit() }
+        },
+        check: () => this.xtts.ensure('stt'),
+      })
+    } catch (error) {
+      this.sttError = this.sttAbort.signal.aborted ? 'installazione annullata' : error.message
+    } finally {
+      this.sttInstall = null
+      this.sttAbort = null
+      this._emit()
+    }
+    // Il servizio acceso solo per la prova si spegne, se non serve.
+    this.syncService(this.need)
+    return this.status()
+  }
+
+  cancelSttInstall() { if (this.sttAbort) this.sttAbort.abort() }
+
+  /** Toglie il modello del microfono. Il servizio si spegne: tiene il modello aperto. */
+  async removeStt() {
+    if (!this.setup.uninstallStt) return this.status()
+    this.cancelSttInstall()
+    clearTimeout(this.xttsStopTimer)
+    if (this.xtts) await this.xtts.stop()
+    try {
+      await this.setup.uninstallStt(this.dir)
+      this.sttError = null
+    } catch (error) {
+      this.sttError = 'disinstallazione incompleta, riprova: ' + error.message
+    }
+    this._emit()
+    this.syncService(this.need)
+    return this.status()
+  }
+
+  /**
+   * Il testo detto nel microfono, pulito (cleanTranscript): vuoto se non si e'
+   * capito niente. Gli errori finiscono anche nello stato.
+   * @param {Float32Array} pcm mono a 16 kHz
+   * @returns {Promise<{ text: string, seconds: number, took: number }>}
+   */
+  async transcribe(pcm) {
+    if (!this.sttInstalled()) throw new Error('prima installa il microfono (Impostazioni, Voce)')
+    try {
+      const res = await this.xtts.transcribe(pcm)
+      if (this.sttError) { this.sttError = null; this._emit() }
+      return { text: cleanTranscript(res.text), seconds: Number(res.seconds) || 0, took: Number(res.took) || 0 }
+    } catch (error) {
+      this.sttError = error.message
+      this._emit()
+      throw error
+    }
+  }
+
   shutdown() {
     this.cancelDownload()
     this.cancelXttsInstall()
+    this.cancelSttInstall()
     this._stopWorker()
     clearTimeout(this.xttsStopTimer)
     if (this.xtts) this.xtts.stop()

@@ -564,10 +564,13 @@ accettata (`voice.cpmlAccepted`, e il main la ricontrolla).
   avvio. Carica il modello sulla GPU e fa un giro di prova, poi scrive
   `XTTS_SERVICE_READY {porta}`. `/tts` risponde a pezzi mentre genera
   (`inference_stream`): uint32 byte + float32 a 24 kHz, 0 = fine. Una
-  richiesta interrotta dal main ferma la generazione. Se il main muore, stdin
-  si chiude e il servizio esce, liberando la GPU. Il thread che guarda stdin
-  parte solo a modello caricato: su Windows una lettura di stdin in attesa fin
-  dall'avvio bloccava gli import di numpy e torch.
+  richiesta interrotta dal main ferma la generazione. Se l'app muore, o il
+  main chiude il lanciatore del venv, il servizio esce e libera la GPU: un
+  thread aspetta la fine dei due processi con `WaitForMultipleObjects`
+  (`VOICE_PARENT_PID`). Non legge stdin: su Windows una lettura di stdin in
+  attesa tiene un lock della libreria C, e un import fatto intanto (scipy con
+  i suoi DLL, caricando XTTS dopo l'avvio) si bloccava nel caricatore dei
+  DLL, e con lui tutto il servizio.
 - **Campione:** "Importa un campione…" (dialogo del main); il servizio lo
   converte in WAV mono a 24 kHz (librosa), taglia i silenzi, tiene al massimo
   30 s e ne salva i latenti (`.latents.pt`) accanto. Un campione nuovo
@@ -584,6 +587,44 @@ accettata (`voice.cpmlAccepted`, e il main la ricontrolla).
   reale. L'audit lo prova con `--xtts <cartella voice>`.
 - Nel companion le frasi di XTTS arrivano a pezzi: `voice-player.js` li mette
   in fila senza buchi, e la pausa fra le frasi è un messaggio a parte (`gap`).
+
+**Microfono (facoltativo, dopo XTTS).** Tieni premuta la scorciatoia
+(Ctrl + Alt + M di base) o 🎙 nella chat, parla e lascia: il testo parte
+come un messaggio scritto. Un tocco breve lascia il microfono aperto fino al
+tocco dopo; Esc annulla.
+- **Installazione** (`installStt` in `xtts-setup.js`), dopo XTTS e nel suo
+  stesso ambiente: gli 8 pacchetti di `src/main/xtts/requirements-stt.txt`
+  (faster-whisper, CTranslate2, PyAV, onnxruntime e dipendenze piccole) con
+  `--require-hashes --no-deps`, perché le altre dipendenze sono già quelle di
+  XTTS: il file è compilato insieme a `requirements.txt` e nessuna versione
+  di quello cambia (un test lo controlla). Poi il modello Whisper
+  large-v3-turbo in fp16 per CTranslate2 (1,6 GB, commit fisso, SHA-256) in
+  `voice/xtts/whisper`, e una prima accensione. Il segno è `voice/xtts/stt.json`.
+  "Disinstalla" del microfono toglie il modello (a servizio spento: su Windows
+  il modello caricato non si cancella); quello di XTTS toglie tutto.
+- **Servizio:** lo stesso di XTTS. All'avvio carica solo i modelli chiesti
+  (`VOICE_LOAD`), gli altri con `/load` (`ensure()` in `xtts-engine.js`): con
+  la voce spenta o su Kokoro e il microfono acceso, XTTS non si carica.
+  `/stt` riceve float32 mono a 16 kHz (al massimo 120 s) e risponde col testo.
+  Il filtro VAD di faster-whisper toglie i silenzi, altrimenti Whisper sul
+  rumore si inventa i titoli dei sottotitoli; `cleanTranscript`
+  (`speech-text.js`) toglie quelli che restano. torch si importa prima di
+  faster-whisper: carica le DLL di CUDA che servono a CTranslate2.
+- **Registrazione** (`mic-recorder.js` e `mic-worklet.js`, nelle pagine):
+  `getUserMedia` con cancellazione dell'eco, un `AudioContext` a 16 kHz che
+  ricampiona, un AudioWorklet che passa blocchi di 2048 campioni. Il microfono
+  è aperto solo mentre si registra, al massimo 60 s. Il PCM va al main con
+  `mic:transcribe`; nel log finisce la durata, mai il testo.
+- **Scorciatoia globale** (`globalShortcut`, fra quelle di `MIC_SHORTCUTS` in
+  `guards.js`): Electron dice solo quando la si preme, quindi finché si
+  registra il main guarda il tasto con `GetAsyncKeyState` (koffi,
+  `win-windows.js`) ogni 40 ms. Registra la chat anche se è chiusa; con la
+  voce spenta la chat si apre, perché la risposta si veda. Se un altro
+  programma usa già la scorciatoia, le Impostazioni lo dicono.
+- **Mentre ascolta** (`mic:state`): la voce si zittisce e il companion mostra
+  "🎙 Ti ascolto…" (`companion-bubble`, senza cambiare animazione).
+- **Permesso:** `allowPermission` in `guards.js` concede solo `media` audio,
+  solo alle pagine di `src/renderer/`, solo con `voice.micEnabled`.
 
 `npm run voice:check -- <cartella>` prova la voce senza aprire l'app.
 L'audit la prova con `--voice <cartella>`: una risposta della chat deve

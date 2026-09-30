@@ -54,6 +54,8 @@
     .state.error { color: #ff9a9a; }
     .state.ok { color: #9fe0b0; }
     .hidden { display: none !important; }
+    #mic-test { flex: none; white-space: nowrap; }
+    #mic-test.listening { background: #c0395a; border-color: #ff7a9a; }
     .choices.stack { flex-direction: column; gap: 8px; }
     .choices.stack label { align-items: flex-start; }
     .license { align-items: flex-start; margin: 10px 0 4px; line-height: 1.5; }
@@ -73,7 +75,7 @@
   </nav>
   <main>
     <h1>Voce</h1>
-    <p class="sub">Il companion legge ad alta voce le sue risposte, e la bocca segue la voce. La voce si genera sul tuo PC: per leggerle, il testo non esce dal computer.</p>
+    <p class="sub">Il companion legge ad alta voce le sue risposte, e la bocca segue la voce. Puoi anche parlargli con il microfono. Voce e ascolto girano sul tuo PC: né il testo da leggere né l'audio escono dal computer.</p>
 
     <section>
       <label class="switch"><input type="checkbox" id="voice-enabled"> Legge ad alta voce le risposte</label>
@@ -155,7 +157,38 @@
         <span class="muted" id="test-note"></span>
       </div>
     </section>
+
+    <section>
+      <h2>Microfono</h2>
+      <div class="box">
+        <label class="switch"><input type="checkbox" id="mic-enabled"> Parlo al companion con il microfono</label>
+        <div class="state" id="stt-line"></div>
+        <div id="stt-step" class="muted hidden"></div>
+        <div class="bar hidden" id="stt-bar"><div id="stt-bar-fill"></div></div>
+        <div class="row">
+          <button class="primary" id="stt-install">Installa il microfono</button>
+          <button id="stt-cancel" class="hidden">Annulla</button>
+          <button class="danger" id="stt-remove">Disinstalla</button>
+        </div>
+        <div class="row mic-ready">
+          <label class="name" for="mic-shortcut">Scorciatoia</label>
+          <select id="mic-shortcut"></select>
+        </div>
+        <p class="muted mic-ready" id="shortcut-note"></p>
+        <div class="row mic-ready">
+          <button id="mic-test">🎙 Tieni premuto e parla</button>
+          <span class="muted" id="mic-test-note"></span>
+        </div>
+        <p class="muted" style="margin-top:8px">
+          Tieni premuta la scorciatoia (o 🎙 nella chat), parla e lascia: quello che hai detto parte come messaggio.
+          Un tocco breve lascia il microfono aperto fino al tocco successivo. L'audio non esce dal PC: lo trascrive
+          Whisper large-v3-turbo (licenza MIT) sulla scheda video, nello stesso servizio di XTTS. Si installa dopo XTTS
+          (circa 1,8 GB) e, mentre il microfono è acceso, occupa circa 2,5 GB della scheda video.
+        </p>
+      </div>
+    </section>
   </main>
+  <script src="mic-recorder.js"></script>
   <script src="settings.js"></script>
 </body>
 </html>

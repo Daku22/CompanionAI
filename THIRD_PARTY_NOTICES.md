@@ -36,9 +36,12 @@ SHA-256 hash before use:
 | [XTTS-v2](https://huggingface.co/coqui/XTTS-v2) model (Coqui) | commit `6c2b0d7` | [Coqui Public Model License](https://huggingface.co/coqui/XTTS-v2/blob/main/LICENSE.txt): **non-commercial use only** | Hugging Face, fixed commit. Downloaded only after you accept the license in the settings; the license text is downloaded with it (`LICENSE.txt`) |
 | [uv](https://github.com/astral-sh/uv) (Astral) | 0.12.21 | MIT or Apache-2.0 | GitHub releases. Installs the Python environment for XTTS |
 | Python 3.10 (python-build-standalone) and the packages in `src/main/xtts/requirements.txt`, including [coqui-tts](https://github.com/idiap/coqui-ai-TTS) (MPL-2.0) and [PyTorch](https://pytorch.org/) with CUDA (BSD-3-Clause, with NVIDIA's CUDA libraries under their own licenses) | pinned, with hashes | each package's own license | Python's official downloads through uv, PyPI and download.pytorch.org |
+| [Whisper large-v3-turbo](https://huggingface.co/openai/whisper-large-v3-turbo) (OpenAI), CTranslate2 conversion `dropbox-dash/faster-whisper-large-v3-turbo` | commit `0a363e9` | MIT | Hugging Face, fixed commit. Downloaded only when you press "Installa il microfono" |
+| The packages in `src/main/xtts/requirements-stt.txt`: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (MIT, includes the Silero VAD model, MIT), [CTranslate2](https://github.com/OpenNMT/CTranslate2) (MIT), [PyAV](https://github.com/PyAV-Org/PyAV) (BSD-3-Clause, with FFmpeg under LGPL), [ONNX Runtime](https://onnxruntime.ai/) (MIT) and their small helpers | pinned, with hashes | each package's own license | PyPI, through uv, into the XTTS environment |
 
 `src/main/xtts/xtts_service.py` is part of CompanionAI (MIT): it only calls
-coqui-tts, which is installed separately in that Python environment.
+coqui-tts and faster-whisper, which are installed separately in that Python
+environment.
 
 Data copied into the source:
 

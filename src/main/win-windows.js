@@ -2,8 +2,9 @@
 //
 // Electron non elenca le finestre degli altri programmi: servono user32 e
 // dwmapi, chiamati con koffi (MIT, FFI senza compilazione; il binario sta in
-// @koromix/koffi-win32-x64). Serve alla seduta su finestre e taskbar, e piu'
-// avanti a schermo intero, bordi e app attiva.
+// @koromix/koffi-win32-x64). Serve alla seduta su finestre e taskbar, alla
+// scorciatoia del microfono (quando si lascia il tasto), e piu' avanti a
+// schermo intero, bordi e app attiva.
 //
 // Se koffi non si carica (altro sistema, pacchetto rotto) il modulo si spegne:
 // available() dice false, le funzioni restituiscono valori vuoti e il resto
@@ -53,6 +54,7 @@ function load() {
       GetForegroundWindow: user32.func('intptr_t __stdcall GetForegroundWindow()'),
       IsWindow: user32.func('bool __stdcall IsWindow(intptr_t hwnd)'),
       GetWindow: user32.func('intptr_t __stdcall GetWindow(intptr_t hwnd, uint32 cmd)'),
+      GetAsyncKeyState: user32.func('int16 __stdcall GetAsyncKeyState(int key)'),
       SetWindowPos: user32.func('bool __stdcall SetWindowPos(intptr_t hwnd, intptr_t after, int x, int y, int cx, int cy, uint32 flags)'),
       DwmRect: dwmapi.func('int32 __stdcall DwmGetWindowAttribute(intptr_t hwnd, uint32 attr, _Out_ RECT *value, uint32 size)'),
       DwmInt: dwmapi.func('int32 __stdcall DwmGetWindowAttribute(intptr_t hwnd, uint32 attr, _Out_ uint32 *value, uint32 size)'),
@@ -194,4 +196,14 @@ function handleOf(buf) {
   return buf.length >= 8 ? Number(buf.readBigUInt64LE(0)) : buf.readUInt32LE(0)
 }
 
-module.exports = { available, unavailableReason, listWindows, foregroundWindow, windowState, placeAbove, handleOf }
+/**
+ * Il tasto e' premuto adesso (codice virtuale di Windows)? Per la scorciatoia
+ * del microfono: Electron dice quando la si preme, non quando la si lascia.
+ * @param {number} vk
+ */
+function isKeyDown(vk) {
+  if (!load() || !vk) return false
+  return (api.GetAsyncKeyState(vk) & 0x8000) !== 0
+}
+
+module.exports = { available, unavailableReason, listWindows, foregroundWindow, windowState, placeAbove, handleOf, isKeyDown }

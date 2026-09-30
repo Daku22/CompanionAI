@@ -154,6 +154,19 @@ const WINDOW_SCALES = {
 const VOICE_DEFAULTS = {
   enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9,
   xttsSpeaker: 'sample', xttsSample: null, cpmlAccepted: false,
+  micEnabled: false, micShortcut: 'Ctrl+Alt+M',
+}
+// Microfono: spento di base. Si parla tenendo premuta una scorciatoia fra
+// queste (acceleratore di Electron -> tasto da controllare finche' e' giu',
+// codice virtuale di Windows), o il pulsante 🎙 della chat. Ctrl+Alt+M di
+// base: AltGr+M sulla tastiera italiana non scrive niente, e Ctrl+Alt+Spazio
+// sul PC di prova l'aveva gia' preso un altro programma.
+const MIC_SHORTCUTS = {
+  'Ctrl+Alt+M': { label: 'Ctrl + Alt + M', vk: 0x4d },
+  'Ctrl+Alt+Space': { label: 'Ctrl + Alt + Spazio', vk: 0x20 },
+  'Ctrl+Shift+Space': { label: 'Ctrl + Maiusc + Spazio', vk: 0x20 },
+  'F9': { label: 'F9', vk: 0x78 },
+  'off': { label: 'Nessuna (solo il pulsante della chat)', vk: 0 },
 }
 const VOICE_ENGINES = ['kokoro', 'xtts']
 const KOKORO_VOICES = ['if_sara', 'im_nicola']
@@ -173,6 +186,8 @@ function mergeVoice(current, incoming) {
   if (typeof incoming.volume === 'number' && Number.isFinite(incoming.volume)) next.volume = Math.round(Math.max(0, Math.min(1, incoming.volume)) * 100) / 100
   if (typeof incoming.xttsSpeaker === 'string' && XTTS_SPEAKER_RE.test(incoming.xttsSpeaker)) next.xttsSpeaker = incoming.xttsSpeaker
   if (typeof incoming.cpmlAccepted === 'boolean') next.cpmlAccepted = incoming.cpmlAccepted
+  if (typeof incoming.micEnabled === 'boolean') next.micEnabled = incoming.micEnabled
+  if (typeof incoming.micShortcut === 'string' && Object.prototype.hasOwnProperty.call(MIC_SHORTCUTS, incoming.micShortcut)) next.micShortcut = incoming.micShortcut
   return next
 }
 
@@ -262,8 +277,28 @@ function isTrustedSender(senderUrl, rendererDirUrl) {
   return senderUrl.toLowerCase().startsWith(rendererDirUrl.toLowerCase()) && !senderUrl.includes('..')
 }
 
+/**
+ * I permessi del browser che una pagina puo' avere: solo il microfono (audio,
+ * mai la fotocamera), solo per le pagine dell'app, e solo con il microfono
+ * acceso nelle Impostazioni. Tutto il resto (notifiche, posizione, ...) no.
+ * Serve sia a setPermissionRequestHandler (details.mediaTypes) sia a
+ * setPermissionCheckHandler (details.mediaType).
+ * @param {string} permission
+ * @param {{ requestingUrl?: string, mediaTypes?: string[], mediaType?: string }} details
+ * @param {string} rendererDirUrl come per isTrustedSender
+ * @param {boolean} micEnabled
+ */
+function allowPermission(permission, details, rendererDirUrl, micEnabled) {
+  if (permission !== 'media' || !micEnabled || !details) return false
+  if (!isTrustedSender(details.requestingUrl, rendererDirUrl)) return false
+  if (Array.isArray(details.mediaTypes)) return details.mediaTypes.length > 0 && details.mediaTypes.every(t => t === 'audio')
+  return details.mediaType === 'audio'
+}
+
 module.exports = {
   isTrustedSender,
+  allowPermission,
+  MIC_SHORTCUTS,
   SAFE_COMMANDS,
   isSafeUrl,
   isExecutable,

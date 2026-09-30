@@ -1,19 +1,26 @@
-# xtts_service.py — la voce XTTS-v2 di CompanionAI, come servizio locale.
+# xtts_service.py — la voce locale di CompanionAI, come servizio: XTTS-v2 per
+# parlare e faster-whisper per ascoltare il microfono.
 #
 # Lo avvia il main (xtts-engine.js) con il Python installato al primo uso
-# (xtts-setup.js). Carica il modello sulla GPU una volta e risponde su
-# 127.0.0.1, a una porta scelta dal sistema, solo a chi conosce il token
-# ricevuto nell'ambiente. Quando e' pronto scrive su stdout una riga
-# "XTTS_SERVICE_READY {json}"; tutto il resto va su stderr.
+# (xtts-setup.js). Risponde su 127.0.0.1, a una porta scelta dal sistema, solo
+# a chi conosce il token ricevuto nell'ambiente. Carica sulla GPU i modelli
+# chiesti in VOICE_LOAD ("tts", "stt" o tutti e due), gli altri alla prima
+# richiesta o con /load. Quando e' pronto scrive su stdout una riga
+# "XTTS_SERVICE_READY {json}"; tutto il resto va su stderr. Si chiude da solo
+# quando finisce l'app (VOICE_PARENT_PID) o il suo lanciatore.
 #
 # /tts risponde a pezzi mentre il modello genera: ogni pezzo e' un intero a
 # 32 bit (quanti byte seguono) e i campioni float32 a 24 kHz; un pezzo di 0
 # byte chiude la frase. Se il main chiude la connessione (una risposta nuova
 # ha interrotto quella vecchia) la generazione si ferma.
 #
+# /stt riceve i campioni float32 a 16 kHz, mono, e risponde con il testo.
+#
 # XTTS-v2 e' sotto la Coqui Public Model License: solo uso non commerciale.
 # Il modello lo scarica l'utente al primo uso, dopo averla accettata.
+# Whisper large-v3-turbo (OpenAI, convertito per CTranslate2): MIT.
 
+import importlib
 import json
 import os
 import struct
@@ -25,9 +32,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL_DIR = sys.argv[1]
 SAMPLES_DIR = os.path.realpath(sys.argv[2])
+WHISPER_DIR = sys.argv[3] if len(sys.argv) > 3 else ''
 TOKEN = os.environ.get('XTTS_TOKEN', '')
+LOAD = [k for k in os.environ.get('VOICE_LOAD', 'tts').split(',') if k in ('tts', 'stt')]
 RATE = 24000
+STT_RATE = 16000
 MAX_SAMPLE_S = 30
+MAX_LISTEN_S = 120
 os.environ.setdefault('COQUI_TOS_AGREED', '1')
 
 
@@ -35,36 +46,105 @@ def log(*args):
     print(*args, file=sys.stderr, flush=True)
 
 
-# Se il main muore senza chiuderci, stdin si chiude: si esce, liberando la GPU.
-# Parte solo a modello caricato: su Windows una lettura di stdin in attesa
-# fin dall'avvio bloccava gli import (numpy, torch) e il servizio restava fermo.
+# Se l'app muore, o il main chiude il lanciatore del venv (stop()), si esce
+# liberando la GPU. Si aspetta la fine dei due processi con
+# WaitForMultipleObjects, non leggendo stdin: una lettura di stdin in attesa
+# tiene un lock della libreria C di Windows, e un import fatto intanto (XTTS,
+# con scipy e i suoi DLL) si bloccava nel caricatore dei DLL; da li' il server
+# non riusciva piu' ad aprire thread e ogni richiesta restava appesa.
 def watch_parent():
-    try:
-        for _ in sys.stdin:
-            pass
-    finally:
-        os._exit(0)
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL('kernel32')
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k32.WaitForMultipleObjects.argtypes = (wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE), wintypes.BOOL, wintypes.DWORD)
+    synchronize, infinite = 0x00100000, 0xFFFFFFFF
+    pids = {os.getppid(), int(os.environ.get('VOICE_PARENT_PID') or 0)} - {0}
+    handles = [h for h in (k32.OpenProcess(synchronize, False, pid) for pid in pids) if h]
+    if not handles:
+        log('processi da guardare non trovati: il servizio non si chiudera\' da solo')
+        return
+    k32.WaitForMultipleObjects(len(handles), (wintypes.HANDLE * len(handles))(*handles), False, infinite)
+    os._exit(0)
 
 
+if os.name == 'nt':
+    threading.Thread(target=watch_parent, daemon=True).start()
+
+
+# torch per primo: carica le DLL di CUDA (cuBLAS, cuDNN) che servono anche a
+# CTranslate2, il motore di faster-whisper.
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
-from TTS.tts.configs.xtts_config import XttsConfig  # noqa: E402
-from TTS.tts.models.xtts import Xtts  # noqa: E402
 
 started = time.time()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-config = XttsConfig()
-config.load_json(os.path.join(MODEL_DIR, 'config.json'))
-model = Xtts.init_from_config(config)
-model.load_checkpoint(config, checkpoint_dir=MODEL_DIR, use_deepspeed=False)
-model.to(device)
-model.eval()
-lock = threading.Lock()   # una frase alla volta: la GPU e' una
+tts_lock = threading.Lock()   # una frase alla volta: la GPU e' una
+stt_lock = threading.Lock()   # un ascolto alla volta
+tts_model = None
+stt_model = None
 latents = {}
 
 
+def get_tts():
+    """XTTS, caricato la prima volta (da chiamare con tts_lock preso)."""
+    global tts_model
+    if tts_model is None:
+        from TTS.tts.configs.xtts_config import XttsConfig
+        from TTS.tts.models.xtts import Xtts
+        config = XttsConfig()
+        config.load_json(os.path.join(MODEL_DIR, 'config.json'))
+        model = Xtts.init_from_config(config)
+        model.load_checkpoint(config, checkpoint_dir=MODEL_DIR, use_deepspeed=False)
+        model.to(device)
+        model.eval()
+        tts_model = model
+        # Un giro di prova: la prima frase vera parte subito.
+        try:
+            names = builtin_speakers()
+            if names:
+                for _ in speak('Ciao.', {'builtin': names[0]}, 1.0, 'it'):
+                    pass
+        except Exception:
+            log(traceback.format_exc())
+    return tts_model
+
+
+def get_stt():
+    """faster-whisper, caricato la prima volta (da chiamare con stt_lock preso)."""
+    global stt_model
+    if stt_model is None:
+        if not WHISPER_DIR or not os.path.exists(os.path.join(WHISPER_DIR, 'model.bin')):
+            raise ValueError('il modello del microfono non e\' installato')
+        # I pacchetti del microfono possono essere arrivati con il servizio
+        # gia' acceso: Python deve rileggere le cartelle.
+        importlib.invalidate_caches()
+        from faster_whisper import WhisperModel
+        model = WhisperModel(WHISPER_DIR, device=device, compute_type='float16' if device == 'cuda' else 'int8')
+        # Il primo ascolto prepara la GPU (qualche secondo): lo si fa adesso.
+        list(model.transcribe(np.zeros(STT_RATE, np.float32), language='it', without_timestamps=True)[0])
+        stt_model = model
+    return stt_model
+
+
+def load(kind):
+    if kind == 'tts':
+        with tts_lock:
+            get_tts()
+    elif kind == 'stt':
+        with stt_lock:
+            get_stt()
+    else:
+        raise ValueError('modello sconosciuto: ' + str(kind))
+
+
+def loaded():
+    return [k for k, m in (('tts', tts_model), ('stt', stt_model)) if m is not None]
+
+
 def builtin_speakers():
-    manager = getattr(model, 'speaker_manager', None)
+    manager = getattr(tts_model, 'speaker_manager', None)
     return sorted(manager.speakers.keys()) if manager and getattr(manager, 'speakers', None) else []
 
 
@@ -77,6 +157,7 @@ def inside_samples(path):
 
 def conditioning(speaker):
     """Latenti della voce: una voce inclusa nel modello, o il campione dell'utente."""
+    model = get_tts()
     if speaker.get('builtin'):
         s = model.speaker_manager.speakers[speaker['builtin']]
         return s['gpt_cond_latent'].to(device), s['speaker_embedding'].to(device)
@@ -110,7 +191,16 @@ def prepare(src, dst):
 
 def speak(text, speaker, speed, language):
     gpt, emb = conditioning(speaker)
-    return model.inference_stream(text, language, gpt, emb, speed=speed, enable_text_splitting=False)
+    return get_tts().inference_stream(text, language, gpt, emb, speed=speed, enable_text_splitting=False)
+
+
+def transcribe(audio, language):
+    """Il testo detto nel microfono. Il filtro VAD toglie i silenzi: senza,
+    Whisper sul silenzio si inventa frasi ("Sottotitoli a cura di...")."""
+    with stt_lock:
+        segments, _ = get_stt().transcribe(audio, language=language, vad_filter=True, beam_size=5,
+                                           condition_on_previous_text=False, without_timestamps=True)
+        return ' '.join(s.text.strip() for s in segments).strip()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -131,18 +221,26 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(403, {'error': 'token mancante o sbagliato'})
         return False
 
-    def read_json(self):
+    def read_body(self, limit):
         length = int(self.headers.get('Content-Length') or 0)
-        return json.loads(self.rfile.read(length) or b'{}') if length else {}
+        if length > limit:
+            raise ValueError('richiesta troppo grande')
+        return self.rfile.read(length) if length else b''
+
+    def read_json(self):
+        body = self.read_body(1 << 20)
+        return json.loads(body) if body else {}
 
     def do_GET(self):
         if not self.allowed():
             return
         if self.path == '/health':
             gpu = torch.cuda.get_device_name(0) if device == 'cuda' else None
-            self.reply(200, {'ok': True, 'device': device, 'gpu': gpu,
+            self.reply(200, {'ok': True, 'device': device, 'gpu': gpu, 'loaded': loaded(),
                              'vram': round(torch.cuda.memory_allocated() / 1e9, 2) if device == 'cuda' else 0})
         elif self.path == '/speakers':
+            with tts_lock:
+                get_tts()
             self.reply(200, {'speakers': builtin_speakers()})
         else:
             self.reply(404, {'error': 'non trovato'})
@@ -151,12 +249,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return
         try:
+            if self.path == '/stt':
+                self.stt()
+                return
             data = self.read_json()
             if self.path == '/prepare':
-                with lock:
+                with tts_lock:
                     seconds = prepare(data['src'], data['dst'])
                     conditioning({'sample': data['dst']})
                 self.reply(200, {'ok': True, 'seconds': round(seconds, 1)})
+            elif self.path == '/load':
+                load(data.get('kind'))
+                self.reply(200, {'ok': True, 'loaded': loaded()})
             elif self.path == '/tts':
                 self.tts(data)
             else:
@@ -168,13 +272,26 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+    def stt(self):
+        if self.headers.get('X-Sample-Rate') != str(STT_RATE):
+            self.reply(400, {'error': 'servono campioni a 16 kHz'})
+            return
+        body = self.read_body(STT_RATE * 4 * MAX_LISTEN_S)
+        if len(body) % 4:
+            self.reply(400, {'error': 'campioni non validi'})
+            return
+        audio = np.frombuffer(body, dtype='<f4').astype(np.float32)
+        took = time.time()
+        text = transcribe(audio, self.headers.get('X-Language') or 'it') if len(audio) else ''
+        self.reply(200, {'text': text, 'seconds': round(len(audio) / STT_RATE, 2), 'took': round(time.time() - took, 2)})
+
     def tts(self, data):
         text = str(data.get('text') or '').strip()
         if not text:
             self.reply(400, {'error': 'testo vuoto'})
             return
         speed = min(1.4, max(0.7, float(data.get('speed') or 1)))
-        with lock:
+        with tts_lock:
             chunks = speak(text, data.get('speaker') or {}, speed, data.get('language') or 'it')
             self.send_response(200)
             self.send_header('Content-Type', 'application/octet-stream')
@@ -191,19 +308,19 @@ class Handler(BaseHTTPRequestHandler):
                 pass  # interrotta dal main: la generazione si ferma qui
 
 
-# Un giro di prova prima di dirsi pronti: la prima frase vera parte subito.
-try:
-    names = builtin_speakers()
-    if names:
-        for _ in speak('Ciao.', {'builtin': names[0]}, 1.0, 'it'):
-            pass
-except Exception:
-    log(traceback.format_exc())
+# I modelli chiesti all'avvio. Se XTTS non si carica il servizio non serve:
+# l'errore esce con lui. Whisper che non si carica resta un errore di /stt.
+for kind in LOAD:
+    try:
+        load(kind)
+    except Exception:
+        log(traceback.format_exc())
+        if kind == 'tts':
+            raise
 
 server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-threading.Thread(target=watch_parent, daemon=True).start()
 print('XTTS_SERVICE_READY ' + json.dumps({
     'port': server.server_address[1], 'device': device, 'seconds': round(time.time() - started, 1),
-    'gpu': torch.cuda.get_device_name(0) if device == 'cuda' else None,
+    'gpu': torch.cuda.get_device_name(0) if device == 'cuda' else None, 'loaded': loaded(),
 }), flush=True)
 server.serve_forever()

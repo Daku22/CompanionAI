@@ -143,6 +143,14 @@
   a private Python environment with pinned, hash-checked packages and the model;
   "Disinstalla" removes it. A local service streams each sentence while it is
   generated, so the first words come in about a second. Kokoro is the fallback.
+- Microphone (optional, off by default, after XTTS): hold the global shortcut
+  (Ctrl + Alt + M by default) or the 🎙 button in the chat, speak and
+  release, and what you said is sent as a message. A short tap keeps the
+  microphone open until the next tap; Esc cancels. Speech is transcribed on
+  your graphics card by Whisper large-v3-turbo (faster-whisper) in the same
+  local service as XTTS: "Installa il microfono" adds its pinned,
+  hash-checked packages and the model (about 1.8 GB). The companion stops
+  talking while you speak and shows "Ti ascolto…".
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.
@@ -195,7 +203,9 @@
 - Settings sent from the UI cannot enable unsafe commands.
 - A plain-text `apiKey` left by an old config format is moved among the
   encrypted keys and removed from the file.
-- Every IPC channel checks its sender, and all browser permissions are denied.
+- Every IPC channel checks its sender. Browser permissions are denied, except
+  the microphone (audio only, never the camera) for the app's own pages while
+  the microphone is on in the settings.
 - Content Security Policy without inline scripts or `eval`.
 - Packaged with Electron 44 and Electron Fuses.
 

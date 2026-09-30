@@ -1,10 +1,13 @@
-// xtts-engine.js — la voce XTTS-v2, lato main.
+// xtts-engine.js — il servizio della voce locale, lato main: XTTS-v2 per
+// parlare, faster-whisper per ascoltare il microfono.
 //
 // Avvia xtts_service.py con il Python installato da xtts-setup.js, aspetta la
 // riga "XTTS_SERVICE_READY" con la porta e parla con lui in HTTP su
-// 127.0.0.1, con un token casuale che conosce solo questo processo. Il modello
-// resta caricato sulla GPU finche' la voce XTTS e' accesa: caricarlo richiede
-// decine di secondi, troppo per farlo a ogni risposta.
+// 127.0.0.1, con un token casuale che conosce solo questo processo. I modelli
+// restano caricati sulla GPU finche' servono (voce XTTS o microfono accesi):
+// caricare XTTS richiede decine di secondi, troppo per farlo a ogni risposta.
+// Il servizio carica all'avvio solo i modelli chiesti; gli altri li carica
+// ensure(), con /load.
 //
 // L'audio arriva a pezzi mentre il modello genera (vedi xtts_service.py):
 // ogni pezzo va subito al companion, e la prima parola si sente prima che la
@@ -16,6 +19,9 @@ const fs = require('fs')
 const path = require('path')
 
 const READY_PREFIX = 'XTTS_SERVICE_READY '
+const STT_RATE = 16000
+const MAX_LISTEN_S = 120
+const STT_TIMEOUT_MS = 60 * 1000
 const START_TIMEOUT_MS = 4 * 60 * 1000
 const STDERR_KEEP = 40
 
@@ -51,11 +57,13 @@ function createFrameReader() {
 class XttsEngine {
   /**
    * @param {{ root: string, samplesDir: string, onState?: (s: any) => void, fetchImpl?: typeof fetch }} opts
-   *   root: la cartella di xtts-setup.js (env/, model/, app/)
+   *   root: la cartella di xtts-setup.js (env/, model/, whisper/, app/)
    */
   constructor({ root, samplesDir, onState, fetchImpl }) {
     this.root = root
     this.samplesDir = samplesDir
+    this.loaded = new Set()  // 'tts', 'stt': i modelli gia' sulla GPU
+    this.loading = new Map() // modello -> promessa di /load in corso
     this.onState = onState || (() => {})
     this.fetch = fetchImpl || fetch
     this.proc = null
@@ -77,8 +85,12 @@ class XttsEngine {
     try { this.onState({ state, error, info: this.info }) } catch (_) { /* finestra chiusa */ }
   }
 
-  /** Avvia il servizio (una volta) e aspetta che sia pronto. */
-  start() {
+  /**
+   * Avvia il servizio (una volta) e aspetta che sia pronto. load: i modelli da
+   * caricare subito; se il servizio e' gia' acceso non cambia nulla (vedi ensure).
+   * @param {string[]} [load]
+   */
+  start(load = ['tts']) {
     if (this.state === 'ready' && this.proc) return Promise.resolve()
     if (this.starting) return this.starting
     this.starting = new Promise((resolve, reject) => {
@@ -92,9 +104,12 @@ class XttsEngine {
       this.token = crypto.randomBytes(24).toString('hex')
       this.stderr = []
       this._set('loading')
-      const proc = spawn(this.python(), ['-u', this.script(), path.join(this.root, 'model'), this.samplesDir], {
-        env: { ...process.env, XTTS_TOKEN: this.token, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', COQUI_TOS_AGREED: '1' },
-        stdio: ['pipe', 'pipe', 'pipe'],
+      this.loaded = new Set()
+      this.loading = new Map()
+      const proc = spawn(this.python(), ['-u', this.script(), path.join(this.root, 'model'), this.samplesDir, path.join(this.root, 'whisper')], {
+        // VOICE_PARENT_PID: il servizio esce da solo se l'app muore.
+        env: { ...process.env, XTTS_TOKEN: this.token, VOICE_LOAD: load.join(','), VOICE_PARENT_PID: String(process.pid), PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', COQUI_TOS_AGREED: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       })
       this.proc = proc
@@ -118,6 +133,7 @@ class XttsEngine {
           const info = JSON.parse(line.slice(READY_PREFIX.length))
           this.port = info.port
           this.info = { device: info.device, gpu: info.gpu, seconds: info.seconds }
+          this.loaded = new Set(Array.isArray(info.loaded) ? info.loaded : [])
         } catch (_) { return fail('risposta del servizio XTTS non valida') }
         settled = true
         clearTimeout(timer)
@@ -154,12 +170,14 @@ class XttsEngine {
     this.proc = null
     this.port = null
     this.starting = null
+    this.loaded = new Set()
+    this.loading = new Map()
     if (this.state !== 'error') this._set('off')
     if (!proc || proc.exitCode !== null) return Promise.resolve()
     return new Promise((resolve) => {
       const timer = setTimeout(resolve, 10000)
       proc.once('exit', () => { clearTimeout(timer); resolve() })
-      try { proc.stdin.end() } catch (_) { /* gia' chiuso */ }
+      // Si chiude il lanciatore del venv: il Python vero se ne accorge ed esce.
       try { proc.kill() } catch (_) { /* gia' uscito */ }
     })
   }
@@ -179,15 +197,34 @@ class XttsEngine {
     return res
   }
 
+  /**
+   * Il servizio acceso con quel modello caricato. Se il servizio parte adesso
+   * lo carica all'avvio, altrimenti lo chiede con /load (una volta sola).
+   * @param {'tts'|'stt'} kind
+   */
+  async ensure(kind) {
+    await this.start([kind])
+    if (this.loaded.has(kind)) return
+    if (!this.loading.has(kind)) {
+      const port = this.port
+      const job = this._request('POST', '/load', { kind })
+        .then(() => { if (this.port === port) { this.loaded.add(kind); this._set(this.state) } })
+        .finally(() => { if (this.loading.get(kind) === job) this.loading.delete(kind) })
+      this.loading.set(kind, job)
+      this._set(this.state)
+    }
+    await this.loading.get(kind)
+  }
+
   /** Le voci incluse nel modello (58, con nomi come "Ana Florence"). */
   async speakers() {
-    await this.start()
+    await this.ensure('tts')
     return (await (await this._request('GET', '/speakers')).json()).speakers || []
   }
 
   /** Converte un campione scelto dall'utente e ne prepara i latenti. */
   async prepareSample(src, dst) {
-    await this.start()
+    await this.ensure('tts')
     return (await this._request('POST', '/prepare', { src, dst })).json()
   }
 
@@ -198,7 +235,7 @@ class XttsEngine {
    * @param {(pcm: Float32Array, rate: number) => void} onAudio
    */
   async synth(text, opts, onAudio) {
-    await this.start()
+    await this.ensure('tts')
     const res = await this._request('POST', '/tts', { text, language: 'it', speaker: opts.speaker, speed: opts.speed || 1 }, opts.signal)
     const rate = Number(res.headers.get('x-sample-rate')) || 24000
     const reader = createFrameReader()
@@ -208,6 +245,31 @@ class XttsEngine {
     }
     if (!reader.done) throw new Error('XTTS: frase interrotta')
   }
+
+  /**
+   * Il testo detto nel microfono.
+   * @param {Float32Array} pcm campioni mono a 16 kHz
+   * @param {{ language?: string, signal?: AbortSignal }} [opts]
+   * @returns {Promise<{ text: string, seconds: number, took: number }>}
+   */
+  async transcribe(pcm, opts = {}) {
+    if (!(pcm instanceof Float32Array)) throw new Error('audio non valido')
+    if (pcm.length > STT_RATE * MAX_LISTEN_S) throw new Error('registrazione troppo lunga')
+    await this.ensure('stt')
+    // Con un limite: un servizio bloccato non deve lasciare la chat in attesa.
+    const res = await this.fetch('http://127.0.0.1:' + this.port + '/stt', {
+      method: 'POST',
+      headers: { 'X-Token': this.token, 'Content-Type': 'application/octet-stream', 'X-Sample-Rate': String(STT_RATE), 'X-Language': opts.language || 'it' },
+      body: /** @type {Uint8Array<ArrayBuffer>} */ (new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)),
+      signal: opts.signal || AbortSignal.timeout(STT_TIMEOUT_MS),
+    })
+    if (!res.ok) {
+      let message = 'errore ' + res.status
+      try { message = (await res.json()).error || message } catch (_) { /* non JSON */ }
+      throw new Error('microfono: ' + message)
+    }
+    return res.json()
+  }
 }
 
-module.exports = { XttsEngine, createFrameReader, READY_PREFIX }
+module.exports = { XttsEngine, createFrameReader, READY_PREFIX, STT_RATE }

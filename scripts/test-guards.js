@@ -10,7 +10,7 @@ const os = require('os')
 const path = require('path')
 const {
   isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES,
-  voiceConfig, VOICE_DEFAULTS,
+  voiceConfig, VOICE_DEFAULTS, allowPermission, MIC_SHORTCUTS,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -199,6 +199,35 @@ test('voce XTTS: motore, voce inclusa o campione, licenza; il file del campione 
   assert.equal(bad.voice.xttsSample, 'voce-123456789.wav', 'lo sceglie solo il main')
   assert.equal(bad.voice.cpmlAccepted, true)
   assert.equal(mergeConfig(base, { voice: { xttsSpeaker: 'sample' } }).voice.xttsSpeaker, 'sample')
+})
+
+test('microfono: interruttore e scorciatoia solo fra quelle previste', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {} }
+  assert.equal(voiceConfig(base).micEnabled, false, 'spento di base')
+  const on = mergeConfig(base, { voice: { micEnabled: true, micShortcut: 'F9' } })
+  assert.equal(on.voice.micEnabled, true)
+  assert.equal(on.voice.micShortcut, 'F9')
+  const bad = mergeConfig(on, { voice: { micEnabled: 1, micShortcut: 'Alt+F4' } })
+  assert.equal(bad.voice.micEnabled, true)
+  assert.equal(bad.voice.micShortcut, 'F9')
+  assert.equal(mergeConfig(on, { voice: { micShortcut: 'toString' } }).voice.micShortcut, 'F9', 'niente nomi ereditati')
+  for (const [key, s] of Object.entries(MIC_SHORTCUTS)) assert.ok(key === 'off' ? s.vk === 0 : s.vk > 0, key)
+})
+
+test('permessi: solo il microfono, solo per le pagine dell\'app, solo se acceso', () => {
+  const dir = 'file:///C:/app/src/renderer/'
+  const chat = 'file:///C:/app/src/renderer/chat.html'
+  assert.equal(allowPermission('media', { requestingUrl: chat, mediaTypes: ['audio'] }, dir, true), true)
+  assert.equal(allowPermission('media', { requestingUrl: chat, mediaType: 'audio' }, dir, true), true, 'controllo (check handler)')
+  assert.equal(allowPermission('media', { requestingUrl: chat, mediaTypes: ['audio'] }, dir, false), false, 'microfono spento')
+  assert.equal(allowPermission('media', { requestingUrl: chat, mediaTypes: ['audio', 'video'] }, dir, true), false, 'mai la fotocamera')
+  assert.equal(allowPermission('media', { requestingUrl: chat, mediaTypes: [] }, dir, true), false)
+  assert.equal(allowPermission('media', { requestingUrl: chat, mediaType: 'video' }, dir, true), false)
+  assert.equal(allowPermission('media', { requestingUrl: 'https://esempio.it/', mediaTypes: ['audio'] }, dir, true), false, 'pagina esterna')
+  assert.equal(allowPermission('media', { requestingUrl: 'file:///C:/altro/x.html', mediaTypes: ['audio'] }, dir, true), false)
+  assert.equal(allowPermission('notifications', { requestingUrl: chat }, dir, true), false)
+  assert.equal(allowPermission('geolocation', { requestingUrl: chat }, dir, true), false)
+  assert.equal(allowPermission('media', undefined, dir, true), false)
 })
 
 test('verso e distanza passano solo con i valori del contratto', () => {

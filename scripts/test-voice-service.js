@@ -143,8 +143,19 @@ async function main() {
     function fakeXtts({ failOn = null, device = 'cuda', delay = 5 } = {}) {
       const x = {
         state: 'off', error: null, info: null, onState: null, calls: [], started: 0, stopped: 0, aborted: 0,
-        async start() { x.started++; x.state = 'ready'; x.info = { device } },
-        stop() { x.stopped++; x.state = 'off' },
+        loaded: new Set(), loading: new Map(), heard: [], sttFail: null,
+        async start(load = ['tts']) {
+          if (x.state === 'ready') return
+          x.started++; x.state = 'ready'; x.info = { device }; x.loaded = new Set(load)
+        },
+        async ensure(kind) { await x.start([kind]); x.loaded.add(kind) },
+        stop() { x.stopped++; x.state = 'off'; x.loaded = new Set() },
+        async transcribe(pcm) {
+          await x.ensure('stt')
+          if (x.sttFail) throw new Error(x.sttFail)
+          x.heard.push(pcm.length)
+          return { text: '  Ciao,  come stai? Sottotitoli a cura di QTSS ', seconds: pcm.length / 16000, took: 0.3 }
+        },
         async synth(text, opts, onAudio) {
           x.calls.push({ text, speaker: opts.speaker })
           if (failOn && text.includes(failOn)) throw new Error('GPU piena')
@@ -159,8 +170,10 @@ async function main() {
       }
       return x
     }
-    const fakeSetup = (installed = true, install = async () => {}) => ({
+    const fakeSetup = (installed = true, install = async () => {}, stt = { installed: false, install: async () => {} }) => ({
       xttsInstalled: () => installed, installXtts: install, uninstallXtts: async () => { installed = false }, STEPS: [1, 2, 3, 4, 5],
+      sttInstalled: () => installed && stt.installed, installStt: stt.install, STT_STEPS: [1, 2, 3],
+      uninstallStt: async () => { stt.installed = false },
     })
 
     await t('XTTS scelto e installato: pezzi in streaming, pausa a fine frase', async () => {
@@ -207,20 +220,20 @@ async function main() {
     await t('il servizio XTTS si accende solo se serve, e si spegne un po\' dopo', async () => {
       const xtts = fakeXtts()
       const v = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts, setup: fakeSetup(), xttsIdleMs: 40 })
-      v.syncXtts(true)
+      v.syncService({ tts: true })
       assert.equal(xtts.started, 1)
       await sleep(5)
       // Chi cambia le impostazioni lo spegne e riaccende: non si spegne subito.
-      v.syncXtts(false)
+      v.syncService({ tts: false })
       assert.equal(xtts.stopped, 0)
-      v.syncXtts(true)
+      v.syncService({ tts: true })
       await sleep(60)
       assert.equal(xtts.stopped, 0, 'riacceso in tempo: resta acceso')
-      v.syncXtts(false)
+      v.syncService({ tts: false })
       await sleep(60)
       assert.equal(xtts.stopped, 1)
       const off = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), setup: fakeSetup(false) })
-      off.syncXtts(true)
+      off.syncService({ tts: true, stt: true })
       assert.equal(off.xtts.started, 0, 'non installato: non parte')
     })
 
@@ -247,6 +260,60 @@ async function main() {
       await sleep(10)
       cancelled.cancelXttsInstall()
       assert.equal((await running).xtts.error, 'installazione annullata')
+    })
+
+    await t('microfono: il servizio resta acceso per ascoltare, anche se parla Kokoro', async () => {
+      const xtts = fakeXtts()
+      const v = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts, setup: fakeSetup(true, undefined, { installed: true, install: async () => {} }), xttsIdleMs: 20 })
+      v.syncService({ tts: false, stt: true })
+      await sleep(5)
+      assert.equal(xtts.started, 1)
+      assert.deepEqual([...xtts.loaded], ['stt'], 'solo Whisper: XTTS non si carica per niente')
+      assert.equal(v.status().stt.ready, true)
+      assert.deepEqual(await v.xttsSpeakers(), [], 'l\'elenco delle voci non carica XTTS')
+      assert.deepEqual([...xtts.loaded], ['stt'])
+      v.syncService({ tts: false, stt: false })
+      await sleep(40)
+      assert.equal(xtts.stopped, 1)
+      const notInstalled = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), setup: fakeSetup(true) })
+      notInstalled.syncService({ stt: true })
+      assert.equal(notInstalled.xtts.started, 0, 'microfono non installato: non parte')
+    })
+
+    await t('microfono: testo pulito, errori nello stato', async () => {
+      const xtts = fakeXtts()
+      const v = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts, setup: fakeSetup(true, undefined, { installed: true, install: async () => {} }) })
+      const res = await v.transcribe(new Float32Array(16000))
+      assert.deepEqual(res, { text: 'Ciao, come stai?', seconds: 1, took: 0.3 })
+      xtts.sttFail = 'microfono: GPU piena'
+      await assert.rejects(v.transcribe(new Float32Array(10)), /GPU piena/)
+      assert.equal(v.status().stt.error, 'microfono: GPU piena')
+      xtts.sttFail = null
+      await v.transcribe(new Float32Array(10))
+      assert.equal(v.status().stt.error, null, 'un ascolto riuscito toglie l\'errore')
+      const none = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), setup: fakeSetup(true) })
+      await assert.rejects(none.transcribe(new Float32Array(10)), /prima installa il microfono/)
+    })
+
+    await t('microfono: installazione con prova, annullamento, disinstallazione a servizio spento', async () => {
+      const stt = { installed: false, install: async (_dir, o) => { o.onProgress({ step: 'model', index: 1, count: 3, done: 1, total: 2 }); await o.check(); stt.installed = true } }
+      const xtts = fakeXtts()
+      const seen = []
+      const v = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts, setup: fakeSetup(true, undefined, stt), onStatus: s => seen.push(s.stt.installing && s.stt.installing.step) })
+      const s = await v.installStt()
+      assert.ok(seen.includes('model'))
+      assert.equal(s.stt.installed, true)
+      assert.equal(s.stt.error, null)
+      assert.ok(xtts.loaded.has('stt'), 'la prova carica Whisper')
+      const removed = await v.removeStt()
+      assert.equal(removed.stt.installed, false)
+      assert.ok(xtts.stopped >= 1, 'prima di cancellare il modello il servizio si spegne')
+      const slow = { installed: false, install: (_dir, o) => new Promise((_, reject) => o.signal.addEventListener('abort', () => reject(new Error('x')))) }
+      const c = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), setup: fakeSetup(true, undefined, slow) })
+      const running = c.installStt()
+      await sleep(5)
+      c.cancelSttInstall()
+      assert.equal((await running).stt.error, 'installazione annullata')
     })
 
     await t('campione: uno solo alla volta, nomi e percorsi controllati', async () => {

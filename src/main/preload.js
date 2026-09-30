@@ -56,6 +56,14 @@ contextBridge.exposeInMainWorld('companion', {
   voiceXttsSpeakers: ()      => ipcRenderer.invoke('voice:xtts-speakers'),
   voiceImportSample: ()      => ipcRenderer.invoke('voice:import-sample'),
   voiceOpenLicense: ()       => ipcRenderer.send('voice:open-license'),
+  // Microfono (faster-whisper nel servizio di XTTS): installazione, e il
+  // testo di una registrazione (Float32Array mono a 16 kHz).
+  voiceSttInstall:  ()       => ipcRenderer.invoke('voice:stt-install'),
+  voiceSttCancel:   ()       => ipcRenderer.send('voice:stt-cancel'),
+  voiceSttRemove:   ()       => ipcRenderer.invoke('voice:stt-remove'),
+  micTranscribe:    (pcm)    => ipcRenderer.invoke('mic:transcribe', pcm),
+  // 'listening' | 'transcribing' | 'idle': il main zittisce la voce e mostra il fumetto
+  micState:         (state)  => ipcRenderer.send('mic:state', String(state)),
 
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),
@@ -100,6 +108,18 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('trigger-animation', handler)
     return () => ipcRenderer.removeListener('trigger-animation', handler)
+  },
+  // Fumetto senza animazione ({ text, ms }; testo vuoto lo toglie)
+  onCompanionBubble: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('companion-bubble', handler)
+    return () => ipcRenderer.removeListener('companion-bubble', handler)
+  },
+  // Microfono: 'start' | 'stop' dalla scorciatoia globale (la registrazione la fa la chat)
+  onMicCommand: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('mic-command', handler)
+    return () => ipcRenderer.removeListener('mic-command', handler)
   },
   onWindowDragState: (cb)    => {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }

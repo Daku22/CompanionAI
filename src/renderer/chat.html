@@ -272,6 +272,19 @@
     #send-btn:hover   { transform: scale(1.06); }
     #send-btn:active  { transform: scale(0.94); }
     #send-btn:disabled { opacity: 0.3; cursor: default; transform: none; }
+    /* Microfono: tieni premuto per parlare; un clic breve lo lascia aperto. */
+    #mic-btn {
+      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      border: 1px solid rgba(180,140,255,0.3); background: rgba(255,255,255,0.05);
+      color: #e8d8ff; cursor: pointer; font-size: 15px; font-family: inherit;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.12s, background 0.15s, box-shadow 0.08s;
+      touch-action: none; user-select: none;
+    }
+    #mic-btn:hover { background: rgba(180,140,255,0.18); }
+    #mic-btn.listening { background: #c0395a; border-color: #ff7a9a; box-shadow: 0 0 0 calc(var(--level, 0) * 10px) rgba(255,110,150,0.35); }
+    #mic-btn.busy { opacity: 0.5; cursor: progress; }
+    #mic-btn.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -362,6 +375,7 @@
   <!-- ── Input ────────────────────────────────────────────────────────────── -->
   <div id="input-area">
     <textarea id="input" placeholder="Scrivi qualcosa..." rows="1"></textarea>
+    <button id="mic-btn" class="hidden" title="Tieni premuto e parla (un clic breve: parla, poi clic per finire)">🎙</button>
     <button id="send-btn">↑</button>
   </div>
 
@@ -375,6 +389,7 @@
 
 </div>
 
+<script src="mic-recorder.js"></script>
 <script src="chat.js"></script>
 </body>
 </html>

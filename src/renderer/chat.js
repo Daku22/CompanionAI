@@ -74,6 +74,7 @@ async function init() {
   initLoginItem()
   idleLife.checked = config.idleLife !== false
   showWeather()
+  showMicButton()
   if (api && api.getMood) api.getMood().then(showMood).catch(() => {})
 
   // Mostra setup solo se non c'è key per il provider attivo
@@ -381,9 +382,15 @@ sendBtn.addEventListener('click', sendMessage)
 // ── Send ─────────────────────────────────────────────────────────────────────
 let sending = false
 const warnedModels = new Set()
-async function sendMessage() {
-  if (sending) return
-  const text = inputEl.value.trim()
+/** @param {string} [spoken] il testo detto nel microfono, al posto di quello scritto */
+async function sendMessage(spoken) {
+  const fromMic = typeof spoken === 'string'
+  if (sending) {
+    // Una risposta e' ancora in arrivo: quello che hai detto resta da inviare.
+    if (fromMic) inputEl.value = (inputEl.value.trim() + ' ' + spoken).trim()
+    return
+  }
+  const text = fromMic ? spoken.trim() : inputEl.value.trim()
   if (!text) return
 
   // Controllo key (eccetto ollama) — con try per non bloccare mai la UI
@@ -398,8 +405,10 @@ async function sendMessage() {
     return
   }
 
-  inputEl.value = ''
-  inputEl.style.height = 'auto'
+  if (!fromMic) {
+    inputEl.value = ''
+    inputEl.style.height = 'auto'
+  }
 
   addMessage('user', text)
   conversationHistory.push({ role: 'user', content: text.slice(0, 8000) })
@@ -458,6 +467,113 @@ async function sendMessage() {
     api.executeAction({ ...action, type: 'none', animation: action.animation || 'idle' })
   }
 }
+
+// ── Microfono ────────────────────────────────────────────────────────────────
+// Tieni premuto 🎙 (o la scorciatoia, che il main gira qui) e parla: quando
+// lasci, la registrazione va a Whisper nel main e il testo parte come un
+// messaggio scritto. Un clic breve lascia il microfono aperto fino al clic
+// dopo. Esc annulla. Il pulsante c'e' solo con il microfono installato e acceso.
+const micBtn = document.getElementById('mic-btn')
+const MIC_TAP_MS = 350
+const MIC_MIN_SAMPLES = 16000 * 0.3
+const PLACEHOLDER = inputEl.placeholder
+let mic = null
+let micMode = null    // null | 'hold' | 'toggle' | 'shortcut'
+let micDownAt = 0
+let micBusy = false
+
+function micUsable() {
+  return !!(window.MicRecorder && config.voice && config.voice.micEnabled && config.micInstalled)
+}
+function showMicButton() {
+  micBtn.classList.toggle('hidden', !micUsable())
+  if (!micUsable() && micMode) micCancel()
+}
+function micLevel(level) { micBtn.style.setProperty('--level', level.toFixed(2)) }
+function micReset() {
+  micMode = null
+  micBtn.classList.remove('listening', 'busy')
+  micLevel(0)
+  inputEl.placeholder = PLACEHOLDER
+}
+
+async function micStart(mode) {
+  if (!micUsable() || micBusy || micMode) return
+  mic = mic || new MicRecorder({ onLevel: micLevel, onLimit: () => micStop() })
+  micMode = mode
+  micBtn.classList.add('listening')
+  inputEl.placeholder = mode === 'hold' ? 'Ti ascolto… lascia per inviare' : 'Ti ascolto…'
+  api.micState('listening')
+  try {
+    await mic.start()
+  } catch (e) {
+    micReset()
+    api.micState('idle')
+    addMessage('error', 'Microfono non disponibile: ' + (e && (e.message || e.name) || 'errore sconosciuto'))
+  }
+}
+
+function micCancel() {
+  if (mic) mic.cancel()
+  micReset()
+  api.micState('idle')
+}
+
+async function micStop() {
+  if (!mic || !micMode || micBusy) return
+  micBusy = true
+  micBtn.classList.add('busy')
+  const pcm = await mic.stop()
+  micBtn.classList.remove('listening')
+  micLevel(0)
+  if (pcm.length < MIC_MIN_SAMPLES) { micBusy = false; micReset(); api.micState('idle'); return }
+  inputEl.placeholder = 'Trascrivo…'
+  api.micState('transcribing')
+  let res
+  try { res = await api.micTranscribe(pcm) } catch (e) { res = { ok: false, error: e.message } }
+  micBusy = false
+  micReset()
+  api.micState('idle')
+  if (!res || !res.ok) { addMessage('error', 'Microfono: ' + ((res && res.error) || 'errore sconosciuto')); return }
+  if (!res.text) { addMessage('system', 'Non ho capito. Riprova, magari più vicino al microfono.'); return }
+  sendMessage(res.text)
+}
+
+micBtn.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return
+  e.preventDefault()
+  if (micMode === 'toggle' || micMode === 'shortcut') { micStop(); return }
+  try { micBtn.setPointerCapture(e.pointerId) } catch (_) {}
+  micDownAt = Date.now()
+  micStart('hold')
+})
+const micRelease = () => {
+  if (micMode !== 'hold') return
+  if (Date.now() - micDownAt < MIC_TAP_MS) {
+    micMode = 'toggle'
+    inputEl.placeholder = 'Ti ascolto… clic su 🎙 per finire'
+    return
+  }
+  micStop()
+}
+micBtn.addEventListener('pointerup', micRelease)
+micBtn.addEventListener('pointercancel', micRelease)
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && micMode && !micBusy) micCancel() })
+
+// La scorciatoia globale: il main sa quando il tasto si preme e si lascia.
+if (api && api.onMicCommand) api.onMicCommand((m) => {
+  if (!m) return
+  if (m.cmd === 'start') micStart('shortcut')
+  else if (m.cmd === 'stop' && micMode) micStop()
+})
+
+// Microfono acceso, spento, installato o tolto dalle Impostazioni.
+if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
+  if (!cfg) return
+  config.voice = cfg.voice
+  config.micInstalled = cfg.micInstalled
+  showMicButton()
+})
 
 // ── Focus ────────────────────────────────────────────────────────────────────
 window.addEventListener('focus', () => inputEl.focus())

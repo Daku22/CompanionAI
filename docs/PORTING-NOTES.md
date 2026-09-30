@@ -718,6 +718,75 @@ della chat si sente con XTTS dopo 1,1 s. `--xtts` collega la cartella
 dell'installazione con una junction, e la pulizia toglie la junction prima di
 cancellare la cartella di lavoro.
 
+## Blocco 3c saltato, 3d: il microfono (2026-09-30)
+
+**3c saltato** per scelta dell'utente: bastano i due motori locali (XTTS e
+Kokoro). Le voci cloud (ElevenLabs, OpenAI) si possono riprendere piu' avanti;
+per coerenza anche la trascrizione cloud del microfono resta fuori.
+
+**Scelte.** faster-whisper nello stesso servizio Python di XTTS, con Whisper
+large-v3-turbo in fp16 per CTranslate2 (`dropbox-dash/faster-whisper-large-v3-turbo`,
+il repo a cui faster-whisper 1.2 manda "large-v3-turbo"; MIT). Si installa a
+parte, dopo XTTS, con un pulsante suo: 8 pacchetti nuovi (170 MB di wheel)
+e il modello (1,6 GB). `requirements-stt.txt` viene da `uv pip compile` di
+`requirements.txt` piu' faster-whisper: nessuna versione di quello cambiava,
+quindi si installano solo i nuovi con `--no-deps`. Prova a secco sull'ambiente
+vero prima di scriverlo: 8 pacchetti, nessun altro toccato.
+
+**Prototipo** (ambiente a parte con un `.pth` verso quello di XTTS, per non
+toccarlo): `import torch` prima di CTranslate2 basta a trovare cuBLAS e cuDNN
+di PyTorch. Caricamento 3,6 s; 7,8 s di parlato in 0,41 s (2,6 s il primo,
+per questo il servizio fa un giro a vuoto al caricamento); silenzio e rumore
+con il filtro VAD: testo vuoto. La frase di prova la dice la voce italiana di
+Windows (Elsa, System.Speech), trascritta senza errori.
+
+**Servizio.** Carica all'avvio solo i modelli chiesti (`VOICE_LOAD`), gli
+altri con `/load`: col microfono acceso e la voce spenta XTTS non si carica.
+`/stt`: float32 a 16 kHz, al massimo 120 s. Memoria video: da 0,65-0,78 GB a
+3,2-3,4 GB con il solo Whisper, circa 2,5 GB (il contesto CUDA di PyTorch
+compreso). Con XTTS gia' caricato e la voce passata a Kokoro, XTTS resta in
+memoria finche' il servizio non si spegne: manca un `/unload`.
+
+**Il blocco trovato con la prova dal vivo.** Nella prima prova la
+trascrizione restava appesa, a caso. py-spy durante il blocco: le Impostazioni
+chiedevano l'elenco delle voci di XTTS appena il servizio era acceso, e questo
+caricava XTTS; l'import di scipy (dentro coqui-tts) caricava il DLL di
+OpenBLAS mentre il thread che aspettava la fine di stdin teneva un lock della
+libreria C: il caricatore dei DLL restava fermo, e con lui l'avvio di ogni
+nuovo thread del server, `/stt` compresa. Era la stessa trappola del 3b
+(stdin che bloccava gli import all'avvio), tornata perche' ora i modelli si
+caricano anche dopo. Correzioni: il servizio non legge piu' stdin, aspetta la
+fine dell'app (`VOICE_PARENT_PID`) e del lanciatore del venv con
+`WaitForMultipleObjects`; l'elenco delle voci non carica XTTS; la
+trascrizione ha un limite di 60 s. Provato: XTTS caricato (41 s) mentre si
+trascrive, trascrizioni a 0,3-0,7 s nel frattempo, voce subito dopo in 0,8 s;
+servizio spento senza Python rimasti; app uccisa di colpo, servizio chiuso
+entro un secondo.
+
+**Scorciatoia.** Electron registra solo la pressione: finche' si registra il
+main guarda il tasto con `GetAsyncKeyState` ogni 40 ms. Ctrl+Alt+Spazio e
+Alt+Spazio sul PC di prova erano gia' prese da altri programmi: di base
+Ctrl+Alt+M (AltGr+M sulla tastiera italiana non scrive niente), e le
+Impostazioni dicono quando la scelta e' occupata.
+
+**Prova dal vivo** (CDP; home e dati dell'app finti con la cartella della
+voce vera collegata da una junction, OpenRouter finto; microfono finto di
+Chromium con `--use-file-for-fake-audio-capture` e la frase di Elsa):
+installazione vera in 3 minuti; 25 controlli su 25: prova nelle Impostazioni
+(5,8 s di audio in 0,77 s), pulsante tenuto premuto (messaggio in chat 0,7-0,9
+s dopo il rilascio, il modello lo riceve, la risposta arriva), clic breve e
+clic, Esc che annulla, fumetto "Ti ascolto…", scorciatoia tenuta premuta e a
+tocchi con tasti veri (`keybd_event`) a chat chiusa, che si apre perche' la
+voce e' spenta; microfono spento: pulsante via e permesso negato; fotocamera
+sempre negata; nessun errore nelle pagine; nel log nessuna parola detta.
+Trappola della prova: con la home finta e i dati veri dell'app, Chromium non
+decifra i suoi file (DPAPI) e l'app si chiude all'avvio con 0x80000003; per
+questo l'audit usa una cartella dati sua.
+
+Non ancora: il vivavoce (ascolto sempre aperto con VAD, e la voce che si
+interrompe quando l'utente parla sopra senza premere niente), le voci e la
+trascrizione cloud (3c), `/unload`.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

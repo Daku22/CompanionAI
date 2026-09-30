@@ -1,6 +1,6 @@
 // test-speech-text.js — testo da pronunciare (src/main/speech-text.js).
 const assert = require('node:assert/strict')
-const { cleanForSpeech, splitSentences, MAX_SENTENCE } = require('../src/main/speech-text')
+const { cleanForSpeech, splitSentences, cleanTranscript, MAX_SENTENCE } = require('../src/main/speech-text')
 
 let passed = 0
 const t = (name, fn) => { fn(); passed++; console.log('  ok  ' + name) }
@@ -16,6 +16,16 @@ t('niente emoji, markdown e link', () => {
 t('a capo ed elenchi diventano pause', () => {
   assert.equal(cleanForSpeech('Ecco:\n- pane\n- latte\nFatto!'), 'Ecco: pane. latte. Fatto!')
   assert.equal(cleanForSpeech('Ciao!\nCome stai?'), 'Ciao! Come stai?')
+})
+
+t('microfono: via le frasi inventate sul silenzio, il resto intatto', () => {
+  assert.equal(cleanTranscript('  Ciao,   come stai?  '), 'Ciao, come stai?')
+  assert.equal(cleanTranscript('Sottotitoli creati dalla comunità Amara.org'), '')
+  assert.equal(cleanTranscript('Sottotitoli a cura di QTSS'), '')
+  assert.equal(cleanTranscript('Apri il blocco note. Sottotitoli a cura di QTSS.'), 'Apri il blocco note.')
+  assert.equal(cleanTranscript('Mi piacciono i film con i sottotitoli.'), 'Mi piacciono i film con i sottotitoli.')
+  assert.equal(cleanTranscript(' ... '), '')
+  assert.equal(cleanTranscript(null), '')
 })
 
 t('testo vuoto o non stringa', () => {

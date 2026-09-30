@@ -11,6 +11,10 @@
 //   4. il modello, da Hugging Face a un commit fisso, con SHA-256;
 //   5. una prima accensione del servizio, che dice se c'e' la GPU.
 // "Disinstalla" cancella la cartella. I campioni della voce restano.
+//
+// Il microfono (faster-whisper) si aggiunge dopo, se l'utente lo vuole, nello
+// stesso ambiente: pochi pacchetti in piu' (requirements-stt.txt) e il modello
+// Whisper large-v3-turbo, anch'esso a un commit fisso e con SHA-256.
 
 const { spawn, execFile } = require('child_process')
 const fs = require('fs')
@@ -26,6 +30,10 @@ const PYPI = 'https://pypi.org/simple'
 const TORCH_INDEX = 'https://download.pytorch.org/whl/cu124'
 // Quanto scaricano i pacchetti (PyTorch con CUDA e il resto), per la barra.
 const PACKAGES_BYTES = 3.2e9
+const STT_VERSION = 1                // se cambiano pacchetti o modello del microfono, si reinstalla
+const WHISPER_REV = '0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf'
+const HF_WHISPER = 'https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo/resolve/' + WHISPER_REV + '/'
+const STT_PACKAGES_BYTES = 1.7e8
 
 /** @type {import('./voice-assets').AssetFile[]} */
 const UV_FILES = [
@@ -41,6 +49,21 @@ const XTTS_FILES = [
   { path: 'xtts/model/LICENSE.txt', url: HF + 'LICENSE.txt', size: 4014, sha256: '190f6d7c19b8984f91b97712b94ce92d2b2e640fc677dacab966e955ece9d043' },
 ]
 
+/** @type {import('./voice-assets').AssetFile[]} */
+const WHISPER_FILES = [
+  { path: 'xtts/whisper/model.bin', url: HF_WHISPER + 'model.bin', size: 1617884929, sha256: 'e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da' },
+  { path: 'xtts/whisper/config.json', url: HF_WHISPER + 'config.json', size: 2263, sha256: 'b0253ea6c0d3bea6b1e19e91a02acfd3b53f4467362efcb5a3e6b16c9b3a9b7e' },
+  { path: 'xtts/whisper/preprocessor_config.json', url: HF_WHISPER + 'preprocessor_config.json', size: 340, sha256: '7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711' },
+  { path: 'xtts/whisper/tokenizer.json', url: HF_WHISPER + 'tokenizer.json', size: 2710337, sha256: '297b13372ac43916285644fb9687add3cc62ee2a1adb60da3dc25cc94c1871fd' },
+  { path: 'xtts/whisper/vocabulary.json', url: HF_WHISPER + 'vocabulary.json', size: 1068114, sha256: 'c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1' },
+]
+
+const STT_STEPS = [
+  { id: 'packages', label: 'Installo faster-whisper' },
+  { id: 'model', label: 'Scarico il modello Whisper' },
+  { id: 'check', label: 'Accendo il microfono per la prima volta' },
+]
+
 const STEPS = [
   { id: 'uv', label: 'Scarico uv' },
   { id: 'python', label: 'Installo Python 3.10' },
@@ -53,6 +76,7 @@ const root = (voiceDir) => path.join(voiceDir, 'xtts')
 const uvExe = (voiceDir) => path.join(root(voiceDir), 'uv', 'uv.exe')
 const envPython = (voiceDir) => path.join(root(voiceDir), 'env', 'Scripts', 'python.exe')
 const markerPath = (voiceDir) => path.join(root(voiceDir), 'installed.json')
+const sttMarkerPath = (voiceDir) => path.join(root(voiceDir), 'stt.json')
 
 /**
  * Ambiente per uv: tutto dentro la cartella della voce, e nessuna
@@ -73,8 +97,12 @@ function uvEnv(voiceDir, base = process.env) {
   }
 }
 
-/** I comandi di uv, in ordine (argomenti, senza l'eseguibile). */
-function uvCommands(voiceDir, requirements) {
+/**
+ * I comandi di uv, in ordine (argomenti, senza l'eseguibile).
+ * sttPackages: i pacchetti del microfono, senza dipendenze (sono gia' quelle di
+ * XTTS) e senza l'indice di PyTorch, che qui non serve.
+ */
+function uvCommands(voiceDir, requirements, sttRequirements = requirements) {
   return {
     python: ['python', 'install', PYTHON_VERSION],
     venv: ['venv', path.join(root(voiceDir), 'env'), '--python', PYTHON_VERSION],
@@ -82,6 +110,8 @@ function uvCommands(voiceDir, requirements) {
     // avvio del servizio, e la prima accensione durava quasi tre minuti.
     packages: ['pip', 'install', '--python', envPython(voiceDir), '--require-hashes', '-r', requirements,
       '--index-url', PYPI, '--extra-index-url', TORCH_INDEX, '--index-strategy', 'unsafe-best-match', '--compile-bytecode'],
+    sttPackages: ['pip', 'install', '--python', envPython(voiceDir), '--require-hashes', '--no-deps', '-r', sttRequirements,
+      '--index-url', PYPI, '--compile-bytecode'],
   }
 }
 
@@ -93,6 +123,13 @@ function readMarker(voiceDir) {
 function xttsInstalled(voiceDir) {
   const marker = readMarker(voiceDir)
   return !!marker && marker.version === INSTALL_VERSION && fs.existsSync(envPython(voiceDir)) && packStatus(voiceDir, XTTS_FILES).installed
+}
+
+/** Il microfono e' installato: XTTS, i suoi pacchetti e il modello Whisper completo. */
+function sttInstalled(voiceDir) {
+  let marker = null
+  try { marker = JSON.parse(fs.readFileSync(sttMarkerPath(voiceDir), 'utf8')) } catch (_) { /* assente */ }
+  return !!marker && marker.version === STT_VERSION && xttsInstalled(voiceDir) && packStatus(voiceDir, WHISPER_FILES).installed
 }
 
 /** Spazio occupato da una cartella, in byte (per la barra dei pacchetti). */
@@ -218,6 +255,57 @@ async function installXtts(voiceDir, opts) {
   fs.rmSync(path.join(voiceDir, UV_FILES[0].path), { force: true })
 }
 
+/**
+ * Aggiunge il microfono a XTTS gia' installato. onProgress come installXtts.
+ * @param {string} voiceDir
+ * @param {{ onProgress?: (p: any) => void, signal?: AbortSignal, baseUrl?: string,
+ *   check: () => Promise<void>, requirementsSource?: string }} opts
+ *   check: carica Whisper nel servizio (lo fa voice.js con XttsEngine)
+ */
+async function installStt(voiceDir, opts) {
+  if (!xttsInstalled(voiceDir)) throw new Error('prima installa XTTS: il microfono usa il suo Python')
+  const report = (id, done = 0, total = 0) => {
+    const index = STT_STEPS.findIndex(s => s.id === id)
+    if (opts.onProgress) opts.onProgress({ step: id, index, count: STT_STEPS.length, label: STT_STEPS[index].label, done, total })
+  }
+  const signal = opts.signal
+  const dir = root(voiceDir)
+  fs.rmSync(sttMarkerPath(voiceDir), { force: true })
+  const env = uvEnv(voiceDir)
+
+  // 1. pacchetti: la barra segue quanto cresce la cache di uv
+  report('packages', 0, STT_PACKAGES_BYTES)
+  const reqs = path.join(dir, 'app', 'requirements-stt.txt')
+  fs.mkdirSync(path.dirname(reqs), { recursive: true })
+  fs.copyFileSync(opts.requirementsSource || path.join(__dirname, 'xtts', 'requirements-stt.txt'), reqs)
+  const cacheDir = env.UV_CACHE_DIR
+  const start = folderBytes(cacheDir)
+  const timer = setInterval(() => report('packages', Math.min(STT_PACKAGES_BYTES, folderBytes(cacheDir) - start), STT_PACKAGES_BYTES), 1000)
+  try { await run(uvExe(voiceDir), uvCommands(voiceDir, reqs, reqs).sttPackages, env, signal) } finally { clearInterval(timer) }
+  report('packages', STT_PACKAGES_BYTES, STT_PACKAGES_BYTES)
+
+  // 2. modello
+  report('model')
+  await downloadPack(voiceDir, WHISPER_FILES, { signal, baseUrl: opts.baseUrl, onProgress: ({ done, total }) => report('model', done, total) })
+
+  // 3. prima accensione
+  report('check')
+  await opts.check()
+
+  fs.writeFileSync(sttMarkerPath(voiceDir), JSON.stringify({ version: STT_VERSION, model: WHISPER_REV, date: new Date().toISOString() }, null, 2))
+  fs.rmSync(cacheDir, { recursive: true, force: true })
+}
+
+/**
+ * Toglie il modello del microfono. I suoi pacchetti restano nell'ambiente di
+ * XTTS (circa 170 MB) e se ne vanno con lui. Il servizio deve essere spento:
+ * su Windows il modello caricato non si puo' cancellare.
+ */
+async function uninstallStt(voiceDir) {
+  fs.rmSync(sttMarkerPath(voiceDir), { force: true })
+  await fs.promises.rm(path.join(root(voiceDir), 'whisper'), { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })
+}
+
 /** Toglie XTTS (ambiente, Python, modello). I campioni della voce restano. */
 async function uninstallXtts(voiceDir) {
   // Prima il segno di installazione: se qualche file resta bloccato, XTTS
@@ -227,6 +315,6 @@ async function uninstallXtts(voiceDir) {
 }
 
 module.exports = {
-  installXtts, uninstallXtts, xttsInstalled, nvidiaGpu, freeBytes, uvCommands, uvEnv,
-  STEPS, XTTS_FILES, UV_FILES, INSTALL_VERSION, PYTHON_VERSION,
+  installXtts, uninstallXtts, xttsInstalled, installStt, uninstallStt, sttInstalled, nvidiaGpu, freeBytes, uvCommands, uvEnv,
+  STEPS, STT_STEPS, XTTS_FILES, WHISPER_FILES, UV_FILES, INSTALL_VERSION, STT_VERSION, PYTHON_VERSION,
 }

@@ -14,11 +14,17 @@ everything the app sends out and everything it stores.
 | `open-meteo.com` | Only if you turn on "Meteo vero nella stanza" (off by default), while the room is open, at most every 30 minutes | The city you typed (to the geocoding service), then its coordinates (to the weather service). No key, no account |
 | `huggingface.co` and `cdn.jsdelivr.net` | Only when you press "Scarica" in the voice settings | Plain downloads of the voice files (about 180 MB). Nothing about you or your conversations |
 | `github.com`, Python's download mirror used by uv, `pypi.org`, `files.pythonhosted.org`, `download.pytorch.org`, `huggingface.co` | Only when you press "Installa XTTS" | Plain downloads of uv, Python, the Python packages and the XTTS-v2 model (about 5 GB). Nothing about you or your conversations |
+| `pypi.org`, `files.pythonhosted.org`, `huggingface.co` | Only when you press "Installa il microfono" | Plain downloads of the faster-whisper packages and the Whisper model (about 1.8 GB). Nothing about you or your conversations |
 
 The voice (Kokoro or XTTS, off by default) is generated on your computer: the
 replies it reads aloud, and the sample of your voice, are never sent anywhere.
-The XTTS service listens only on `127.0.0.1` and answers only to the app
-(a random token, new at every start).
+The microphone (off by default) is opened only while you hold the shortcut or
+the 🎙 button, or after a tap until the next one. The recording is transcribed
+on your computer and then discarded: it is never saved or sent anywhere. Only
+the text it becomes is sent, as a message, to the AI provider you chose, like
+a message you type. The log records how long a recording was, never what you
+said. The voice service listens only on `127.0.0.1` and answers only to the
+app (a random token, new at every start).
 
 Movements generated with Kimodo ("Movimenti nuovi con Kimodo", off by
 default) never leave your computer: the model runs on your own graphics card,
@@ -41,7 +47,7 @@ personal data.
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
 | Imported animations | `%APPDATA%\CompanionAI\animations\` |
 | Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, and the sentence each one came from in `index.json` |
-| Voice files | `%APPDATA%\CompanionAI\voice\`: Kokoro's model and phonemizer, and XTTS (`xtts\`: Python, packages and model). "Elimina i file" and "Disinstalla" in the voice settings remove them |
+| Voice files | `%APPDATA%\CompanionAI\voice\`: Kokoro's model and phonemizer, XTTS (`xtts\`: Python, packages and model) and the microphone's Whisper model (`xtts\whisper\`). "Elimina i file" and the two "Disinstalla" buttons in the voice settings remove them |
 | Your voice sample | `%APPDATA%\CompanionAI\voice\samples\`: the sample you imported, converted to WAV (at most 30 seconds), and its voice features (`.latents.pt`). Importing a new one replaces it |
 | Imported 3D scenes | `%APPDATA%\CompanionAI\scenes\` |
 | Error log | `%APPDATA%\CompanionAI\logs\`: warnings and errors only, never your conversations. Open it from the tray icon menu |

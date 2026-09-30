@@ -4,7 +4,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { XttsEngine, createFrameReader } = require('../src/main/xtts-engine')
-const { uvCommands, uvEnv, xttsInstalled, XTTS_FILES, UV_FILES, PYTHON_VERSION } = require('../src/main/xtts-setup')
+const { uvCommands, uvEnv, xttsInstalled, sttInstalled, installStt, XTTS_FILES, WHISPER_FILES, UV_FILES, PYTHON_VERSION } = require('../src/main/xtts-setup')
 
 /** Pezzi come li scrive xtts_service.py: uint32 byte + float32, 0 = fine. */
 function frame(samples) {
@@ -50,6 +50,7 @@ async function main() {
     e.state = 'ready'
     e.port = 5555
     e.token = 'segreto'
+    e.loaded = new Set(['tts'])
     return { e, calls }
   }
 
@@ -68,12 +69,44 @@ async function main() {
     await assert.rejects(readyEngine([], 500).e.synth('x', { speaker: {} }, () => {}), /GPU piena/)
   })
 
+  await t('ensure: un modello non caricato si chiede con /load, una volta sola', async () => {
+    const { e, calls } = readyEngine([])
+    e.loaded = new Set(['stt'])
+    await e.ensure('stt')
+    assert.equal(calls.length, 0, 'gia\' caricato')
+    await Promise.all([e.ensure('tts'), e.ensure('tts')])
+    assert.deepEqual(calls.map(c => [c.url, JSON.parse(c.init.body)]), [['http://127.0.0.1:5555/load', { kind: 'tts' }]])
+    assert.ok(e.loaded.has('tts'))
+  })
+
+  await t('transcribe: campioni float32 a 16 kHz, token, testo dalla risposta', async () => {
+    const calls = []
+    const e = new XttsEngine({
+      root: os.tmpdir(), samplesDir: os.tmpdir(),
+      fetchImpl: async (url, init) => { calls.push({ url, init }); return new Response(JSON.stringify({ text: 'ciao', seconds: 0.5, took: 0.1 }), { status: 200 }) },
+    })
+    e.proc = /** @type {any} */ ({ stdin: { end() {} }, kill() {} })
+    Object.assign(e, { state: 'ready', port: 5555, token: 'segreto', loaded: new Set(['stt']) })
+    const pcm = new Float32Array([0.5, -0.25])
+    assert.deepEqual(await e.transcribe(pcm), { text: 'ciao', seconds: 0.5, took: 0.1 })
+    assert.equal(calls[0].url, 'http://127.0.0.1:5555/stt')
+    assert.equal(calls[0].init.headers['X-Token'], 'segreto')
+    assert.equal(calls[0].init.headers['X-Sample-Rate'], '16000')
+    assert.deepEqual([...new Float32Array(new Uint8Array(calls[0].init.body).buffer)], [0.5, -0.25])
+    await assert.rejects(e.transcribe(/** @type {any} */ ([0.1])), /audio non valido/)
+    await assert.rejects(e.transcribe(new Float32Array(16000 * 121)), /troppo lunga/)
+  })
+
   await t('installazione: Python fissato, pacchetti solo con hash, indici fissati', () => {
     const cmd = uvCommands('C:/dati/voice', 'C:/dati/voice/xtts/app/requirements.txt')
     assert.deepEqual(cmd.python, ['python', 'install', PYTHON_VERSION])
     assert.ok(cmd.packages.includes('--require-hashes'))
     assert.ok(cmd.packages.includes('https://download.pytorch.org/whl/cu124'))
     assert.ok(cmd.packages[cmd.packages.indexOf('--python') + 1].endsWith(path.join('env', 'Scripts', 'python.exe')))
+    // Il microfono: solo i pacchetti nuovi, con hash, senza toccare le dipendenze di XTTS.
+    assert.ok(cmd.sttPackages.includes('--require-hashes'))
+    assert.ok(cmd.sttPackages.includes('--no-deps'))
+    assert.ok(!cmd.sttPackages.includes('https://download.pytorch.org/whl/cu124'))
   })
 
   await t('installazione: la configurazione di uv e Python dell\'utente non conta', () => {
@@ -100,8 +133,29 @@ async function main() {
     assert.match(text, /^transformers==4\./m, 'la 5.x rompe coqui-tts 0.27.5')
   })
 
+  await t('requirements-stt.txt: solo pacchetti nuovi, fissati e con hash', () => {
+    const read = (name) => fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'xtts', name), 'utf8')
+    const names = (text) => text.split(/\n(?=[A-Za-z0-9])/).filter(e => !e.startsWith('#') && e.trim())
+    const base = new Set(names(read('requirements.txt')).map(e => e.split('==')[0]))
+    const stt = names(read('requirements-stt.txt'))
+    assert.ok(stt.some(e => e.startsWith('faster-whisper==')))
+    assert.ok(stt.some(e => e.startsWith('ctranslate2==')))
+    for (const e of stt) {
+      assert.match(e, /^[A-Za-z0-9_.-]+==\S+/, 'versione fissa: ' + e.split('\n')[0])
+      assert.match(e, /--hash=sha256:[0-9a-f]{64}/, 'hash: ' + e.split('\n')[0])
+      assert.ok(!base.has(e.split('==')[0]), 'gia\' in requirements.txt, con --no-deps cambierebbe versione: ' + e.split('==')[0])
+    }
+  })
+
+  await t('microfono: senza XTTS non si installa e non risulta installato', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-stt-'))
+    assert.equal(sttInstalled(dir), false)
+    await assert.rejects(installStt(dir, { check: async () => {} }), /prima installa XTTS/)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
   await t('file scaricati: indirizzi fissati e hash', () => {
-    for (const f of [...XTTS_FILES, ...UV_FILES]) {
+    for (const f of [...XTTS_FILES, ...WHISPER_FILES, ...UV_FILES]) {
       assert.match(f.sha256, /^[0-9a-f]{64}$/)
       assert.ok(/\/resolve\/[0-9a-f]{40}\/|\/releases\/download\/\d+\.\d+\.\d+\//.test(f.url), f.url)
     }

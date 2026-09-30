@@ -45,8 +45,10 @@ change it.
   pages.
 - **Content Security Policy:** no inline scripts, no `eval`, nothing loaded
   from the network.
-- **Blocked browsing:** navigation and new windows are blocked, and all
-  browser permissions (camera, microphone, notifications…) are denied.
+- **Blocked browsing:** navigation and new windows are blocked, and browser
+  permissions (camera, notifications, location…) are denied. The only
+  exception is the microphone: audio only, for the app's own pages, and only
+  while it is turned on in the settings.
 - **API keys:** encrypted with the operating system's key store (Electron
   `safeStorage`). They are never sent back to the renderer.
 - **Custom protocols:** `vrm://` and `avatar://` serve files only from their

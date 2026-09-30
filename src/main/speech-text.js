@@ -68,4 +68,30 @@ function splitSentences(text) {
   return merged.flatMap(splitLong)
 }
 
-module.exports = { cleanForSpeech, splitSentences, MAX_SENTENCE }
+// Frasi che Whisper si inventa sul rumore di fondo: le ha imparate dai titoli
+// di coda dei sottotitoli. Il filtro VAD del servizio ne toglie quasi tutte;
+// queste, se restano, non sono dell'utente.
+// Una frase: fino al punto, ma il punto di "Amara.org" non la chiude.
+const SENTENCE_PART = String.raw`(?:[^.!?]|\.(?=\p{L}))*`
+const TRANSCRIPT_NOISE = [
+  String.raw`\bsottotitoli\s+(?:creati|a cura|e revisione|realizzati)\b`,
+  String.raw`\bamara\.org\b`,
+  String.raw`\bqtss\b`,
+].map(core => new RegExp(SENTENCE_PART + core + SENTENCE_PART + '[.!?]*', 'giu'))
+const MAX_TRANSCRIPT = 4000
+
+/**
+ * Il testo detto nel microfono, pronto per la chat: senza le frasi inventate
+ * sul silenzio e con gli spazi in ordine. Vuoto se non resta niente.
+ * @param {string} text
+ * @returns {string}
+ */
+function cleanTranscript(text) {
+  if (typeof text !== 'string') return ''
+  let out = text
+  for (const re of TRANSCRIPT_NOISE) out = out.replace(re, ' ')
+  out = out.replace(/\s+/g, ' ').trim()
+  return /[\p{L}\p{N}]/u.test(out) ? out.slice(0, MAX_TRANSCRIPT) : ''
+}
+
+module.exports = { cleanForSpeech, splitSentences, cleanTranscript, MAX_SENTENCE }

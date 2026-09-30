@@ -485,6 +485,15 @@ function resolveAnimKey(action) {
   return ANIM_ALIAS[raw] || 'idle';
 }
 
+// Un fumetto dal main senza animazione, in 2D e in 3D (il fumetto e' lo
+// stesso): "Ti ascolto…" finche' il microfono e' aperto. Testo vuoto: via.
+if (api && api.onCompanionBubble) {
+  api.onCompanionBubble((b) => {
+    if (!b || !b.text) { clearTimeout(bubbleTimer); bubbleEl.classList.remove('show'); return; }
+    showBubble(String(b.text).slice(0, 80), Math.min(Number(b.ms) || 2800, 120000));
+  });
+}
+
 // ── IPC Animation Triggers ───────────────────────────────────────────────
 if (api && api.onTriggerAnimation) {
   api.onTriggerAnimation((action) => {

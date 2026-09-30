@@ -1,8 +1,10 @@
-// settings.js — la finestra Impostazioni. Per ora la sezione Voce.
+// settings.js — la finestra Impostazioni. Per ora la sezione Voce, con il
+// microfono.
 //
 // Le scelte si salvano subito (config.voice, controllata da guards.js). I
-// file e l'installazione di XTTS li gestisce il main: qui si mostrano stato e
-// avanzamento, che il main manda da solo mentre cambiano (voice-status).
+// file e l'installazione di XTTS e del microfono li gestisce il main: qui si
+// mostrano stato e avanzamento, che il main manda da solo mentre cambiano
+// (voice-status).
 
 (function () {
   const api = window.companion
@@ -15,10 +17,14 @@
   const cpml = $('cpml')
   const speakerSel = $('xtts-speaker')
 
-  let voice = { enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9, xttsSpeaker: 'sample', xttsSample: null, cpmlAccepted: false }
+  const micEnabled = $('mic-enabled')
+  const shortcutSel = $('mic-shortcut')
+
+  let voice = { enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9, xttsSpeaker: 'sample', xttsSample: null, cpmlAccepted: false, micEnabled: false, micShortcut: 'Ctrl+Alt+M' }
   let status = null
   let check = null        // { gpu, freeBytes } dal main
   let speakersLoaded = false
+  let micShortcutActive = null   // la scorciatoia registrata davvero dal main
 
   const mb = (bytes) => (bytes / 1024 / 1024).toFixed(0) + ' MB'
   const gb = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(1).replace('.', ',') + ' GB'
@@ -42,6 +48,43 @@
     $('speed-out').textContent = Number(speed.value).toFixed(2) + '×'
     $('volume-out').textContent = Math.round(Number(volume.value) * 100) + '%'
     $('sample-note').textContent = voice.xttsSample ? 'Campione pronto.' : 'Nessun campione: 10-30 secondi di una sola voce, senza musica.'
+    micEnabled.checked = !!voice.micEnabled
+    shortcutSel.value = voice.micShortcut
+  }
+
+  function showStt(s, x) {
+    const installing = s.installing
+    const line = $('stt-line')
+    line.className = 'state'
+    if (!x.available) line.textContent = 'Non disponibile in questa versione.'
+    else if (installing) line.textContent = 'Installazione in corso: puoi chiudere questa finestra, continua lo stesso.'
+    else if (!x.installed) line.textContent = 'Prima installa XTTS (qui sopra): il microfono usa il suo Python e la sua scheda video.'
+    else if (!s.installed) line.textContent = 'Non installato.'
+    else if (s.ready) { line.textContent = 'Pronto: ti ascolto quando vuoi.'; line.classList.add('ok') }
+    else if (s.loading || (voice.micEnabled && x.state === 'loading')) line.textContent = 'Si sta accendendo…'
+    else line.textContent = voice.micEnabled ? 'Installato.' : 'Installato. Accendilo qui sopra per parlare.'
+    if (s.error && !installing) { line.textContent += ' Errore: ' + s.error; line.classList.remove('ok'); line.classList.add('error') }
+
+    $('stt-step').classList.toggle('hidden', !installing)
+    $('stt-bar').classList.toggle('hidden', !installing)
+    if (installing) {
+      const bytes = installing.total ? ' (' + size(installing.done) + ' di ' + size(installing.total) + ')' : ''
+      $('stt-step').textContent = 'Passo ' + (installing.index + 1) + ' di ' + installing.count + ': ' + installing.label + bytes
+      const part = installing.total ? installing.done / installing.total : 0
+      $('stt-bar-fill').style.width = Math.round(100 * (installing.index + part) / installing.count) + '%'
+    }
+    const busy = !!installing || !!x.installing
+    $('stt-install').classList.toggle('hidden', s.installed || !!installing)
+    $('stt-install').disabled = !x.installed || busy
+    $('stt-cancel').classList.toggle('hidden', !installing)
+    $('stt-remove').classList.toggle('hidden', !s.installed || !!installing)
+    for (const el of document.querySelectorAll('.mic-ready')) el.classList.toggle('hidden', !s.installed)
+    $('mic-test').disabled = !voice.micEnabled
+    const note = $('shortcut-note')
+    if (!voice.micEnabled) note.textContent = 'Accendi il microfono per usare la scorciatoia e la prova.'
+    else if (voice.micShortcut === 'off') note.textContent = 'Parli solo con 🎙 nella chat.'
+    else if (micShortcutActive !== voice.micShortcut) note.textContent = 'Questa scorciatoia la usa già un altro programma: scegline un\'altra.'
+    else note.textContent = 'Funziona anche con la chat chiusa: tieni premuto, parla, lascia.'
   }
 
   function showKokoro(s) {
@@ -97,13 +140,15 @@
     $('xtts-cancel').classList.toggle('hidden', !installing)
     $('xtts-remove').classList.toggle('hidden', !x.installed || !!installing)
     for (const el of document.querySelectorAll('.xtts-voice')) el.classList.toggle('hidden', !x.installed)
-    if (x.installed && x.state === 'ready' && !speakersLoaded) loadSpeakers()
+    // Solo con XTTS caricato: acceso per il solo microfono, l'elenco non c'e'.
+    if (x.installed && x.state === 'ready' && (x.loaded || []).includes('tts') && !speakersLoaded) loadSpeakers()
   }
 
   function showStatus() {
     if (!status) return
     showKokoro(status)
     if (status.xtts) showXtts(status.xtts)
+    if (status.stt && status.xtts) showStt(status.stt, status.xtts)
     const usable = status.installed || (status.xtts && status.xtts.installed)
     $('test-btn').disabled = !usable
     $('enable-note').textContent = voice.enabled && !usable ? 'Per sentirla, installa XTTS o scarica Kokoro (qui sotto).' : ''
@@ -123,6 +168,7 @@
     try {
       const cfg = await api.setConfig({ voice: partial })
       voice = { ...voice, ...(cfg.voice || {}) }
+      micShortcutActive = cfg.micShortcutActive || null
     } catch (e) { $('test-note').textContent = 'Salvataggio non riuscito: ' + e.message }
     showChoices()
     showStatus()
@@ -173,7 +219,7 @@
   })
   $('xtts-cancel').addEventListener('click', () => api.voiceXttsCancel())
   $('xtts-remove').addEventListener('click', async () => {
-    if (!confirm('Disinstallare XTTS? Si cancellano Python, i pacchetti e il modello (circa 7 GB). Il campione della tua voce resta.')) return
+    if (!confirm('Disinstallare XTTS? Si cancellano Python, i pacchetti e il modello (circa 7 GB), e con loro il microfono. Il campione della tua voce resta.')) return
     try { status = await api.voiceXttsRemove() } catch (_) { /* lo stato arriva comunque */ }
     speakersLoaded = false
     showStatus()
@@ -193,12 +239,68 @@
     $('sample-btn').disabled = false
   })
 
+  // ─── Microfono ─────────────────────────────────────────────────────────────
+  micEnabled.addEventListener('change', () => save({ micEnabled: micEnabled.checked }))
+  shortcutSel.addEventListener('change', () => save({ micShortcut: shortcutSel.value }))
+  $('stt-install').addEventListener('click', async () => {
+    try { status = await api.voiceSttInstall() } catch (e) { $('stt-line').textContent = 'Errore: ' + e.message }
+    try { micShortcutActive = (await api.getConfig()).micShortcutActive || null } catch (_) {}
+    showStatus()
+  })
+  $('stt-cancel').addEventListener('click', () => api.voiceSttCancel())
+  $('stt-remove').addEventListener('click', async () => {
+    if (!confirm('Disinstallare il microfono? Si cancella il modello Whisper (1,6 GB). Si può reinstallare quando vuoi.')) return
+    try { status = await api.voiceSttRemove() } catch (_) { /* lo stato arriva comunque */ }
+    micShortcutActive = null
+    showStatus()
+  })
+
+  // Prova: tieni premuto, parla, lascia. Il testo si mostra qui, non va in chat.
+  const testBtn = $('mic-test')
+  const testNote = $('mic-test-note')
+  let recorder = null
+  let testing = false
+  testBtn.addEventListener('pointerdown', async (e) => {
+    if (e.button !== 0 || testing || !window.MicRecorder) return
+    testing = true
+    try { testBtn.setPointerCapture(e.pointerId) } catch (_) {}
+    api.voiceStop()
+    recorder = recorder || new MicRecorder()
+    testBtn.classList.add('listening')
+    testNote.textContent = 'Ti ascolto…'
+    try { await recorder.start() } catch (err) {
+      testing = false
+      testBtn.classList.remove('listening')
+      testNote.textContent = 'Microfono non disponibile: ' + (err.message || err.name)
+    }
+  })
+  const testRelease = async () => {
+    if (!testing || !recorder) return
+    testBtn.classList.remove('listening')
+    const pcm = await recorder.stop()
+    if (pcm.length < 16000 * 0.3) { testing = false; testNote.textContent = 'Troppo breve: tieni premuto mentre parli.'; return }
+    const ready = status && status.stt && status.stt.ready
+    testNote.textContent = ready ? 'Trascrivo…' : 'Trascrivo (prima si accende Whisper: qualche secondo)…'
+    try {
+      const res = await api.micTranscribe(pcm)
+      const secs = (n) => String(n).replace('.', ',')
+      testNote.textContent = !res.ok ? 'Errore: ' + res.error
+        : res.text ? 'Ho sentito: «' + res.text + '» (' + secs(res.seconds) + ' s di audio in ' + secs(res.took) + ' s)'
+          : 'Non ho sentito parole. Prova più vicino al microfono.'
+    } catch (err) { testNote.textContent = 'Errore: ' + err.message }
+    testing = false
+  }
+  testBtn.addEventListener('pointerup', testRelease)
+  testBtn.addEventListener('pointercancel', testRelease)
+
   if (api.onVoiceStatus) api.onVoiceStatus((s) => { status = s; showStatus() })
 
   ;(async () => {
     try {
       const cfg = await api.getConfig()
       voice = { ...voice, ...(cfg.voice || {}) }
+      micShortcutActive = cfg.micShortcutActive || null
+      shortcutSel.replaceChildren(...(cfg.micShortcuts || []).map(s => new Option(s.label, s.id)))
     } catch (_) { /* restano i predefiniti */ }
     showChoices()
     try { status = await api.voiceStatus() } catch (_) { status = null }
