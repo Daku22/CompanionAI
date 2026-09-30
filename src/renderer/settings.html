@@ -16,7 +16,12 @@
       width: 150px; flex: none; padding: 18px 10px;
       background: rgba(14, 11, 22, 0.9); border-right: 1px solid rgba(180,140,255,0.15);
     }
-    nav .item { padding: 8px 10px; border-radius: 8px; color: rgba(232,221,255,0.75); cursor: default; }
+    nav .item {
+      display: block; width: 100%; text-align: left; margin-bottom: 4px;
+      padding: 8px 10px; border-radius: 8px; border: none; background: none;
+      color: rgba(232,221,255,0.75); cursor: pointer;
+    }
+    nav .item:hover:not(.active) { background: rgba(180,140,255,0.08); }
     nav .item.active { background: rgba(180,140,255,0.16); color: #fff; }
     nav .soon { font-size: 11px; color: rgba(200,168,255,0.4); padding: 12px 10px 0; line-height: 1.5; }
     main { flex: 1; overflow-y: auto; padding: 22px 26px 30px; }
@@ -72,12 +77,14 @@
 </head>
 <body>
   <nav>
-    <div class="item active">🔊 Voce</div>
+    <button class="item active" data-page="voce">🔊 Voce</button>
+    <button class="item" data-page="microfono">🎙 Microfono</button>
     <div class="soon">Le altre impostazioni sono ancora nella chat (⚙).</div>
   </nav>
   <main>
+   <div class="page" id="page-voce">
     <h1>Voce</h1>
-    <p class="sub">Il companion legge ad alta voce le sue risposte, e la bocca segue la voce. Puoi anche parlargli con il microfono. Voce e ascolto girano sul tuo PC: né il testo da leggere né l'audio escono dal computer.</p>
+    <p class="sub">Il companion legge ad alta voce le sue risposte, e la bocca segue la voce. La voce si genera sul tuo PC: il testo da leggere non esce dal computer.</p>
 
     <section>
       <label class="switch"><input type="checkbox" id="voice-enabled"> Legge ad alta voce le risposte</label>
@@ -159,9 +166,13 @@
         <span class="muted" id="test-note"></span>
       </div>
     </section>
+   </div>
 
+   <div class="page hidden" id="page-microfono">
+    <h1>Microfono</h1>
+    <p class="sub">Tieni premuta la scorciatoia (o 🎙 nella chat), parla e lascia: quello che hai detto parte come messaggio.
+      Un tocco breve lascia il microfono aperto fino al tocco successivo; Esc annulla. L'audio non esce dal PC.</p>
     <section>
-      <h2>Microfono</h2>
       <div class="box">
         <label class="switch"><input type="checkbox" id="mic-enabled"> Parlo al companion con il microfono</label>
         <div class="state" id="stt-line"></div>
@@ -188,13 +199,13 @@
         </div>
         <div class="bar hidden" id="mic-level" title="Volume del microfono"><div id="mic-level-fill"></div></div>
         <p class="muted" style="margin-top:8px">
-          Tieni premuta la scorciatoia (o 🎙 nella chat), parla e lascia: quello che hai detto parte come messaggio.
-          Un tocco breve lascia il microfono aperto fino al tocco successivo. L'audio non esce dal PC: lo trascrive
-          Whisper large-v3-turbo (licenza MIT) sulla scheda video, nello stesso servizio di XTTS. Si installa dopo XTTS
-          (circa 1,8 GB) e, mentre il microfono è acceso, occupa circa 2,5 GB della scheda video.
+          Lo trascrive Whisper large-v3-turbo (licenza MIT) sulla scheda video, nello stesso servizio di XTTS
+          (scheda Voce). Si installa dopo XTTS (circa 1,8 GB) e, mentre il microfono è acceso, occupa circa
+          2,5 GB della scheda video. Il servizio resta acceso finché il microfono è acceso, anche se a parlare è Kokoro.
         </p>
       </div>
     </section>
+   </div>
   </main>
   <script src="mic-recorder.js"></script>
   <script src="settings.js"></script>

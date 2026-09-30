@@ -17,10 +17,17 @@
 //                                    scripts/fixtures/kimodo-soma77-sit.bvh)
 //   npm run audit -- --kimodo <dir>  anche un movimento generato davvero da Kimodo
 //                                    (kimodo.cpp e pesi in <dir>, docs/kimodo-locale.md)
+//   npm run audit -- --voice <dir>   la voce Kokoro (cartella voice con i suoi file)
+//   npm run audit -- --xtts <dir>    XTTS installato (cartella voice dell'app)
+//   npm run audit -- --xtts <dir> --mic [--mic-wav <file>]
+//                                    anche il microfono (installato con XTTS): il
+//                                    microfono finto di Chromium dice una frase
+//                                    italiana, di base generata con la voce
+//                                    italiana di Windows (System.Speech)
 //
 // Esce con codice 1 se un controllo fallisce.
 
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { killTree } from './lib/kill-tree.mjs'
 import { createRequire } from 'node:module'
 import http from 'node:http'
@@ -51,6 +58,9 @@ const VOICE = opt('--voice') ? path.resolve(opt('--voice')) : null
 // XTTS installato (circa 7 GB): la cartella voice dell'app, con xtts\ e
 // samples\. Non si copia: si collega con una junction.
 const XTTS = opt('--xtts') ? path.resolve(opt('--xtts')) : null
+// Il microfono vive nell'ambiente di XTTS: serve --xtts.
+const MIC = argv.includes('--mic')
+if (MIC && !XTTS) { console.error('--mic richiede --xtts <cartella voice>'); process.exit(2) }
 const OUT = path.resolve(opt('--out') || path.join(os.tmpdir(), 'companion-audit'))
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-audit-'))
 const HOME = path.join(WORK, 'home')
@@ -70,6 +80,8 @@ const REPLIES = {
   'cammina verso destra': { reply: 'Vado a destra.', emotion: 'calm', action: { type: 'none', animation: 'walk-to', direction: 'right', distance: 'medium' } },
   'siediti qui': { reply: 'Mi siedo.', emotion: 'calm', action: { type: 'none', animation: 'sit' } },
   'salutami': { reply: 'Ciao!', emotion: 'joy', action: { type: 'none', animation: 'wave' } },
+  // Una risposta lunga, da interrompere parlando nel microfono.
+  'raccontami una storia': { reply: 'C\'era una volta una piccola barca che voleva vedere il mare aperto. Ogni mattina guardava l\'orizzonte e sognava isole lontane, pesci colorati e tramonti rossi. Un giorno il vento cambiò, e la barca finalmente partì.', emotion: 'joy', action: { type: 'none', animation: 'idle' } },
   'fai un inchino': { reply: 'Ci provo!', emotion: 'joy', action: { type: 'none', animation: 'idle', motion: 'A person does a deep, polite bow.' } },
 }
 const requests = []
@@ -190,7 +202,36 @@ stripVrm(path.join(ROOT, 'modelli-3d', 'Fred', 'Fred_optimized.vrm'), plainGlb)
 const gltfScan = await library.scan(plainGlb)
 const gltfAvatar = await library.commit(gltfScan.token, gltfScan.candidates[0].id)
 
-const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA], {
+// Il microfono finto: una frase italiana, poi 3 s di silenzio (Chromium
+// ripete il file finche' il microfono e' aperto).
+const MIC_PHRASE = 'Ciao, come stai oggi? Raccontami qualcosa di bello sul mare.'
+function micWav() {
+  const wav = path.join(WORK, 'microfono.wav')
+  if (opt('--mic-wav')) fs.copyFileSync(path.resolve(opt('--mic-wav')), wav)
+  else {
+    execFileSync('powershell', ['-NoProfile', '-Command', [
+      'Add-Type -AssemblyName System.Speech',
+      '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer',
+      "$v = $s.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like 'it*' } | Select-Object -First 1",
+      "if (-not $v) { throw 'nessuna voce italiana di Windows: usa --mic-wav' }",
+      '$s.SelectVoice($v.VoiceInfo.Name)',
+      '$f = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(48000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)',
+      `$s.SetOutputToWaveFile('${wav}', $f)`,
+      `$s.Speak('${MIC_PHRASE.replace(/'/g, "''")}')`,
+      '$s.Dispose()',
+    ].join('; ')], { stdio: 'inherit' })
+  }
+  const b = fs.readFileSync(wav)
+  const at = b.indexOf('data') + 8
+  const padded = Buffer.concat([b, Buffer.alloc(b.readUInt32LE(28) * 3)])
+  padded.writeUInt32LE(padded.length - 8, 4)
+  padded.writeUInt32LE(padded.length - at, at - 4)
+  fs.writeFileSync(wav, padded)
+  return wav
+}
+const micArgs = MIC ? ['--use-fake-device-for-media-stream', '--use-file-for-fake-audio-capture=' + micWav()] : []
+
+const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA, ...micArgs], {
   cwd: ROOT, stdio: 'ignore',
   env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, COMPANION_ONLY_USER_CLIPS: "1" },
 })
@@ -256,6 +297,85 @@ const shot = async (name) => {
   fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(s.result.data, 'base64'))
 }
 const bubble = () => comp.evaluate(`document.getElementById('bubble').textContent`)
+
+// ── Microfono (solo con --mic) ───────────────────────────────────────────────
+// Clic veri (Input.dispatchMouseEvent) sul pulsante, tenuto premuto.
+async function press(page, sel) {
+  const at = await page.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...at })
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...at, button: 'left', buttons: 1, clickCount: 1 })
+  return at
+}
+const release = (page, at) => page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...at, button: 'left', buttons: 0, clickCount: 1 })
+const speaking = async () => (await comp.evaluate('window.__companion3DTest.voice()')).speaking
+async function newUserMessage(before, ms) {
+  for (let t = 0; t < ms; t += 100) {
+    const all = await chat.evaluate(`[...document.querySelectorAll('.msg.user')].map(m => m.textContent)`)
+    if (all.length > before) return all[all.length - 1]
+    await sleep(100)
+  }
+  return null
+}
+async function auditMic() {
+  await chat.evaluate(`window.companion.setConfig({ voice: { micEnabled: true, micDevice: '' } }).then(c => c.voice.micEnabled)`)
+  let st = null
+  for (let i = 0; i < 120 && !(st && st.stt.ready); i++) { await sleep(500); st = await chat.evaluate('window.companion.voiceStatus()') }
+  check(!!st && st.stt.ready, 'microfono: Whisper pronto nel servizio (' + (st ? st.xtts.loaded.join(', ') : '?') + ')')
+  if (!st || !st.stt.ready) return
+  if (await chat.evaluate('document.visibilityState !== "visible"')) { await chat.evaluate('window.companion.toggleChat(); true'); await sleep(800) }
+  const users = async () => (await chat.evaluate(`document.querySelectorAll('.msg.user').length`))
+
+  // Tieni premuto 🎙, parla, lascia.
+  let before = await users()
+  let at = await press(chat, '#mic-btn')
+  await sleep(1500)
+  const b = await bubble()
+  check(/ascolto/i.test(b), 'microfono: mentre ascolta il companion dice "' + b + '"')
+  await sleep(4500)
+  const released = Date.now()
+  await release(chat, at)
+  let got = await newUserMessage(before, 30000)
+  check(/mare/i.test(got || ''), 'microfono: "' + got + '" in chat ' + (Date.now() - released) + ' ms dopo il rilascio')
+  check(requests.some(r => JSON.stringify(r.messages).toLowerCase().includes('mare')), 'microfono: il modello riceve quello che hai detto')
+
+  // Mentre racconta una storia lunga si preme 🎙: tace subito, e ascolta.
+  await sleep(2000)
+  await say('raccontami una storia')
+  let talking = false
+  for (let i = 0; i < 300 && !talking; i++) { talking = await speaking(); if (!talking) await sleep(50) }
+  check(talking, 'microfono: la storia si sente')
+  await sleep(1500)
+  before = await users()
+  at = await press(chat, '#mic-btn')
+  const pressed = Date.now()
+  let quiet = null
+  for (let i = 0; i < 60 && quiet === null; i++) { if (!(await speaking())) quiet = Date.now() - pressed; else await sleep(50) }
+  check(quiet !== null, 'microfono: premuto 🎙 il companion tace dopo ' + quiet + ' ms')
+  await sleep(6000)
+  await release(chat, at)
+  got = await newUserMessage(before, 30000)
+  check(/mare/i.test(got || ''), 'microfono: dopo averlo interrotto il messaggio parte')
+
+  // Impostazioni, scheda Microfono: il menu dei microfoni (quelli finti di Chromium).
+  await chat.evaluate('window.companion.openSettings(); true')
+  let settings = null
+  for (let i = 0; i < 40 && !settings; i++) {
+    const t = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find(x => x.url.includes('settings.html'))
+    if (t) settings = await connect(t); else await sleep(250)
+  }
+  await settings.send('Runtime.enable')
+  await settings.send('Log.enable')
+  await sleep(1500)
+  await settings.evaluate(`document.querySelector('nav .item[data-page="microfono"]').click(); true`)
+  let options = []
+  for (let i = 0; i < 20 && options.length < 3; i++) { await sleep(250); options = await settings.evaluate(`[...document.getElementById('mic-device').options].map(o => o.textContent)`) }
+  check(options.length >= 3 && options.every(o => o), 'Impostazioni, scheda Microfono: ' + options.length + ' voci nel menu (' + options.join(' | ') + ')')
+  const s = await settings.send('Page.captureScreenshot', { format: 'png' })
+  fs.writeFileSync(path.join(OUT, '4a-microfono-impostazioni.png'), Buffer.from(s.result.data, 'base64'))
+  const found = problems(settings.events)
+  check(found.length === 0, 'impostazioni: nessun errore in console' + (found.length ? ':\n      - ' + found.join('\n      - ') : ''))
+}
+
 // Movimento del mouse finto sulla pagina: companion-input.js decide se catturarlo.
 const hover = async (x, y) => {
   await comp.evaluate(`window.dispatchEvent(new MouseEvent('mousemove', { clientX: ${x}, clientY: ${y} })); true`)
@@ -400,7 +520,8 @@ try {
     }
     check(heard !== null, 'xtts: la risposta si sente con ' + (sample ? 'la voce del campione' : speaker) + ' dopo ' + heard + ' ms')
     await sleep(3000)
-    await chat.evaluate(`window.companion.setConfig({ voice: { enabled: false, engine: 'kokoro' } }).then(c => c.voice.enabled)`)
+    if (MIC) await auditMic()
+    await chat.evaluate(`window.companion.setConfig({ voice: { enabled: false, engine: 'kokoro', micEnabled: false } }).then(c => c.voice.enabled)`)
   }
 
   // 4b. Il mouse sul 3D: pixel del modello, sguardo, presa in braccio.

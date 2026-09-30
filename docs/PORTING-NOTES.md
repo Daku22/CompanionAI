@@ -796,6 +796,25 @@ Non ancora: il vivavoce (ascolto sempre aperto con VAD, e la voce che si
 interrompe quando l'utente parla sopra senza premere niente), le voci e la
 trascrizione cloud (3c), `/unload`.
 
+## Blocco 3e: chiusura del blocco della voce (2026-09-30)
+
+- **`/unload`.** Un modello che smette di servire si libera dopo 2 minuti,
+  con lo stesso ritardo dello spegnimento. Misurato: con tutti e due caricati
+  +4,7 GB; senza XTTS +2,8 (1,9 liberati); senza Whisper +3,0 (1,75
+  liberati). Se una frase o un ascolto lo richiedono dopo, il servizio lo
+  ricarica da solo (XTTS 17 s, Whisper 3,4 s).
+- **Impostazioni a schede:** Voce e Microfono, si riapre sull'ultima.
+- **Audit con il microfono:** `--xtts <cartella voice> --mic`. Il microfono
+  finto di Chromium dice la frase della voce italiana di Windows. Prova
+  Whisper pronto, fumetto, testo in chat circa 1 s dopo il rilascio e al
+  modello, il companion che tace appena si preme 🎙 mentre racconta una storia,
+  e il messaggio che parte lo stesso, la scheda Microfono con l'elenco dei
+  microfoni. Audit intero: 84 controlli su 84.
+- Documenti: tabella dei test del README italiano aggiornata (28 suite:
+  mancavano scene, texture e tutta la voce).
+
+Resta per dopo: il vivavoce con VAD, le voci e la trascrizione cloud (3c).
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

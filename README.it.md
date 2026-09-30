@@ -513,7 +513,8 @@ velano il cielo, e pioggia, neve e nebbia si vedono davvero.
 ## Voce
 
 Spenta di base. Si accende dalla finestra **Impostazioni** (menu col tasto
-destro o tray, `settings.html`), che per ora ha solo questa sezione.
+destro o tray, `settings.html`), che per ora ha due schede: Voce e
+Microfono (si riapre sull'ultima usata).
 
 **Il percorso di una risposta.** `ai:send-message` in `main.js`, a risposta
 arrivata, chiama `speakReply`. `speech-text.js` (puro, con test) toglie emoji,
@@ -604,7 +605,11 @@ tocco dopo; Esc annulla. Il microfono da usare si sceglie nelle Impostazioni.
   il modello caricato non si cancella); quello di XTTS toglie tutto.
 - **Servizio:** lo stesso di XTTS. All'avvio carica solo i modelli chiesti
   (`VOICE_LOAD`), gli altri con `/load` (`ensure()` in `xtts-engine.js`): con
-  la voce spenta o su Kokoro e il microfono acceso, XTTS non si carica.
+  la voce spenta o su Kokoro e il microfono acceso, XTTS non si carica. Un
+  modello che smette di servire (la voce passata a Kokoro col microfono
+  acceso, o il contrario) si libera con `/unload` dopo 2 minuti, come lo
+  spegnimento: circa 1,9 GB di memoria video XTTS, 1,7 Whisper. Se torna a
+  servire si ricarica da solo (XTTS 17 s, Whisper 3 s).
   `/stt` riceve float32 mono a 16 kHz (al massimo 120 s) e risponde col testo.
   Il filtro VAD di faster-whisper toglie i silenzi, altrimenti Whisper sul
   rumore si inventa i titoli dei sottotitoli; `cleanTranscript`
@@ -635,7 +640,11 @@ tocco dopo; Esc annulla. Il microfono da usare si sceglie nelle Impostazioni.
 
 `npm run voice:check -- <cartella>` prova la voce senza aprire l'app.
 L'audit la prova con `--voice <cartella>`: una risposta della chat deve
-sentirsi e aprire la bocca.
+sentirsi e aprire la bocca. Con `--xtts <cartella voice> --mic` prova anche
+il microfono, con il microfono finto di Chromium che dice una frase italiana
+(generata con la voce italiana di Windows, o `--mic-wav <file>`): tenuto
+premuto 🎙 il testo arriva in chat e al modello, e premuto mentre il companion
+racconta una storia lo zittisce.
 
 ## Azioni sul sistema
 
@@ -658,7 +667,7 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 
 ## Test
 
-`npm test` esegue diciannove suite senza chiavi API né finestre:
+`npm test` esegue ventotto suite senza chiavi API né finestre:
 
 | Suite | Cosa verifica |
 |---|---|
@@ -666,7 +675,7 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | Router | La memoria raggiunge il modello anche oltre 40 messaggi; dialogo che parte dall'utente; UTF-8; budget per i modelli che ragionano; errori leggibili; elenchi dei modelli |
 | Umore | Emivite, affetto che non decade, energia, riga del prompt, file corrotti, contratto `emotion` |
 | Vita a riposo | Soglie di quiete, sonno e risveglio, notte e stanchezza, pesi secondo l'umore |
-| Controlli | Allowlist dei comandi, percorsi eseguibili, config dal renderer, opzioni della finestra, mittenti IPC |
+| Controlli | Allowlist dei comandi, percorsi eseguibili, config dal renderer (voce, microfono e scorciatoie comprese), opzioni della finestra, mittenti IPC, permessi del browser (solo il microfono) |
 | Animazioni | Player di pose: dissolvenze, ritorno a idle, nessun residuo fra clip, VRM 0.x e 1.0; ciglia uguali a ogni frame rate, sguardo, pesi dell'umore; testa che segue il mouse nei limiti, posa in braccio |
 | Oscillazione | Molla di `sway.js`: verso, limiti, smorzamento, stesso risultato a 30 e 144 fps |
 | AvatarLibrary | Importazione di VRM, glTF e pacchetti di sprite, solo i file dichiarati, limiti di scansione, avatar integrati |
@@ -681,6 +690,14 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | Stanza | Dimensioni salvate e di partenza, bordi, chat agganciata, scene HDRI del manifest |
 | Luce della stanza | Sole a mezzogiorno, al tramonto e di notte, luci senza salti, meteo, tinta dell'umore |
 | Meteo | Richieste a Open-Meteo con un fetch finto: solo città o coordinate, 30 minuti di memoria, errori |
+| Texture FBX e glTF | Texture trovate in `textures/`, per nome del file o del materiale, TGA; materiali specular-glossiness |
+| SceneLibrary e misura delle scene | Import di glTF, FBX e OBJ con i loro file, scala stimata (centimetri, metri), pavimento, eliminazione |
+| Testo per la voce | Emoji, markdown e link tolti, frasi divise e unite; testo del microfono senza le frasi inventate sul silenzio |
+| Fonemi di Kokoro | I fonemi italiani di espeak-ng scritti come li ha visti Kokoro |
+| File della voce | Download con SHA-256, file troncati o diversi scartati, stato, eliminazione |
+| Servizio della voce | Coda delle frasi, interruzioni, ripiego su Kokoro, XTTS e Whisper accesi solo se servono, modelli liberati dopo, installazione del microfono, trascrizione |
+| XTTS | Pezzi di audio in streaming, `/load`, `/unload`, `/stt`, comandi di uv, pacchetti con hash (quelli del microfono solo nuovi), file a commit fisso |
+| Scelta del microfono | Elenco dei microfoni senza le voci di Chromium, ritrovati per id o per nome, predefinito se mancano |
 
 `npm run check` aggiunge il controllo dei tipi. Il progetto è JavaScript, ma
 `allowJs` e `checkJs` lo sottopongono comunque a TypeScript, con i tipi

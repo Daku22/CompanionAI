@@ -5,9 +5,10 @@
 # (xtts-setup.js). Risponde su 127.0.0.1, a una porta scelta dal sistema, solo
 # a chi conosce il token ricevuto nell'ambiente. Carica sulla GPU i modelli
 # chiesti in VOICE_LOAD ("tts", "stt" o tutti e due), gli altri alla prima
-# richiesta o con /load. Quando e' pronto scrive su stdout una riga
-# "XTTS_SERVICE_READY {json}"; tutto il resto va su stderr. Si chiude da solo
-# quando finisce l'app (VOICE_PARENT_PID) o il suo lanciatore.
+# richiesta o con /load; /unload libera quelli che non servono piu'. Quando
+# e' pronto scrive su stdout una riga "XTTS_SERVICE_READY {json}"; tutto il
+# resto va su stderr. Si chiude da solo quando finisce l'app
+# (VOICE_PARENT_PID) o il suo lanciatore.
 #
 # /tts risponde a pezzi mentre il modello genera: ogni pezzo e' un intero a
 # 32 bit (quanti byte seguono) e i campioni float32 a 24 kHz; un pezzo di 0
@@ -139,6 +140,25 @@ def load(kind):
         raise ValueError('modello sconosciuto: ' + str(kind))
 
 
+def unload(kind):
+    """Libera la memoria video di un modello che non serve piu' (dopo che
+    finisce la frase o l'ascolto in corso). Se torna a servire si ricarica."""
+    global tts_model, stt_model
+    if kind == 'tts':
+        with tts_lock:
+            tts_model = None
+            latents.clear()
+    elif kind == 'stt':
+        with stt_lock:
+            stt_model = None
+    else:
+        raise ValueError('modello sconosciuto: ' + str(kind))
+    import gc
+    gc.collect()
+    if device == 'cuda':
+        torch.cuda.empty_cache()
+
+
 def loaded():
     return [k for k, m in (('tts', tts_model), ('stt', stt_model)) if m is not None]
 
@@ -260,6 +280,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, {'ok': True, 'seconds': round(seconds, 1)})
             elif self.path == '/load':
                 load(data.get('kind'))
+                self.reply(200, {'ok': True, 'loaded': loaded()})
+            elif self.path == '/unload':
+                unload(data.get('kind'))
                 self.reply(200, {'ok': True, 'loaded': loaded()})
             elif self.path == '/tts':
                 self.tts(data)

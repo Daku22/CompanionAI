@@ -313,6 +313,17 @@ class VoiceService {
         .then(() => Promise.all(want.map(kind => this.xtts.ensure(kind))))
         .catch(() => { /* l'errore e' nello stato */ })
         .finally(() => this._emit())
+      // Un modello caricato che non serve piu' (la voce passata a Kokoro col
+      // microfono acceso, o il contrario) libera la memoria video, con lo
+      // stesso ritardo dello spegnimento.
+      const extra = ['tts', 'stt'].filter(kind => !want.includes(kind))
+      if (extra.length && this.xtts.unload) {
+        this.xttsStopTimer = setTimeout(() => {
+          this.xttsStopTimer = null
+          for (const kind of extra) this.xtts.unload(kind).catch(() => { /* resta caricato */ }).finally(() => this._emit())
+        }, this.xttsIdleMs)
+        if (this.xttsStopTimer.unref) this.xttsStopTimer.unref()
+      }
     } else if (!want.length && !busy && this.xtts.state !== 'off') {
       this.xttsStopTimer = setTimeout(() => { this.xttsStopTimer = null; this.xtts.stop() }, this.xttsIdleMs)
       if (this.xttsStopTimer.unref) this.xttsStopTimer.unref()

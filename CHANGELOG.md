@@ -155,6 +155,11 @@
   lists. The choice is found again by name if its id changes (another USB
   port); if it is unplugged, Windows' default microphone is used and the app
   says so.
+- The Settings window has two tabs, Voce and Microfono, and reopens on the
+  last one used.
+- A voice model that is no longer needed (XTTS after switching to Kokoro with
+  the microphone on, or Whisper after turning the microphone off) frees its
+  video memory after two minutes, about 2 GB each.
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.

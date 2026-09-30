@@ -7,7 +7,7 @@
 // restano caricati sulla GPU finche' servono (voce XTTS o microfono accesi):
 // caricare XTTS richiede decine di secondi, troppo per farlo a ogni risposta.
 // Il servizio carica all'avvio solo i modelli chiesti; gli altri li carica
-// ensure(), con /load.
+// ensure(), con /load, e unload() libera quelli che non servono piu'.
 //
 // L'audio arriva a pezzi mentre il modello genera (vedi xtts_service.py):
 // ogni pezzo va subito al companion, e la prima parola si sente prima che la
@@ -216,6 +216,18 @@ class XttsEngine {
     await this.loading.get(kind)
   }
 
+  /**
+   * Libera la memoria video di un modello che non serve piu'. Se una frase o
+   * un ascolto lo richiedono dopo, il servizio lo ricarica da solo.
+   * @param {'tts'|'stt'} kind
+   */
+  async unload(kind) {
+    if (this.state !== 'ready' || !this.loaded.has(kind)) return
+    this.loaded.delete(kind)
+    this._set(this.state)
+    await this._request('POST', '/unload', { kind })
+  }
+
   /** Le voci incluse nel modello (58, con nomi come "Ana Florence"). */
   async speakers() {
     await this.ensure('tts')
@@ -244,6 +256,7 @@ class XttsEngine {
       if (reader.done) break
     }
     if (!reader.done) throw new Error('XTTS: frase interrotta')
+    this.loaded.add('tts')   // il servizio lo ricarica da solo se era stato liberato
   }
 
   /**
@@ -268,6 +281,7 @@ class XttsEngine {
       try { message = (await res.json()).error || message } catch (_) { /* non JSON */ }
       throw new Error('microfono: ' + message)
     }
+    this.loaded.add('stt')
     return res.json()
   }
 }

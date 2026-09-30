@@ -79,6 +79,15 @@ async function main() {
     assert.ok(e.loaded.has('tts'))
   })
 
+  await t('unload: /unload solo per un modello caricato', async () => {
+    const { e, calls } = readyEngine([])
+    e.loaded = new Set(['tts', 'stt'])
+    await e.unload('tts')
+    await e.unload('tts')
+    assert.deepEqual(calls.map(c => [c.url, JSON.parse(c.init.body)]), [['http://127.0.0.1:5555/unload', { kind: 'tts' }]])
+    assert.deepEqual([...e.loaded], ['stt'])
+  })
+
   await t('transcribe: campioni float32 a 16 kHz, token, testo dalla risposta', async () => {
     const calls = []
     const e = new XttsEngine({

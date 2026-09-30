@@ -17,6 +17,19 @@
   const cpml = $('cpml')
   const speakerSel = $('xtts-speaker')
 
+  // Schede: Voce e Microfono. Si riapre sull'ultima scelta.
+  const tabs = [...document.querySelectorAll('nav .item[data-page]')]
+  function showPage(name) {
+    if (!tabs.some(t => t.dataset.page === name)) name = 'voce'
+    for (const t of tabs) t.classList.toggle('active', t.dataset.page === name)
+    for (const p of document.querySelectorAll('.page')) p.classList.toggle('hidden', p.id !== 'page-' + name)
+    try { localStorage.setItem('settings-page', name) } catch (_) { /* niente memoria: si riparte da Voce */ }
+  }
+  for (const t of tabs) t.addEventListener('click', () => showPage(t.dataset.page))
+  let lastPage = 'voce'
+  try { lastPage = localStorage.getItem('settings-page') || 'voce' } catch (_) {}
+  showPage(lastPage)
+
   const micEnabled = $('mic-enabled')
   const shortcutSel = $('mic-shortcut')
 
@@ -58,7 +71,7 @@
     line.className = 'state'
     if (!x.available) line.textContent = 'Non disponibile in questa versione.'
     else if (installing) line.textContent = 'Installazione in corso: puoi chiudere questa finestra, continua lo stesso.'
-    else if (!x.installed) line.textContent = 'Prima installa XTTS (qui sopra): il microfono usa il suo Python e la sua scheda video.'
+    else if (!x.installed) line.textContent = 'Prima installa XTTS (scheda Voce): il microfono usa il suo Python e la sua scheda video.'
     else if (!s.installed) line.textContent = 'Non installato.'
     else if (s.ready) { line.textContent = 'Pronto: ti ascolto quando vuoi.'; line.classList.add('ok') }
     else if (s.loading || (voice.micEnabled && x.state === 'loading')) line.textContent = 'Si sta accendendo…'

@@ -149,6 +149,7 @@ async function main() {
           x.started++; x.state = 'ready'; x.info = { device }; x.loaded = new Set(load)
         },
         async ensure(kind) { await x.start([kind]); x.loaded.add(kind) },
+        async unload(kind) { x.loaded.delete(kind) },
         stop() { x.stopped++; x.state = 'off'; x.loaded = new Set() },
         async transcribe(pcm) {
           await x.ensure('stt')
@@ -278,6 +279,24 @@ async function main() {
       const notInstalled = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), setup: fakeSetup(true) })
       notInstalled.syncService({ stt: true })
       assert.equal(notInstalled.xtts.started, 0, 'microfono non installato: non parte')
+    })
+
+    await t('un modello che non serve piu\' si libera, un po\' dopo', async () => {
+      const xtts = fakeXtts()
+      const v = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts, setup: fakeSetup(true, undefined, { installed: true, install: async () => {} }), xttsIdleMs: 30 })
+      v.syncService({ tts: true, stt: true })
+      await sleep(5)
+      assert.deepEqual([...xtts.loaded].sort(), ['stt', 'tts'])
+      v.syncService({ tts: false, stt: true })   // la voce passa a Kokoro, il microfono resta
+      await sleep(10)
+      assert.ok(xtts.loaded.has('tts'), 'non subito: chi cambia le impostazioni ci ripensa')
+      v.syncService({ tts: true, stt: true })
+      await sleep(50)
+      assert.ok(xtts.loaded.has('tts'), 'richiesto di nuovo in tempo: resta')
+      v.syncService({ tts: false, stt: true })
+      await sleep(50)
+      assert.deepEqual([...xtts.loaded], ['stt'], 'XTTS liberato, Whisper resta')
+      assert.equal(xtts.stopped, 0, 'il servizio resta acceso per il microfono')
     })
 
     await t('microfono: testo pulito, errori nello stato', async () => {
