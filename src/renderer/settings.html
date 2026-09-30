@@ -55,6 +55,8 @@
     .state.ok { color: #9fe0b0; }
     .hidden { display: none !important; }
     #mic-test { flex: none; white-space: nowrap; }
+    #mic-device { flex: 1; min-width: 0; }
+    #mic-level div { transition: width 0.08s; }
     #mic-test.listening { background: #c0395a; border-color: #ff7a9a; }
     .choices.stack { flex-direction: column; gap: 8px; }
     .choices.stack label { align-items: flex-start; }
@@ -171,6 +173,11 @@
           <button class="danger" id="stt-remove">Disinstalla</button>
         </div>
         <div class="row mic-ready">
+          <label class="name" for="mic-device">Microfono</label>
+          <select id="mic-device"></select>
+        </div>
+        <p class="muted mic-ready" id="device-note"></p>
+        <div class="row mic-ready">
           <label class="name" for="mic-shortcut">Scorciatoia</label>
           <select id="mic-shortcut"></select>
         </div>
@@ -179,6 +186,7 @@
           <button id="mic-test">🎙 Tieni premuto e parla</button>
           <span class="muted" id="mic-test-note"></span>
         </div>
+        <div class="bar hidden" id="mic-level" title="Volume del microfono"><div id="mic-level-fill"></div></div>
         <p class="muted" style="margin-top:8px">
           Tieni premuta la scorciatoia (o 🎙 nella chat), parla e lascia: quello che hai detto parte come messaggio.
           Un tocco breve lascia il microfono aperto fino al tocco successivo. L'audio non esce dal PC: lo trascrive

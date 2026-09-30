@@ -783,6 +783,15 @@ Trappola della prova: con la home finta e i dati veri dell'app, Chromium non
 decifra i suoi file (DPAPI) e l'app si chiude all'avvio con 0x80000003; per
 questo l'audit usa una cartella dati sua.
 
+**Scelta del microfono** (chiesta dall'utente dopo la prima versione): menu
+nelle Impostazioni con i dispositivi di `enumerateDevices`, id e nome in
+config, ritrovato per nome se l'id cambia, predefinito se manca. Prova dal
+vivo 29 su 29 con i microfoni finti di Chromium ("Fake Audio Input 1/2":
+la chat apre davvero quello scelto, `getSettings().deviceId`; scelto e poi
+sparito, registra dal predefinito e lo dice), e l'elenco vero del PC
+dell'utente: 6 microfoni con i loro nomi (anche virtuali: NVIDIA Broadcast,
+VB-Cable, Steam, Camo).
+
 Non ancora: il vivavoce (ascolto sempre aperto con VAD, e la voce che si
 interrompe quando l'utente parla sopra senza premere niente), le voci e la
 trascrizione cloud (3c), `/unload`.

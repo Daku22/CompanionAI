@@ -481,6 +481,7 @@ let mic = null
 let micMode = null    // null | 'hold' | 'toggle' | 'shortcut'
 let micDownAt = 0
 let micBusy = false
+let micMissingSaid = false
 
 function micUsable() {
   return !!(window.MicRecorder && config.voice && config.voice.micEnabled && config.micInstalled)
@@ -505,7 +506,13 @@ async function micStart(mode) {
   inputEl.placeholder = mode === 'hold' ? 'Ti ascolto… lascia per inviare' : 'Ti ascolto…'
   api.micState('listening')
   try {
-    await mic.start()
+    const voice = config.voice || {}
+    await mic.start({ deviceId: voice.micDevice, deviceLabel: voice.micDeviceLabel })
+    // Il microfono scelto non c'e': si registra dal predefinito, e lo si dice una volta.
+    if (mic.missing && !micMissingSaid) {
+      micMissingSaid = true
+      addMessage('system', 'Il microfono scelto (' + (voice.micDeviceLabel || 'senza nome') + ') non è collegato: ti ascolto da quello predefinito.')
+    }
   } catch (e) {
     micReset()
     api.micState('idle')
@@ -570,6 +577,7 @@ if (api && api.onMicCommand) api.onMicCommand((m) => {
 // Microfono acceso, spento, installato o tolto dalle Impostazioni.
 if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
   if (!cfg) return
+  if ((cfg.voice && cfg.voice.micDevice) !== (config.voice && config.voice.micDevice)) micMissingSaid = false
   config.voice = cfg.voice
   config.micInstalled = cfg.micInstalled
   showMicButton()

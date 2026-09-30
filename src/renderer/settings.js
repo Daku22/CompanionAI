@@ -20,7 +20,7 @@
   const micEnabled = $('mic-enabled')
   const shortcutSel = $('mic-shortcut')
 
-  let voice = { enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9, xttsSpeaker: 'sample', xttsSample: null, cpmlAccepted: false, micEnabled: false, micShortcut: 'Ctrl+Alt+M' }
+  let voice = { enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9, xttsSpeaker: 'sample', xttsSample: null, cpmlAccepted: false, micEnabled: false, micShortcut: 'Ctrl+Alt+M', micDevice: '', micDeviceLabel: '' }
   let status = null
   let check = null        // { gpu, freeBytes } dal main
   let speakersLoaded = false
@@ -240,8 +240,42 @@
   })
 
   // ─── Microfono ─────────────────────────────────────────────────────────────
-  micEnabled.addEventListener('change', () => save({ micEnabled: micEnabled.checked }))
+  micEnabled.addEventListener('change', async () => { await save({ micEnabled: micEnabled.checked }); loadDevices() })
   shortcutSel.addEventListener('change', () => save({ micShortcut: shortcutSel.value }))
+
+  // I microfoni di Windows. I nomi li da' Chromium solo con il permesso, cioe'
+  // con il microfono acceso: spento, il menu mostra solo la scelta salvata.
+  const deviceSel = $('mic-device')
+  const DEFAULT_NAME = 'Predefinito di Windows'
+  async function loadDevices() {
+    const saved = voice.micDevice ? new Option(voice.micDeviceLabel || 'Microfono scelto', voice.micDevice) : new Option(DEFAULT_NAME, '')
+    if (!window.MicRecorder || !voice.micEnabled) {
+      deviceSel.replaceChildren(saved)
+      deviceSel.disabled = true
+      $('device-note').textContent = ''
+      return
+    }
+    let list = { devices: [], defaultLabel: '' }
+    try { list = await MicRecorder.listInputs() } catch (_) { /* elenco vuoto: solo il predefinito */ }
+    const pick = MicRecorder.pickInput(list.devices, { id: voice.micDevice, label: voice.micDeviceLabel })
+    const options = [new Option(DEFAULT_NAME + (list.defaultLabel ? ' (' + list.defaultLabel + ')' : ''), '')]
+    for (const d of list.devices) options.push(new Option(d.label || 'Microfono senza nome', d.id))
+    if (pick.missing) options.push(new Option((voice.micDeviceLabel || 'Microfono scelto') + ' (non collegato)', voice.micDevice))
+    deviceSel.replaceChildren(...options)
+    deviceSel.value = pick.missing ? voice.micDevice : (pick.id || '')
+    deviceSel.disabled = false
+    $('device-note').textContent = pick.missing ? 'Il microfono scelto non è collegato: finché non torna uso quello predefinito.' : ''
+    // Ritrovato per nome con un id nuovo: si salva quello nuovo.
+    if (voice.micDevice && pick.id && pick.id !== voice.micDevice) save({ micDevice: pick.id, micDeviceLabel: voice.micDeviceLabel })
+  }
+  deviceSel.addEventListener('change', async () => {
+    const option = deviceSel.selectedOptions[0]
+    const label = deviceSel.value && option ? option.textContent.replace(/ \(non collegato\)$/, '') : ''
+    await save({ micDevice: deviceSel.value, micDeviceLabel: label })
+    loadDevices()
+  })
+  // Un microfono collegato o staccato mentre la finestra e' aperta.
+  if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', () => loadDevices())
   $('stt-install').addEventListener('click', async () => {
     try { status = await api.voiceSttInstall() } catch (e) { $('stt-line').textContent = 'Errore: ' + e.message }
     try { micShortcutActive = (await api.getConfig()).micShortcutActive || null } catch (_) {}
@@ -258,6 +292,7 @@
   // Prova: tieni premuto, parla, lascia. Il testo si mostra qui, non va in chat.
   const testBtn = $('mic-test')
   const testNote = $('mic-test-note')
+  const level = $('mic-level')
   let recorder = null
   let testing = false
   testBtn.addEventListener('pointerdown', async (e) => {
@@ -265,18 +300,25 @@
     testing = true
     try { testBtn.setPointerCapture(e.pointerId) } catch (_) {}
     api.voiceStop()
-    recorder = recorder || new MicRecorder()
+    recorder = recorder || new MicRecorder({ onLevel: (l) => { $('mic-level-fill').style.width = Math.round(l * 100) + '%' } })
     testBtn.classList.add('listening')
+    $('mic-level-fill').style.width = '0%'
+    level.classList.remove('hidden')
     testNote.textContent = 'Ti ascolto…'
-    try { await recorder.start() } catch (err) {
+    try {
+      await recorder.start({ deviceId: voice.micDevice, deviceLabel: voice.micDeviceLabel })
+      if (recorder.missing) testNote.textContent = 'Ti ascolto dal microfono predefinito (quello scelto non è collegato)…'
+    } catch (err) {
       testing = false
       testBtn.classList.remove('listening')
+      level.classList.add('hidden')
       testNote.textContent = 'Microfono non disponibile: ' + (err.message || err.name)
     }
   })
   const testRelease = async () => {
     if (!testing || !recorder) return
     testBtn.classList.remove('listening')
+    level.classList.add('hidden')
     const pcm = await recorder.stop()
     if (pcm.length < 16000 * 0.3) { testing = false; testNote.textContent = 'Troppo breve: tieni premuto mentre parli.'; return }
     const ready = status && status.stt && status.stt.ready
@@ -303,6 +345,7 @@
       shortcutSel.replaceChildren(...(cfg.micShortcuts || []).map(s => new Option(s.label, s.id)))
     } catch (_) { /* restano i predefiniti */ }
     showChoices()
+    loadDevices()
     try { status = await api.voiceStatus() } catch (_) { status = null }
     showStatus()
     try { check = await api.voiceXttsCheck() } catch (_) { check = null }

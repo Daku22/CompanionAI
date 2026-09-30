@@ -151,6 +151,10 @@
   local service as XTTS: "Installa il microfono" adds its pinned,
   hash-checked packages and the model (about 1.8 GB). The companion stops
   talking while you speak and shows "Ti ascolto…".
+- Choose the microphone in the settings, from the input devices Windows
+  lists. The choice is found again by name if its id changes (another USB
+  port); if it is unplugged, Windows' default microphone is used and the app
+  says so.
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.

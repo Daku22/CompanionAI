@@ -154,8 +154,11 @@ const WINDOW_SCALES = {
 const VOICE_DEFAULTS = {
   enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9,
   xttsSpeaker: 'sample', xttsSample: null, cpmlAccepted: false,
-  micEnabled: false, micShortcut: 'Ctrl+Alt+M',
+  micEnabled: false, micShortcut: 'Ctrl+Alt+M', micDevice: '', micDeviceLabel: '',
 }
+// Il microfono scelto: l'id che Chromium da' al dispositivo (vuoto: il
+// predefinito di Windows) e il suo nome, per ritrovarlo se l'id cambia.
+const MIC_DEVICE_RE = /^[A-Za-z0-9._=+/-]{0,200}$/
 // Microfono: spento di base. Si parla tenendo premuta una scorciatoia fra
 // queste (acceleratore di Electron -> tasto da controllare finche' e' giu',
 // codice virtuale di Windows), o il pulsante 🎙 della chat. Ctrl+Alt+M di
@@ -188,6 +191,12 @@ function mergeVoice(current, incoming) {
   if (typeof incoming.cpmlAccepted === 'boolean') next.cpmlAccepted = incoming.cpmlAccepted
   if (typeof incoming.micEnabled === 'boolean') next.micEnabled = incoming.micEnabled
   if (typeof incoming.micShortcut === 'string' && Object.prototype.hasOwnProperty.call(MIC_SHORTCUTS, incoming.micShortcut)) next.micShortcut = incoming.micShortcut
+  if (typeof incoming.micDevice === 'string' && MIC_DEVICE_RE.test(incoming.micDevice)) {
+    next.micDevice = incoming.micDevice
+    next.micDeviceLabel = incoming.micDevice && typeof incoming.micDeviceLabel === 'string'
+      ? incoming.micDeviceLabel.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
+      : ''
+  }
   return next
 }
 

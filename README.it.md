@@ -591,7 +591,7 @@ accettata (`voice.cpmlAccepted`, e il main la ricontrolla).
 **Microfono (facoltativo, dopo XTTS).** Tieni premuta la scorciatoia
 (Ctrl + Alt + M di base) o 🎙 nella chat, parla e lascia: il testo parte
 come un messaggio scritto. Un tocco breve lascia il microfono aperto fino al
-tocco dopo; Esc annulla.
+tocco dopo; Esc annulla. Il microfono da usare si sceglie nelle Impostazioni.
 - **Installazione** (`installStt` in `xtts-setup.js`), dopo XTTS e nel suo
   stesso ambiente: gli 8 pacchetti di `src/main/xtts/requirements-stt.txt`
   (faster-whisper, CTranslate2, PyAV, onnxruntime e dipendenze piccole) con
@@ -615,6 +615,13 @@ tocco dopo; Esc annulla.
   ricampiona, un AudioWorklet che passa blocchi di 2048 campioni. Il microfono
   è aperto solo mentre si registra, al massimo 60 s. Il PCM va al main con
   `mic:transcribe`; nel log finisce la durata, mai il testo.
+- **Quale microfono:** nelle Impostazioni un menu con i microfoni di Windows
+  (`enumerateDevices`, senza le voci `default` e `communications` di
+  Chromium) e "Predefinito di Windows". I nomi ci sono solo con il permesso,
+  cioè con il microfono acceso. Si salvano l'id (`voice.micDevice`) e il nome
+  (`micDeviceLabel`): se l'id cambia, per esempio ricollegandolo a un'altra
+  porta USB, il microfono si ritrova per nome (`pickInput`, con test). Se non
+  è collegato si registra dal predefinito, e Impostazioni e chat lo dicono.
 - **Scorciatoia globale** (`globalShortcut`, fra quelle di `MIC_SHORTCUTS` in
   `guards.js`): Electron dice solo quando la si preme, quindi finché si
   registra il main guarda il tasto con `GetAsyncKeyState` (koffi,

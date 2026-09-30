@@ -102,8 +102,9 @@ press "Installa il microfono" (about 1.8 GB: the faster-whisper packages and
 the Whisper large-v3-turbo model) and turn on "Parlo al companion con il
 microfono". Then hold Ctrl + Alt + M (or the 🎙 button in the chat), speak,
 and release: what you said is sent as a message. A short tap keeps the
-microphone open until the next tap, and Esc cancels. The audio is transcribed
-on your graphics card in the same local service as XTTS (about 2.5 GB of video
+microphone open until the next tap, and Esc cancels. Pick which microphone to
+use in the same page (Windows' default one unless you choose). The audio is
+transcribed on your graphics card in the same local service as XTTS (about 2.5 GB of video
 memory while the microphone is on) and never leaves your computer.
 
 Ask things like "open my Documents folder", "search the news about AI" or just

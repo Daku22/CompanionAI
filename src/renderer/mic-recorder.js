@@ -6,10 +6,48 @@
 // L'AudioContext a 16 kHz fa lui il ricampionamento dal microfono (48 kHz di
 // solito); i campioni arrivano da mic-worklet.js. Il microfono resta aperto
 // solo mentre si registra: fuori, la spia di Windows e' spenta.
+//
+// Il microfono si sceglie nelle Impostazioni (voice.micDevice e il suo nome,
+// micDeviceLabel); vuoto e' il predefinito di Windows.
 
 (function () {
   const RATE = 16000
   const MAX_SECONDS = 60
+  // Voci che Chromium aggiunge all'elenco: non sono microfoni veri, ma il
+  // predefinito e quello "per le comunicazioni" di Windows.
+  const ALIASES = ['default', 'communications']
+
+  /**
+   * I microfoni del sistema, e il nome di quello predefinito di Windows.
+   * I nomi ci sono solo se la pagina ha il permesso del microfono.
+   * @returns {Promise<{ devices: { id: string, label: string }[], defaultLabel: string }>}
+   */
+  async function listInputs() {
+    const inputs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput')
+    const def = inputs.find(d => d.deviceId === 'default')
+    return {
+      devices: inputs.filter(d => !ALIASES.includes(d.deviceId)).map(d => ({ id: d.deviceId, label: d.label })),
+      // "Predefinito - Microfono (Realtek)": solo il nome del dispositivo.
+      defaultLabel: def ? def.label.replace(/^[^-]+ - /, '') : '',
+    }
+  }
+
+  /**
+   * Il microfono da aprire: quello scelto, per id o, se l'id e' cambiato
+   * (ricollegato a un'altra porta USB, per esempio), per nome. id null: il
+   * predefinito di Windows; missing: quello scelto non c'e'.
+   * @param {{ id: string, label: string }[]} devices
+   * @param {{ id?: string, label?: string }} [pref]
+   * @returns {{ id: string|null, missing: boolean }}
+   */
+  function pickInput(devices, pref) {
+    if (!pref || !pref.id) return { id: null, missing: false }
+    const byId = devices.find(d => d.id === pref.id)
+    if (byId) return { id: byId.id, missing: false }
+    const byLabel = pref.label ? devices.find(d => d.label && d.label === pref.label) : null
+    if (byLabel) return { id: byLabel.id, missing: false }
+    return { id: null, missing: true }
+  }
 
   class MicRecorder {
     /**
@@ -25,17 +63,26 @@
       this.chunks = []
       this.length = 0
       this.starting = null
+      this.missing = false   // il microfono scelto non c'era: si registra dal predefinito
     }
 
     get recording() { return !!this.ctx || !!this.starting }
 
-    /** Apre il microfono e comincia a registrare. */
-    start() {
+    /**
+     * Apre il microfono e comincia a registrare.
+     * @param {{ deviceId?: string, deviceLabel?: string }} [opts] il microfono scelto
+     */
+    start(opts = {}) {
       if (this.recording) return this.starting || Promise.resolve()
       this.starting = (async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        })
+        const audio = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        this.missing = false
+        if (opts.deviceId) {
+          const pick = pickInput((await listInputs()).devices, { id: opts.deviceId, label: opts.deviceLabel })
+          this.missing = pick.missing
+          if (pick.id) audio.deviceId = { exact: pick.id }
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio })
         const ctx = new AudioContext({ sampleRate: RATE })
         try {
           await ctx.audioWorklet.addModule('mic-worklet.js')
@@ -113,5 +160,7 @@
 
   MicRecorder.RATE = RATE
   MicRecorder.MAX_SECONDS = MAX_SECONDS
+  MicRecorder.listInputs = listInputs
+  MicRecorder.pickInput = pickInput
   window.MicRecorder = MicRecorder
 })()

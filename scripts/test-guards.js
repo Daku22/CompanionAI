@@ -214,6 +214,21 @@ test('microfono: interruttore e scorciatoia solo fra quelle previste', () => {
   for (const [key, s] of Object.entries(MIC_SHORTCUTS)) assert.ok(key === 'off' ? s.vk === 0 : s.vk > 0, key)
 })
 
+test('microfono scelto: id di Chromium e nome ripulito; vuoto torna al predefinito', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {} }
+  const id = 'a3f09c1be2d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e'
+  const on = mergeConfig(base, { voice: { micDevice: id, micDeviceLabel: '  Microfono\n(USB   Audio)\u0007 ' } })
+  assert.equal(on.voice.micDevice, id)
+  assert.equal(on.voice.micDeviceLabel, 'Microfono (USB Audio)')
+  assert.equal(mergeConfig(on, { voice: { micDevice: '../../x y', micDeviceLabel: 'altro' } }).voice.micDevice, id, 'id non valido: resta il vecchio')
+  assert.equal(mergeConfig(on, { voice: { micDevice: 'x'.repeat(201) } }).voice.micDevice, id)
+  assert.equal(mergeConfig(on, { voice: { micDeviceLabel: 'solo il nome' } }).voice.micDeviceLabel, 'Microfono (USB Audio)', 'il nome cambia solo con l\'id')
+  const def = mergeConfig(on, { voice: { micDevice: '', micDeviceLabel: 'resto' } })
+  assert.equal(def.voice.micDevice, '')
+  assert.equal(def.voice.micDeviceLabel, '', 'predefinito: niente nome')
+  assert.equal(mergeConfig(base, { voice: { micDevice: id, micDeviceLabel: 'x'.repeat(300) } }).voice.micDeviceLabel.length, 120)
+})
+
 test('permessi: solo il microfono, solo per le pagine dell\'app, solo se acceso', () => {
   const dir = 'file:///C:/app/src/renderer/'
   const chat = 'file:///C:/app/src/renderer/chat.html'
