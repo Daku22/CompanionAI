@@ -36,6 +36,17 @@ contextBridge.exposeInMainWorld('companion', {
   importScene:      ()       => ipcRenderer.send('scenes:import'),
   removeScene:      (id)     => ipcRenderer.send('scenes:remove', String(id)),
 
+  // ─── Impostazioni e voce (voice.js) ────────────────────────────────────────
+  openSettings:     ()       => ipcRenderer.send('settings:open'),
+  voiceStatus:      ()       => ipcRenderer.invoke('voice:status'),
+  // Scaricamento dei file della voce: gli indirizzi e gli hash li sa il main.
+  voiceDownload:    ()       => ipcRenderer.invoke('voice:download'),
+  voiceCancelDownload: ()    => ipcRenderer.send('voice:cancel-download'),
+  voiceRemove:      ()       => ipcRenderer.invoke('voice:remove'),
+  // Una frase di prova con la voce e la velocita' scelte (non salvate).
+  voiceTest:        (opts)   => ipcRenderer.invoke('voice:test', opts && typeof opts === 'object' ? { voice: opts.voice, speed: opts.speed, volume: opts.volume } : {}),
+  voiceStop:        ()       => ipcRenderer.send('voice:stop'),
+
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),
 
@@ -137,6 +148,18 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('room-scenes', handler)
     return () => ipcRenderer.removeListener('room-scenes', handler)
+  },
+  // Voce: frasi da suonare ({ type: 'chunk', pcm, rate, ... }) o { type: 'stop' }
+  onVoiceAudio: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('voice-audio', handler)
+    return () => ipcRenderer.removeListener('voice-audio', handler)
+  },
+  // Stato della voce: file, avanzamento del download, motore
+  onVoiceStatus: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('voice-status', handler)
+    return () => ipcRenderer.removeListener('voice-status', handler)
   },
   // Meteo vero per la scena della stanza (weather.js), o null se spento
   onRoomWeather: (cb) => {

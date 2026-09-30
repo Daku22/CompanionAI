@@ -11,7 +11,7 @@ const fs = require('fs')
 const path = require('path')
 
 const DIR = path.join(__dirname, '..', 'src', 'renderer')
-const PAGES = ['companion.html', 'chat.html']
+const PAGES = ['companion.html', 'chat.html', 'settings.html']
 
 let passed = 0
 for (const page of PAGES) {

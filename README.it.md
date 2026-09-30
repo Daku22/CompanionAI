@@ -510,6 +510,45 @@ Open-Meteo, senza chiave, le coordinate della città e il meteo attuale, solo
 con la stanza aperta e al massimo ogni 30 minuti. All'aperto le nuvole
 velano il cielo, e pioggia, neve e nebbia si vedono davvero.
 
+## Voce
+
+Spenta di base. Si accende dalla finestra **Impostazioni** (menu col tasto
+destro o tray, `settings.html`), che per ora ha solo questa sezione.
+
+**Il percorso di una risposta.** `ai:send-message` in `main.js`, a risposta
+arrivata, chiama `speakReply`. `speech-text.js` (puro, con test) toglie emoji,
+markdown e link e divide il testo in frasi (sotto i 12 caratteri si uniscono
+alla seguente, sopra i 220 si spezzano alle virgole). `voice.js` le fa
+sintetizzare una alla volta e manda ogni frase al companion (`voice-audio`)
+mentre prepara la seguente. Un messaggio nuovo manda uno stop, e le frasi della
+risposta vecchia ancora in arrivo si scartano. `voice-player.js`, nella pagina
+del companion, le suona in fila con WebAudio e, dal volume prima del
+guadagno, calcola quanto aprire la bocca: `companion-3d.js` lo mette
+nell'espressione `aa` del VRM a ogni frame.
+
+**Kokoro.** Gira in un processo di utilità di Electron (`kokoro-worker.js`),
+avviato alla prima frase e chiuso dopo 5 minuti di silenzio: se cade, cade lui
+e non l'app. Il modello è quello fp16 con ONNX Runtime nativo sulla CPU
+(`onnxruntime-node`, solo i binari Windows x64 nell'installer). Misurato su un
+Ryzen 5 5600G: 2,7 volte il tempo reale, prima frase in meno di un secondo,
+caricamento in 2,4 s. Le alternative misurate andavano peggio: q8 in WASM
+0,5-0,8×, q8 su WebGPU 0,3×, fp16 su WebGPU 2,6× ma 5 s per la prima frase.
+kokoro-js foneticizza solo in inglese: i fonemi italiani li dà espeak-ng
+(build Emscripten di Echogarden) e `kokoro-text.js` (puro, con test) li scrive
+come li ha visti Kokoro in addestramento (le affricate in un simbolo solo,
+come fa misaki).
+
+**File scaricati al primo uso.** `voice-assets.js`: modello, voci e tokenizer
+da Hugging Face a un commit fisso, espeak-ng da jsDelivr alla versione 0.3.5,
+ognuno con dimensione e SHA-256. Si scarica in un `.part`, l'hash si calcola
+durante il download e un file diverso non resta su disco. Lo stato e
+l'avanzamento arrivano alla finestra Impostazioni (`voice-status`). espeak-ng è
+GPL-3.0: non sta nell'app né nel repo, e gira solo nel processo della voce.
+
+`npm run voice:check -- <cartella>` prova la voce senza aprire l'app.
+L'audit la prova con `--voice <cartella>`: una risposta della chat deve
+sentirsi e aprire la bocca.
+
 ## Azioni sul sistema
 
 | Tipo | Vincolo |

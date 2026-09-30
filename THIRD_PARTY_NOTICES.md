@@ -13,15 +13,26 @@ are released under the MIT License, whose full text is in each package's
 | [@pixiv/three-vrm](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 | [@pixiv/three-vrm-animation](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 
-The main process uses one library, installed as a regular dependency and
+The main process uses two libraries, installed as regular dependencies and
 packed by electron-builder:
 
 | Library | Version | License | Copyright |
 |---|---|---|---|
 | [Koffi](https://koffi.dev/) (`koffi`, with its Windows binary `@koromix/koffi-win32-x64`) | 3.3.2 | MIT | © 2026 Niels Martignène |
+| [ONNX Runtime](https://onnxruntime.ai/) (`onnxruntime-node`, Windows x64 binaries only, with `onnxruntime-common`; the Windows build includes Microsoft DirectML) | 1.30.0 | MIT | © Microsoft Corporation |
 
 Koffi calls the Windows API (user32, dwmapi) to read the other windows' size
-and position, so the avatar can sit on them.
+and position, so the avatar can sit on them. ONNX Runtime runs the local
+voice model (Kokoro) in a separate process.
+
+Downloaded on first use, only if you turn on the voice in the settings. They
+are not part of the app or of this repository; each file is checked against a
+SHA-256 hash before use:
+
+| Component | Version | License | Source |
+|---|---|---|---|
+| [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (ONNX export `onnx-community/Kokoro-82M-v1.0-ONNX`, fp16 model, voices `if_sara` and `im_nicola`) | 1.0 | Apache-2.0 | Hugging Face, fixed commit |
+| [eSpeak NG](https://github.com/espeak-ng/espeak-ng), Emscripten build `@echogarden/espeak-ng-emscripten` | 0.3.5 | GPL-3.0 | jsDelivr (npm). Its license text is downloaded with it (`COPYING`). It turns Italian text into phonemes and runs only in the voice process |
 
 Data copied into the source:
 

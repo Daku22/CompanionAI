@@ -125,6 +125,19 @@
   in the chat settings. Clouds, rain, snow and fog come from Open-Meteo, at
   most every 30 minutes and only while the room is open.
 
+### Voice
+- The companion can read its replies aloud (off by default), with the Kokoro-82M
+  model and two Italian voices, Sara and Nicola, generated on your computer.
+  Italian is spoken with Italian phonemes from eSpeak NG: the official
+  JavaScript library for Kokoro turned Italian text into English sounds.
+- A new Settings window ("Impostazioni", right-click or tray menu) with the
+  voice section: on/off, voice, speed, volume, "Prova la voce" and "Basta", and
+  the voice files, downloaded once (about 180 MB), checked with SHA-256, and
+  removable.
+- Replies are spoken sentence by sentence: the next one is prepared while the
+  current one plays, and a new message stops the old reply.
+- 3D VRM avatars move their mouth with the voice.
+
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.
   OpenRouter and Ollama model lists are fetched live.

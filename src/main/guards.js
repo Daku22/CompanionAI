@@ -146,9 +146,31 @@ const WINDOW_SCALES = {
   xl: { label: 'Molto grande', width: 320, height: 460 },
 }
 
+// Voce: spenta di base. Per ora c'e' solo Kokoro, con le sue due voci
+// italiane; la velocita' resta dove il modello suona ancora naturale.
+const VOICE_DEFAULTS = { enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9 }
+const VOICE_ENGINES = ['kokoro']
+const KOKORO_VOICES = ['if_sara', 'im_nicola']
+
+/** La voce della config, con i valori mancanti presi dai predefiniti. */
+function voiceConfig(cfg) {
+  return { ...VOICE_DEFAULTS, ...((cfg && cfg.voice && typeof cfg.voice === 'object') ? cfg.voice : {}) }
+}
+
+function mergeVoice(current, incoming) {
+  const next = voiceConfig({ voice: current })
+  if (typeof incoming.enabled === 'boolean') next.enabled = incoming.enabled
+  if (VOICE_ENGINES.includes(incoming.engine)) next.engine = incoming.engine
+  if (KOKORO_VOICES.includes(incoming.kokoroVoice)) next.kokoroVoice = incoming.kokoroVoice
+  if (typeof incoming.speed === 'number' && Number.isFinite(incoming.speed)) next.speed = Math.round(Math.max(0.7, Math.min(1.4, incoming.speed)) * 100) / 100
+  if (typeof incoming.volume === 'number' && Number.isFinite(incoming.volume)) next.volume = Math.round(Math.max(0, Math.min(1, incoming.volume)) * 100) / 100
+  return next
+}
+
 function mergeConfig(current, incoming) {
   const merged = { ...current, keys: { ...(current.keys || {}) } }
   if (!incoming || typeof incoming !== 'object') return merged
+  if (incoming.voice && typeof incoming.voice === 'object') merged.voice = mergeVoice(current.voice, incoming.voice)
   if (typeof incoming.provider === 'string' && PROVIDERS[incoming.provider]) merged.provider = incoming.provider
   if (typeof incoming.model === 'string' && incoming.model.trim()) merged.model = incoming.model.trim()
   if (typeof incoming.avatarModel === 'string' && incoming.avatarModel.trim()) merged.avatarModel = incoming.avatarModel.trim()
@@ -241,6 +263,9 @@ module.exports = {
   checkDesktopItem,
   parseCommand,
   mergeConfig,
+  voiceConfig,
+  VOICE_DEFAULTS,
+  KOKORO_VOICES,
   WINDOW_SCALES,
   checkMotion,
   keysForDisk,

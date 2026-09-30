@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Impostazioni — CompanionAI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      background: #15111e; color: #e8ddff;
+      font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px;
+      display: flex;
+    }
+    nav {
+      width: 150px; flex: none; padding: 18px 10px;
+      background: rgba(14, 11, 22, 0.9); border-right: 1px solid rgba(180,140,255,0.15);
+    }
+    nav .item { padding: 8px 10px; border-radius: 8px; color: rgba(232,221,255,0.75); cursor: default; }
+    nav .item.active { background: rgba(180,140,255,0.16); color: #fff; }
+    nav .soon { font-size: 11px; color: rgba(200,168,255,0.4); padding: 12px 10px 0; line-height: 1.5; }
+    main { flex: 1; overflow-y: auto; padding: 22px 26px 30px; }
+    h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .sub { color: rgba(200,168,255,0.55); font-size: 12px; margin-bottom: 20px; line-height: 1.5; }
+    section { margin-bottom: 22px; }
+    h2 {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+      color: rgba(200,168,255,0.6); margin-bottom: 10px;
+    }
+    .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+    .row label.name { width: 90px; flex: none; color: rgba(232,221,255,0.8); }
+    .switch { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+    input[type=checkbox], input[type=radio], input[type=range] { accent-color: #b48cff; }
+    input[type=range] { flex: 1; }
+    output { width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: rgba(232,221,255,0.8); }
+    .choices { display: flex; gap: 14px; }
+    .choices label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    button {
+      font: inherit; color: inherit; cursor: pointer; padding: 6px 14px; border-radius: 8px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(180,140,255,0.3);
+    }
+    button:hover:not(:disabled) { background: rgba(180,140,255,0.18); }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary { background: rgba(180,140,255,0.3); border-color: rgba(180,140,255,0.6); }
+    button.danger { color: #ff9a9a; }
+    .box {
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(180,140,255,0.15);
+      border-radius: 10px; padding: 12px 14px;
+    }
+    .bar { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin: 10px 0 4px; }
+    .bar div { height: 100%; width: 0; background: #b48cff; transition: width 0.2s; }
+    .muted { color: rgba(200,168,255,0.55); font-size: 12px; line-height: 1.5; }
+    .state { margin-top: 8px; font-size: 12px; }
+    .state.error { color: #ff9a9a; }
+    .state.ok { color: #9fe0b0; }
+    .hidden { display: none !important; }
+    .engine-note { margin-top: 6px; }
+    a { color: #c9aefc; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="item active">🔊 Voce</div>
+    <div class="soon">Le altre impostazioni sono ancora nella chat (⚙).</div>
+  </nav>
+  <main>
+    <h1>Voce</h1>
+    <p class="sub">Il companion legge ad alta voce le sue risposte, e la bocca segue la voce. La voce si genera sul tuo PC: per leggerle, il testo non esce dal computer.</p>
+
+    <section>
+      <label class="switch"><input type="checkbox" id="voice-enabled"> Legge ad alta voce le risposte</label>
+      <p class="muted" id="enable-note"></p>
+    </section>
+
+    <section>
+      <h2>Motore</h2>
+      <div class="box">
+        <div><b>Kokoro</b>, sul tuo PC</div>
+        <p class="muted engine-note">Modello Kokoro-82M con le voci italiane, fonemi da espeak-ng. Arriveranno la tua voce clonata (XTTS) e le voci cloud.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Voce e ritmo</h2>
+      <div class="row">
+        <label class="name">Voce</label>
+        <div class="choices">
+          <label><input type="radio" name="kokoro-voice" value="if_sara"> Sara</label>
+          <label><input type="radio" name="kokoro-voice" value="im_nicola"> Nicola</label>
+        </div>
+      </div>
+      <div class="row"><label class="name" for="voice-speed">Velocità</label><input type="range" id="voice-speed" min="0.7" max="1.4" step="0.05"><output id="speed-out"></output></div>
+      <div class="row"><label class="name" for="voice-volume">Volume</label><input type="range" id="voice-volume" min="0" max="1" step="0.05"><output id="volume-out"></output></div>
+      <div class="row">
+        <button id="test-btn">▶ Prova la voce</button>
+        <button id="stop-btn">■ Basta</button>
+        <span class="muted" id="test-note"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>File della voce</h2>
+      <div class="box">
+        <div id="files-line"></div>
+        <div class="bar hidden" id="bar"><div id="bar-fill"></div></div>
+        <div class="row">
+          <button class="primary" id="download-btn">Scarica</button>
+          <button id="cancel-btn" class="hidden">Annulla</button>
+          <button class="danger" id="remove-btn">Elimina i file</button>
+        </div>
+        <div class="state" id="engine-state"></div>
+        <p class="muted" style="margin-top:10px">
+          Si scaricano una volta sola, in una cartella dell'app, e ogni file viene controllato (SHA-256).
+          Kokoro-82M: licenza Apache-2.0. espeak-ng: GPL-3.0, scaricato a parte e usato solo dal processo della voce.
+          ONNX Runtime (incluso nell'app): MIT.
+        </p>
+      </div>
+    </section>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>

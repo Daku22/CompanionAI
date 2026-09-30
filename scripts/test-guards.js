@@ -10,6 +10,7 @@ const os = require('os')
 const path = require('path')
 const {
   isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES,
+  voiceConfig, VOICE_DEFAULTS,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -168,6 +169,22 @@ test('stanza: scena e meteo dalla UI, modalita\' e posto della stanza no', () =>
   assert.equal(bad.view, 'room', 'la modalita\' la cambia solo il main')
   assert.deepEqual(bad.roomBounds, base.roomBounds)
   assert.equal(mergeConfig(base, { weatherCity: 'x'.repeat(300) }).weatherCity.length, 80)
+})
+
+test('voce: spenta di base, solo valori ammessi, i campi mancanti restano', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {} }
+  assert.deepEqual(voiceConfig(base), VOICE_DEFAULTS)
+  assert.equal(VOICE_DEFAULTS.enabled, false)
+  const on = mergeConfig(base, { voice: { enabled: true, kokoroVoice: 'im_nicola', speed: 1.1 } })
+  assert.deepEqual(on.voice, { ...VOICE_DEFAULTS, enabled: true, kokoroVoice: 'im_nicola', speed: 1.1 })
+  const bad = mergeConfig(on, { voice: { enabled: 'si', engine: 'xtts', kokoroVoice: '../x', speed: 9, volume: -3, extra: 1 } })
+  assert.equal(bad.voice.enabled, true, 'un valore non booleano non cambia niente')
+  assert.equal(bad.voice.engine, 'kokoro')
+  assert.equal(bad.voice.kokoroVoice, 'im_nicola')
+  assert.equal(bad.voice.speed, 1.4, 'velocita\' nei limiti')
+  assert.equal(bad.voice.volume, 0)
+  assert.equal(bad.voice.extra, undefined)
+  assert.equal(mergeConfig(on, { voice: 'on' }).voice.enabled, true, 'voce non oggetto: ignorata')
 })
 
 test('verso e distanza passano solo con i valori del contratto', () => {

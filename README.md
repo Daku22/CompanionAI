@@ -76,6 +76,15 @@ snow and fog from the real weather of a city you type (through Open-Meteo, see
 [PRIVACY.md](PRIVACY.md)). The ✕ in the title bar brings the avatar back to
 the desktop.
 
+**Voice (optional, off by default).** Right-click → "Impostazioni… (voce)":
+turn on "Legge ad alta voce le risposte", press "Scarica" once (about 180 MB:
+the Kokoro-82M model with two Italian voices, Sara and Nicola, and the eSpeak NG
+phonemizer), and the companion reads its replies aloud while its mouth follows
+the voice. The voice is generated on your own computer, on the processor, about
+2–3 times faster than real time; the first sentence starts in about a second
+(a few more the first time, while the model loads). Speed and volume are in the
+same page, with "Prova la voce" to hear them.
+
 Ask things like "open my Documents folder", "search the news about AI" or just
 chat. Anything that touches your system shows a confirmation dialog first.
 

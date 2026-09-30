@@ -227,6 +227,8 @@ function updateFace(vrm, delta, lookTarget) {
   if (em) {
     for (const name of MOOD_EXPRESSIONS) em.setValue(name, Math.max(moodWeights[name] || 0, reaction[name] || 0));
     em.setValue('blink', blinker.update(delta));
+    // Labiale: la bocca segue il volume della voce (voice-player.js).
+    em.setValue('aa', window.CompanionVoice ? window.CompanionVoice.mouth(delta) : 0);
   }
   if (vrm.lookAt && gazeTarget) {
     const offset = gaze.update(delta);
@@ -286,6 +288,11 @@ window.__companion3DTest = {
     target: controls.target.toArray(),
   },
   resetCamera: () => resetCamera(),
+  /** Voce: se sta parlando e quanto e' aperta la bocca del VRM ("aa"). */
+  voice: () => ({
+    speaking: !!(window.CompanionVoice && window.CompanionVoice.isSpeaking()),
+    aa: currentVrm && currentVrm.expressionManager ? currentVrm.expressionManager.getValue('aa') : null,
+  }),
   /** Stanza: stato della scena; setTime forza un'ora (ISO) per le schermate. */
   room: () => ({ mode: roomMode, chatInset, ...(roomScene ? roomScene.debug() : {}) }),
   roomTime: (iso) => { if (roomScene) roomScene.setTime(iso ? new Date(iso) : null); },

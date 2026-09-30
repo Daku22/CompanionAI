@@ -45,6 +45,9 @@ const argv = process.argv.slice(2)
 const opt = (name) => { const i = argv.indexOf(name); return i === -1 ? null : argv[i + 1] }
 const VRM = opt('--vrm') || 'Fred'
 const KIMODO = opt('--kimodo') ? path.resolve(opt('--kimodo')) : null
+// La voce Kokoro: i suoi file (180 MB) non stanno nel repo, quindi la prova e'
+// facoltativa. Cartella con la struttura di %APPDATA%\CompanionAI\voice.
+const VOICE = opt('--voice') ? path.resolve(opt('--voice')) : null
 const OUT = path.resolve(opt('--out') || path.join(os.tmpdir(), 'companion-audit'))
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-audit-'))
 const HOME = path.join(WORK, 'home')
@@ -100,6 +103,7 @@ fs.writeFileSync(path.join(HOME, '.desktop-companion', 'config.json'), JSON.stri
   provider: 'openrouter', model: 'audit/tools:free', idleLife: false, keys: { openrouter: 'sk-or-audit' },
   ...(KIMODO ? { kimodo: true, kimodoDir: KIMODO } : {}),
 }))
+if (VOICE) fs.cpSync(VOICE, path.join(USER_DATA, 'voice'), { recursive: true })
 const png = path.join(WORK, 'immagine-importata.png')
 fs.copyFileSync(path.join(ROOT, 'src', 'renderer', 'assets', 'icon.png'), png)
 const library = new AvatarLibrary(path.join(USER_DATA, 'avatars'))
@@ -351,6 +355,24 @@ try {
   check(trig.some(a => a.animation === 'wave'), '3D: "salutami" arriva al modello 3D')
   await sleep(1200)
   await shot('2-saluto-3d')
+
+  // 4a-bis. Voce (solo con --voice): la risposta si sente e la bocca si muove.
+  if (VOICE) {
+    await chat.evaluate(`window.companion.setConfig({ voice: { enabled: true } }).then(c => c.voice.enabled)`)
+    const asked = Date.now()
+    await say('salutami')
+    let heard = null
+    let open = 0
+    for (let i = 0; i < 200; i++) {
+      const v = await comp.evaluate('window.__companion3DTest.voice()')
+      if (v.speaking && heard === null) heard = Date.now() - asked
+      open = Math.max(open, v.aa || 0)
+      if (heard !== null && !v.speaking) break
+      await sleep(50)
+    }
+    check(heard !== null && open > 0.2, 'voce: la risposta si sente dopo ' + heard + ' ms e la bocca si apre (' + open.toFixed(2) + ')')
+    await chat.evaluate(`window.companion.setConfig({ voice: { enabled: false } }).then(c => c.voice.enabled)`)
+  }
 
   // 4b. Il mouse sul 3D: pixel del modello, sguardo, presa in braccio.
   await waitIdle(6000)

@@ -13,10 +13,11 @@
     "start": "electron .",
     "predev": "npm run assets",
     "dev": "electron . --dev",
-    "test": "node src/memory/test-memory.js && node scripts/test-router.js && node scripts/test-mood.js && node scripts/test-idle-life.js && node scripts/test-guards.js && node scripts/test-perch.js && node scripts/test-room.js && node scripts/test-scene-light.mjs && node scripts/test-weather.js && node scripts/test-animation.mjs && node scripts/test-sway.mjs && node scripts/test-humanoid-map.mjs && node scripts/test-motion-retarget.mjs && node scripts/test-animation-library.js && node scripts/test-kimodo-service.js && node scripts/test-avatar-library.js && node scripts/test-fbx-textures.mjs && node scripts/test-scene-library.js && node scripts/test-scene-fit.mjs && node scripts/test-sprite-frames.js && node scripts/test-strips.js && node scripts/test-csp.js",
+    "test": "node src/memory/test-memory.js && node scripts/test-router.js && node scripts/test-mood.js && node scripts/test-idle-life.js && node scripts/test-guards.js && node scripts/test-perch.js && node scripts/test-room.js && node scripts/test-scene-light.mjs && node scripts/test-weather.js && node scripts/test-animation.mjs && node scripts/test-sway.mjs && node scripts/test-humanoid-map.mjs && node scripts/test-motion-retarget.mjs && node scripts/test-animation-library.js && node scripts/test-kimodo-service.js && node scripts/test-avatar-library.js && node scripts/test-fbx-textures.mjs && node scripts/test-scene-library.js && node scripts/test-scene-fit.mjs && node scripts/test-speech-text.js && node scripts/test-kokoro-text.js && node scripts/test-voice-assets.js && node scripts/test-voice-service.js && node scripts/test-sprite-frames.js && node scripts/test-strips.js && node scripts/test-csp.js",
     "test:memory": "node src/memory/test-memory.js",
     "test:router": "node scripts/test-router.js",
     "test:guards": "node scripts/test-guards.js",
+    "voice:check": "node scripts/voice-check.js",
     "test:anim": "node scripts/test-animation.mjs",
     "test:flusso": "node scripts/test-main-flusso.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -54,7 +55,9 @@
       "package.json",
       "LICENSE",
       "ASSETS-LICENSE.md",
-      "THIRD_PARTY_NOTICES.md"
+      "THIRD_PARTY_NOTICES.md",
+      "!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**"
     ],
     "win": {
       "target": [
@@ -79,7 +82,10 @@
       "enableNodeCliInspectArguments": false,
       "enableEmbeddedAsarIntegrityValidation": true,
       "onlyLoadAppFromAsar": true
-    }
+    },
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/bin/**"
+    ]
   },
   "author": "Daku (https://github.com/Daku22)",
   "homepage": "https://github.com/Daku22/CompanionAI",
@@ -92,6 +98,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "koffi": "3.3.2"
+    "koffi": "3.3.2",
+    "onnxruntime-node": "1.30.0"
   }
 }

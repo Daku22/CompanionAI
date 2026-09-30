@@ -620,6 +620,53 @@ tavolo al centro): scala stimata, avatar non sul tavolo, stima salvata,
 Alt + destro sposta senza girare ne' aprire il menu, grandezza x2 dal
 pannello applicata e salvata.
 
+## Blocco 3a: Impostazioni, voce Kokoro e labiale (2026-09-30)
+
+**Prototipi ascoltati dall'utente** (le stesse quattro frasi, WAV nello
+scratchpad): Kokoro Sara e Nicola, Kokoro con i fonemi inglesi, Piper serena,
+paola e riccardo, XTTS-v2 e Chatterbox Multilingual con la sua voce clonata
+da un campione di 20 s. Scelte: **XTTS-v2 come voce principale** (3b, servizio
+Python) e **Kokoro come riserva**, questo passo.
+- kokoro-js 1.2.1 ha i file delle voci italiane, ma `phonemize` accetta solo
+  "a" e "b" (inglese): il testo italiano diventava inglese. Anche il pacchetto
+  `phonemizer` ha i dati di espeak-ng solo per l'inglese; quello con tutte le
+  lingue e' `@echogarden/espeak-ng-emscripten` (GPL-3.0).
+- XTTS-v2: licenza CPML, non commerciale. Per l'utente va bene (app gratuita
+  su GitHub, nessun guadagno): il modello si scarica al primo uso, mai nel
+  repo. Sulla RTX 3060: 1,4 volte il tempo reale, 2 GB di memoria video.
+  `coqui-tts` 0.27.5 chiede `transformers>=4.57` senza limite, e la 5.x ha tolto
+  `isin_mps_friendly`: va fissato `<5`.
+- Chatterbox (MIT, italiano, clonazione): 0,15 volte il tempo reale sulla CPU.
+  StyleTTS2: modelli solo inglesi (Kokoro e' costruito sulla sua architettura).
+  Piper: 10-16 volte il tempo reale, ma l'utente ha preferito Kokoro.
+
+**Dove far girare Kokoro**, misurato con le stesse frasi: q8 in WASM
+0,5-0,8 (i thread non aiutano), q8 su WebGPU 0,3 (le operazioni quantizzate
+tornano sulla CPU), fp16 su WebGPU 2,6 ma 5 s per la prima frase, ONNX Runtime
+nativo fp16 sulla CPU 2,7 con la prima frase in meno di un secondo, DirectML
+3,5-4,1. Scelto il nativo sulla CPU: funziona su ogni PC e non contende la GPU
+a XTTS e Kimodo, che e' proprio il caso in cui serve la riserva. Gira in un
+`utilityProcess`: il main resta libero, e il codice di espeak-ng scaricato non
+entra mai nel main. Nessuna pagina ha bisogno di `'wasm-unsafe-eval'`.
+
+**Trappole.** Il file di espeak-ng e' un modulo ES chiamato `.js`: fuori dal
+suo pacchetto Node lo tratta da CommonJS, quindi si salva come `.mjs`.
+`child_process.fork` serializza in JSON e perde i `Float32Array` (serve
+`serialization: 'advanced'`; `utilityProcess` usa gia' il clone strutturato).
+Il worker rispondeva a `load` senza l'id della richiesta: il main aspettava
+fino al timeout. Il motore finto dei test l'id lo metteva, quindi c'e' ora un
+test col processo vero.
+
+**Prova dal vivo** (CDP, dati finti, file serviti da un server locale): 180 MB
+scaricati e verificati in 7 richieste, "Prova la voce" suona dopo 3,5 s alla
+prima volta (caricamento compreso), la bocca del VRM arriva ad aperta del tutto,
+"Basta" zittisce, "Elimina" toglie i file e ferma il processo, nessun errore
+nelle pagine. **Audit** 74/74 con `--voice`: una risposta della chat si sente
+dopo 3,1 s e apre la bocca.
+
+Non ancora: bocca per gli avatar 2D e glTF senza espressioni, la voce di
+XTTS (3b), le voci cloud (3c), il microfono (3d).
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

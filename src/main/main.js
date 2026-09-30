@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, protocol, net, dialog, safeStorage, session, powerMonitor } = require('electron')
+const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, protocol, net, dialog, safeStorage, session, powerMonitor, utilityProcess } = require('electron')
 const path  = require('path')
 const { spawn } = require('child_process')
 const fs    = require('fs')
@@ -14,7 +14,8 @@ const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated
 const { builtinAvatars } = require('./builtin-avatars')
 const room = require('./room')
 const { WeatherService } = require('./weather')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig } = require('./guards')
+const { VoiceService } = require('./voice')
 const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
@@ -28,6 +29,8 @@ let avatarLibrary   = null
 let sceneLibrary    = null
 let animationLibrary = null
 let kimodo = null
+let voiceService = null
+let settingsWindow = null
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -171,6 +174,7 @@ function publicConfig(cfg) {
     kimodoAvailable: !!kimodo && kimodo.available(),
     // Meteo della stanza: la citta' trovata, o perche' non c'e'.
     weatherStatus,
+    voice: voiceConfig(cfg),
   }
 }
 
@@ -324,6 +328,8 @@ function createCompanionWindow() {
       contextIsolation: true,
       sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
+      // La voce parla quando arriva una risposta, non dopo un clic sulla pagina.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   })
 
@@ -456,6 +462,79 @@ function createChatWindow() {
   }
 }
 
+// ─── Impostazioni ────────────────────────────────────────────────────────────
+// Una finestra normale, con cornice: si apre dal menu col tasto destro, dalla
+// tray e dalla chat. Per ora ha la sezione Voce.
+
+function openSettings() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore()
+    settingsWindow.show()
+    settingsWindow.focus()
+    return
+  }
+  settingsWindow = new BrowserWindow({
+    width: 560, height: 640, minWidth: 440, minHeight: 420,
+    title: 'Impostazioni — CompanionAI',
+    icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
+    autoHideMenuBar: true,
+    backgroundColor: '#15111e',
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  })
+  settingsWindow.setMenu(null)
+  settingsWindow.loadFile(path.join(__dirname, '../renderer/settings.html'))
+  settingsWindow.once('ready-to-show', () => settingsWindow && settingsWindow.show())
+  settingsWindow.on('closed', () => { settingsWindow = null })
+}
+
+function sendSettings(channel, data) {
+  if (!settingsWindow || settingsWindow.isDestroyed()) return
+  try { settingsWindow.webContents.send(channel, data) } catch (_) {}
+}
+
+// ─── Voce (voice.js) ─────────────────────────────────────────────────────────
+// Kokoro gira in un processo di utilita' (kokoro-worker.js): il main lo avvia
+// alla prima frase e gli passa la cartella con i file scaricati.
+
+function initVoice() {
+  const dir = path.join(app.getPath('userData'), 'voice')
+  // Solo per l'audit: i file da un server locale invece che da Internet.
+  const fake = process.env.COMPANION_VOICE_ASSETS_URL
+  const baseUrl = typeof fake === 'string' && /^http:\/\/127\.0\.0\.1:\d+\/$/.test(fake) ? fake : undefined
+  voiceService = new VoiceService({
+    dir,
+    baseUrl,
+    spawn: () => {
+      const child = utilityProcess.fork(path.join(__dirname, 'kokoro-worker.js'), [dir], { serviceName: 'CompanionAI voce', stdio: 'pipe' })
+      const log = (stream, level) => stream && stream.on('data', d => String(d).split(/\r?\n/).filter(Boolean).forEach(line => console[level]('[voce] ' + line)))
+      log(child.stdout, 'log')
+      log(child.stderr, 'warn')
+      return {
+        send: (msg) => child.postMessage(msg),
+        onMessage: (fn) => child.on('message', fn),
+        onExit: (fn) => child.on('exit', fn),
+        kill: () => child.kill(),
+      }
+    },
+    play: (msg) => sendCompanion('voice-audio', msg),
+    onStatus: (status) => sendSettings('voice-status', status),
+  })
+}
+
+/** Legge ad alta voce una risposta, se la voce e' accesa. */
+function speakReply(text) {
+  const voice = voiceConfig(loadConfig())
+  if (!voice.enabled || !voiceService) return
+  voiceService.speak(text, { voice: voice.kokoroVoice, speed: voice.speed, volume: voice.volume })
+    .catch(e => console.error('[voce] ' + e.message))
+}
+
 // ─── Tray Icon ───────────────────────────────────────────────────────────────
 
 function createTray() {
@@ -486,6 +565,7 @@ function buildTrayMenu() {
     viewMode === 'room'
       ? { label: 'Torna sul desktop', click: () => setView('desktop') }
       : { label: 'Apri la stanza', click: () => setView('room') },
+    { label: 'Impostazioni…', click: () => openSettings() },
     { type: 'separator' },
     { label: 'Apri cartella dei log', click: () => shell.openPath(path.join(app.getPath('userData'), 'logs')).catch(() => {}) },
     { type: 'separator' },
@@ -577,6 +657,8 @@ handle('ai:send-message', async (_e, { history }) => {
   if (cfg.provider !== 'ollama' && !apiKey) return { ok: false, error: `Manca API key per ${cfg.provider}` }
   console.log('[Main] Ricevuta richiesta sendMessage, provider:', cfg.provider)
 
+  // Un messaggio nuovo zittisce la risposta di prima.
+  if (voiceService) voiceService.stop()
   // Mentre si aspetta la risposta il companion non fa gesti per conto suo.
   awaitingReply = true
   markActivity()
@@ -619,6 +701,7 @@ handle('ai:send-message', async (_e, { history }) => {
       }
     }
 
+    if (result?.reply) speakReply(result.reply)
     return { ok: true, result }
   } catch(err) {
     console.error('[Main] Errore in route():', err)
@@ -627,6 +710,24 @@ handle('ai:send-message', async (_e, { history }) => {
     awaitingReply = false
     markActivity()
   }
+})
+
+// Impostazioni e voce. Gli indirizzi dei file, gli hash e la cartella li
+// decide il main: la pagina chiede solo di scaricare, eliminare o provare.
+on('settings:open', () => openSettings())
+handle('voice:status', () => (voiceService ? voiceService.status() : null))
+handle('voice:download', () => (voiceService ? voiceService.download() : null))
+on('voice:cancel-download', () => { if (voiceService) voiceService.cancelDownload() })
+handle('voice:remove', () => (voiceService ? voiceService.remove() : null))
+on('voice:stop', () => { if (voiceService) voiceService.stop() })
+// La prova usa voce e velocita' mostrate nella pagina, anche se non salvate.
+handle('voice:test', async (_e, opts) => {
+  if (!voiceService) return { ok: false, error: 'voce non pronta' }
+  const saved = voiceConfig(loadConfig())
+  const pick = mergeConfig({ voice: saved }, { voice: opts || {} }).voice
+  const ok = await voiceService.speak('Ciao! Questa è la mia voce. Ti piace come parlo?', { voice: pick.kokoroVoice, speed: pick.speed, volume: pick.volume })
+  const status = voiceService.status()
+  return ok ? { ok: true } : { ok: false, error: status.installed ? (status.error || 'la voce non ha parlato') : 'prima scarica i file della voce' }
 })
 
 // Elenco modelli: dal vivo per OpenRouter e Ollama, statico per gli altri.
@@ -1579,6 +1680,7 @@ async function showCompanionMenu() {
       ? { label: 'Movimenti nuovi con Kimodo', type: 'checkbox', checked: cfg.kimodo, click: (item) => setOption({ kimodo: item.checked }) }
       : { label: 'Movimenti nuovi con Kimodo (non installato)', enabled: false },
     { type: 'separator' },
+    { label: 'Impostazioni… (voce)', click: () => openSettings() },
     { label: 'Nascondi (torna dall\'icona nella barra)', click: () => { if (companionWindow) companionWindow.hide() } },
     { label: 'Esci', click: () => app.quit() },
   ]
@@ -1923,6 +2025,7 @@ app.whenReady().then(() => {
   })
 
   initMemory()
+  initVoice()
   createCompanionWindow()
   createChatWindow()
   createTray()
@@ -1940,6 +2043,7 @@ app.on('window-all-closed', () => {
   if (weatherTimer) clearInterval(weatherTimer)
   if (global.__memoryTimer) clearInterval(global.__memoryTimer)
   if (kimodo) kimodo.stop()
+  if (voiceService) voiceService.shutdown()
   if (process.platform !== 'darwin') app.quit()
 })
 
