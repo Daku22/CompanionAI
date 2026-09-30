@@ -667,6 +667,57 @@ dopo 3,1 s e apre la bocca.
 Non ancora: bocca per gli avatar 2D e glTF senza espressioni, la voce di
 XTTS (3b), le voci cloud (3c), il microfono (3d).
 
+## Blocco 3b: XTTS-v2 con la voce clonata (2026-09-30)
+
+**Licenza.** CPML, solo uso non commerciale: l'utente pubblica l'app gratis e
+non ci guadagna. Il modello non sta ne' nell'app ne' nel repo; "Installa XTTS"
+si abilita solo dopo aver spuntato la licenza, e il main la ricontrolla.
+
+**Fonti fissate.** uv 0.12.21 (SHA-256 dalla release), Python 3.10.21 (uv ha
+le sue verifiche), i 98 pacchetti di `src/main/xtts/requirements.txt` con
+`--require-hashes`, generati con `uv pip compile` dal `pip freeze`
+dell'ambiente del prototipo (quello che ha funzionato), il modello da
+Hugging Face al commit `6c2b0d7`. Servono `model.pth`, `config.json`,
+`vocab.json`, `speakers_xtts.pth` (le 58 voci) e `LICENSE.txt`; `dvae.pth` e
+`mel_stats.pth` servono solo all'addestramento. uv gira senza la
+configurazione dell'utente e con cache, Python e ambiente dentro
+`voice/xtts`; lo zip si apre con il `tar.exe` di Windows (quello di Git Bash
+non legge gli zip).
+
+**Servizio.** HTTP su 127.0.0.1 con token, audio in streaming a pezzi. Misurato
+col prototipo: pronto in 29-35 s, campione preparato in meno di un secondo,
+primo pezzo di una frase in 0,85-0,9 s, circa 1,1 volte il tempo reale in
+streaming (1,4 senza), 2 GB di memoria video. Un'interruzione chiude la
+richiesta e la generazione si ferma al pezzo dopo. Trappola: il thread che
+guarda stdin (per uscire se l'app muore) avviato subito bloccava gli import
+di numpy e torch su Windows, e il servizio restava fermo senza scrivere
+nulla: parte ora a modello caricato.
+
+**Prima prova dell'installazione nell'app** (dati finti; uv e modello da un
+server locale, pacchetti veri da PyPI e PyTorch): 9 minuti, di cui 5 per i
+pacchetti; 7,2 GB alla fine (ambiente 5,2, modello 1,9), la cache di uv si
+cancella. Due difetti trovati: la prima accensione durava 170 s perche' Python
+compilava tutti i pacchetti al primo import (ora `--compile-bytecode` in
+installazione), e "Disinstalla" lasciava la cartella perche' il processo
+Python non era ancora uscito e teneva bloccate le sue DLL (ora `stop()`
+aspetta l'uscita, fino a 10 s, e la cancellazione riprova).
+
+**Seconda prova**, con le correzioni: 8 minuti e 18 secondi, 7,4 GB. La
+prima accensione dopo l'installazione dura ancora 110 s (il servizio misura
+24 s dopo gli import: il resto sono gli import, probabilmente l'antivirus che
+controlla migliaia di DLL nuove), la seconda circa 45 s, quelle dopo 30-35.
+Primo suono di una prova 1,1-1,2 s, con il campione e con Ana Florence;
+"Disinstalla" col servizio acceso: 9 s, cartella cancellata, campione
+conservato. Ha mostrato un difetto d'uso: il servizio appena acceso per il
+campione si spegneva quando si sceglieva il motore a voce ancora spenta, e
+si riaccendeva (45 s) quando la si accendeva. Ora quando non serve piu' si
+spegne dopo 2 minuti.
+
+**Audit** 74/74 con `--voice` (Kokoro), 75/75 con `--xtts`: una risposta
+della chat si sente con XTTS dopo 1,1 s. `--xtts` collega la cartella
+dell'installazione con una junction, e la pulizia toglie la junction prima di
+cancellare la cartella di lavoro.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

@@ -1,7 +1,9 @@
 // voice-player.js — la voce suona nella finestra dell'avatar.
 //
-// Il main manda una frase alla volta (voice.js): qui si mettono in fila, una
-// dopo l'altra con una piccola pausa, e uno stop le ferma tutte. Da quanto
+// Il main manda l'audio a pezzi (voice.js): una frase intera da Kokoro, o i
+// pezzi di una frase mentre XTTS la genera. Qui si mettono in fila senza
+// buchi; fra una frase e l'altra arriva una pausa ({ type: 'gap' }), e uno
+// stop le ferma tutte. Da quanto
 // forte suona la voce in questo momento si ricava quanto e' aperta la bocca:
 // companion-3d.js lo chiede a ogni frame (mouth) e muove l'espressione "aa".
 // Il volume si ascolta prima del guadagno: a volume basso la bocca si apre
@@ -9,7 +11,6 @@
 
 (function () {
   const api = window.companion
-  const PAUSE_S = 0.12        // fra una frase e l'altra
   const START_DELAY_S = 0.05
   const OPEN_PER_S = 28       // la bocca si apre in fretta...
   const CLOSE_PER_S = 12      // ...e si chiude un po' piu' piano
@@ -56,7 +57,7 @@
     src.connect(analyser)
     const at = Math.max(ctx.currentTime + START_DELAY_S, nextAt)
     src.start(at)
-    nextAt = at + buffer.duration + PAUSE_S
+    nextAt = at + buffer.duration
     sources.push(src)
     src.onended = () => { sources = sources.filter(s => s !== src) }
   }
@@ -67,6 +68,10 @@
       if (msg.type === 'stop') {
         if (msg.utterance >= current) { current = msg.utterance; stopAll() }
       } else if (msg.type === 'chunk') chunk(msg)
+      else if (msg.type === 'gap' && msg.utterance === current && ctx && nextAt > ctx.currentTime) {
+        // Pausa dopo la frase; se la frase e' gia' finita, la pausa c'e' gia'.
+        nextAt += Math.max(0, Math.min(1, Number(msg.seconds) || 0))
+      }
     })
   }
 

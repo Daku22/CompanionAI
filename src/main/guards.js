@@ -146,11 +146,18 @@ const WINDOW_SCALES = {
   xl: { label: 'Molto grande', width: 320, height: 460 },
 }
 
-// Voce: spenta di base. Per ora c'e' solo Kokoro, con le sue due voci
-// italiane; la velocita' resta dove il modello suona ancora naturale.
-const VOICE_DEFAULTS = { enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9 }
-const VOICE_ENGINES = ['kokoro']
+// Voce: spenta di base. Due motori: Kokoro con le sue due voci italiane, e
+// XTTS con il campione dell'utente ('sample') o una delle voci incluse (per
+// nome). Il campione lo sceglie il main (xttsSample), non la pagina; la
+// licenza di XTTS (CPML) va accettata prima di installarlo. La velocita'
+// resta dove i modelli suonano ancora naturali.
+const VOICE_DEFAULTS = {
+  enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9,
+  xttsSpeaker: 'sample', xttsSample: null, cpmlAccepted: false,
+}
+const VOICE_ENGINES = ['kokoro', 'xtts']
 const KOKORO_VOICES = ['if_sara', 'im_nicola']
+const XTTS_SPEAKER_RE = /^[\p{L}][\p{L} .'-]{0,40}$/u
 
 /** La voce della config, con i valori mancanti presi dai predefiniti. */
 function voiceConfig(cfg) {
@@ -164,6 +171,8 @@ function mergeVoice(current, incoming) {
   if (KOKORO_VOICES.includes(incoming.kokoroVoice)) next.kokoroVoice = incoming.kokoroVoice
   if (typeof incoming.speed === 'number' && Number.isFinite(incoming.speed)) next.speed = Math.round(Math.max(0.7, Math.min(1.4, incoming.speed)) * 100) / 100
   if (typeof incoming.volume === 'number' && Number.isFinite(incoming.volume)) next.volume = Math.round(Math.max(0, Math.min(1, incoming.volume)) * 100) / 100
+  if (typeof incoming.xttsSpeaker === 'string' && XTTS_SPEAKER_RE.test(incoming.xttsSpeaker)) next.xttsSpeaker = incoming.xttsSpeaker
+  if (typeof incoming.cpmlAccepted === 'boolean') next.cpmlAccepted = incoming.cpmlAccepted
   return next
 }
 

@@ -61,14 +61,14 @@ async function main() {
       assert.equal(v.status().installed, false)
     })
 
-    await t('una frase alla volta, nell\'ordine, l\'ultima segnata', async () => {
+    await t('una frase alla volta, nell\'ordine, con una pausa dopo ciascuna', async () => {
       const { spawn, log } = fakeEngine()
       const played = []
       const v = new VoiceService({ dir, spawn, play: m => played.push(m) })
       assert.equal(await v.speak('Ciao! 😊 Come stai oggi? Io benissimo, grazie.'), true)
       const chunks = played.filter(m => m.type === 'chunk')
       assert.deepEqual(chunks.map(c => c.text), ['Ciao! Come stai oggi?', 'Io benissimo, grazie.'])
-      assert.deepEqual(chunks.map(c => c.last), [false, true])
+      assert.deepEqual(played.filter(m => m.type !== 'stop').map(m => m.type), ['chunk', 'gap', 'chunk', 'gap'])
       assert.ok(chunks.every(c => c.pcm instanceof Float32Array && c.rate === 24000))
       assert.equal(log.spawned, 1)
       assert.equal(v.status().engine, 'ready')
@@ -136,6 +136,134 @@ async function main() {
         assert.equal(reply.type, 'error')
         assert.equal(reply.id, 7, 'senza id il main non abbina la risposta e aspetta fino al timeout')
       } finally { worker.kill() }
+    })
+
+    // ── XTTS ────────────────────────────────────────────────────────────────
+    /** XTTS finto: pezzi da 3 per frase, o un errore sulle frasi con failOn. */
+    function fakeXtts({ failOn = null, device = 'cuda', delay = 5 } = {}) {
+      const x = {
+        state: 'off', error: null, info: null, onState: null, calls: [], started: 0, stopped: 0, aborted: 0,
+        async start() { x.started++; x.state = 'ready'; x.info = { device } },
+        stop() { x.stopped++; x.state = 'off' },
+        async synth(text, opts, onAudio) {
+          x.calls.push({ text, speaker: opts.speaker })
+          if (failOn && text.includes(failOn)) throw new Error('GPU piena')
+          for (let i = 0; i < 3; i++) {
+            await sleep(delay)
+            if (opts.signal && opts.signal.aborted) { x.aborted++; const e = new Error('interrotta'); e.name = 'AbortError'; throw e }
+            onAudio(new Float32Array(10), 24000)
+          }
+        },
+        async speakers() { return ['Ana Florence'] },
+        async prepareSample(src, dst) { fs.writeFileSync(dst, 'wav'); return { ok: true, seconds: 12.5 } },
+      }
+      return x
+    }
+    const fakeSetup = (installed = true, install = async () => {}) => ({
+      xttsInstalled: () => installed, installXtts: install, uninstallXtts: async () => { installed = false }, STEPS: [1, 2, 3, 4, 5],
+    })
+
+    await t('XTTS scelto e installato: pezzi in streaming, pausa a fine frase', async () => {
+      const xtts = fakeXtts()
+      const played = []
+      const v = new VoiceService({ dir, spawn: fakeEngine().spawn, play: m => played.push(m), xtts, setup: fakeSetup() })
+      assert.equal(await v.speak('Prima frase detta bene. Seconda frase detta bene.', { engine: 'xtts', speaker: { builtin: 'Ana Florence' } }), true)
+      assert.deepEqual(played.filter(m => m.type !== 'stop').map(m => m.type), ['chunk', 'chunk', 'chunk', 'gap', 'chunk', 'chunk', 'chunk', 'gap'])
+      assert.deepEqual(xtts.calls.map(c => c.speaker), [{ builtin: 'Ana Florence' }, { builtin: 'Ana Florence' }])
+      assert.equal(v.status().xtts.installed, true)
+    })
+
+    await t('XTTS non installato: parla Kokoro', async () => {
+      const xtts = fakeXtts()
+      const engine = fakeEngine()
+      const v = new VoiceService({ dir, spawn: engine.spawn, play: () => {}, xtts, setup: fakeSetup(false) })
+      assert.equal(await v.speak('Ciao a tutti quanti.', { engine: 'xtts' }), true)
+      assert.equal(xtts.calls.length, 0)
+      assert.deepEqual(engine.log.synth, ['Ciao a tutti quanti.'])
+      v.shutdown()
+    })
+
+    await t('XTTS si guasta: la stessa frase e il resto con Kokoro, errore nello stato', async () => {
+      const xtts = fakeXtts({ failOn: 'guasta' })
+      const engine = fakeEngine()
+      const played = []
+      const v = new VoiceService({ dir, spawn: engine.spawn, play: m => played.push(m), xtts, setup: fakeSetup() })
+      assert.equal(await v.speak('Questa va bene. Qui XTTS si guasta. E questa la dice Kokoro.', { engine: 'xtts' }), true)
+      assert.deepEqual(engine.log.synth, ['Qui XTTS si guasta.', 'E questa la dice Kokoro.'])
+      assert.equal(v.status().xtts.error, 'GPU piena')
+      v.shutdown()
+    })
+
+    await t('stop interrompe la frase XTTS in corso', async () => {
+      const xtts = fakeXtts({ delay: 40 })
+      const v = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts, setup: fakeSetup() })
+      const speaking = v.speak('Una frase lunga che non finira mai.', { engine: 'xtts' })
+      await sleep(60)
+      v.stop()
+      assert.equal(await speaking, false)
+      assert.equal(xtts.aborted, 1)
+    })
+
+    await t('il servizio XTTS si accende solo se serve, e si spegne un po\' dopo', async () => {
+      const xtts = fakeXtts()
+      const v = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts, setup: fakeSetup(), xttsIdleMs: 40 })
+      v.syncXtts(true)
+      assert.equal(xtts.started, 1)
+      await sleep(5)
+      // Chi cambia le impostazioni lo spegne e riaccende: non si spegne subito.
+      v.syncXtts(false)
+      assert.equal(xtts.stopped, 0)
+      v.syncXtts(true)
+      await sleep(60)
+      assert.equal(xtts.stopped, 0, 'riacceso in tempo: resta acceso')
+      v.syncXtts(false)
+      await sleep(60)
+      assert.equal(xtts.stopped, 1)
+      const off = new VoiceService({ dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), setup: fakeSetup(false) })
+      off.syncXtts(true)
+      assert.equal(off.xtts.started, 0, 'non installato: non parte')
+    })
+
+    await t('installazione: avanzamento, prova della GPU, errori nello stato', async () => {
+      const seen = []
+      const ok = new VoiceService({
+        dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), onStatus: s => seen.push(s.xtts.installing && s.xtts.installing.step),
+        setup: fakeSetup(false, async (_dir, o) => { o.onProgress({ step: 'packages', index: 2, count: 5, done: 1, total: 2 }); await o.check() }),
+      })
+      const s = await ok.installXtts()
+      assert.ok(seen.includes('packages'))
+      assert.equal(s.xtts.installing, null)
+      assert.equal(s.xtts.error, null)
+      const cpu = new VoiceService({
+        dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts({ device: 'cpu' }),
+        setup: fakeSetup(false, async (_dir, o) => { await o.check() }),
+      })
+      assert.match((await cpu.installXtts()).xtts.error, /scheda NVIDIA/)
+      const cancelled = new VoiceService({
+        dir, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(),
+        setup: fakeSetup(false, (_dir, o) => new Promise((_, reject) => o.signal.addEventListener('abort', () => reject(new Error('x'))))),
+      })
+      const running = cancelled.installXtts()
+      await sleep(10)
+      cancelled.cancelXttsInstall()
+      assert.equal((await running).xtts.error, 'installazione annullata')
+    })
+
+    await t('campione: uno solo alla volta, nomi e percorsi controllati', async () => {
+      const own = installedDir()
+      const v = new VoiceService({ dir: own, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), setup: fakeSetup() })
+      const first = await v.importSample('C:/qualsiasi/voce.mp3')
+      await sleep(5)
+      const second = await v.importSample('C:/qualsiasi/altra.mp3')
+      assert.match(second.file, /^voce-\d+\.wav$/)
+      assert.equal(second.seconds, 12.5)
+      assert.equal(v.samplePath(first.file), null, 'il campione vecchio e\' stato tolto')
+      assert.ok(v.samplePath(second.file))
+      assert.equal(v.samplePath('../../config.json'), null)
+      assert.equal(v.samplePath('voce-1.wav'), null)
+      const none = new VoiceService({ dir: own, spawn: fakeEngine().spawn, play: () => {}, xtts: fakeXtts(), setup: fakeSetup(false) })
+      await assert.rejects(none.importSample('x.mp3'), /prima installa XTTS/)
+      fs.rmSync(own, { recursive: true, force: true })
     })
 
     await t('elimina: ferma il motore e toglie i file', async () => {

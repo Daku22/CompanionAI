@@ -54,7 +54,15 @@
     .state.error { color: #ff9a9a; }
     .state.ok { color: #9fe0b0; }
     .hidden { display: none !important; }
-    .engine-note { margin-top: 6px; }
+    .choices.stack { flex-direction: column; gap: 8px; }
+    .choices.stack label { align-items: flex-start; }
+    .license { align-items: flex-start; margin: 10px 0 4px; line-height: 1.5; }
+    .license input { margin-top: 3px; }
+    select {
+      font: inherit; color: inherit; padding: 4px 8px; border-radius: 8px; min-width: 220px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(180,140,255,0.3);
+    }
+    select option { background: #1b1528; }
     a { color: #c9aefc; }
   </style>
 </head>
@@ -74,33 +82,53 @@
 
     <section>
       <h2>Motore</h2>
-      <div class="box">
-        <div><b>Kokoro</b>, sul tuo PC</div>
-        <p class="muted engine-note">Modello Kokoro-82M con le voci italiane, fonemi da espeak-ng. Arriveranno la tua voce clonata (XTTS) e le voci cloud.</p>
+      <div class="choices stack">
+        <label><input type="radio" name="engine" value="xtts"> <span><b>XTTS-v2</b>: la tua voce clonata da un campione, sulla scheda video NVIDIA</span></label>
+        <label><input type="radio" name="engine" value="kokoro"> <span><b>Kokoro</b>: leggero, sul processore</span></label>
       </div>
+      <p class="muted" style="margin-top:6px">Se XTTS non è installato o non va, parla Kokoro, se hai scaricato i suoi file.</p>
     </section>
 
     <section>
-      <h2>Voce e ritmo</h2>
-      <div class="row">
-        <label class="name">Voce</label>
-        <div class="choices">
-          <label><input type="radio" name="kokoro-voice" value="if_sara"> Sara</label>
-          <label><input type="radio" name="kokoro-voice" value="im_nicola"> Nicola</label>
+      <h2>XTTS-v2</h2>
+      <div class="box">
+        <div id="xtts-line"></div>
+        <div id="xtts-step" class="muted hidden"></div>
+        <div class="bar hidden" id="xtts-bar"><div id="xtts-bar-fill"></div></div>
+        <p class="muted" id="xtts-req"></p>
+        <label class="switch license"><input type="checkbox" id="cpml">
+          <span>Accetto la <b>Coqui Public Model License</b>: il modello XTTS-v2 si può usare solo per scopi non commerciali. <a href="#" id="license-link">Leggi la licenza</a></span></label>
+        <div class="row">
+          <button class="primary" id="xtts-install">Installa XTTS</button>
+          <button id="xtts-cancel" class="hidden">Annulla</button>
+          <button class="danger" id="xtts-remove">Disinstalla</button>
         </div>
-      </div>
-      <div class="row"><label class="name" for="voice-speed">Velocità</label><input type="range" id="voice-speed" min="0.7" max="1.4" step="0.05"><output id="speed-out"></output></div>
-      <div class="row"><label class="name" for="voice-volume">Volume</label><input type="range" id="voice-volume" min="0" max="1" step="0.05"><output id="volume-out"></output></div>
-      <div class="row">
-        <button id="test-btn">▶ Prova la voce</button>
-        <button id="stop-btn">■ Basta</button>
-        <span class="muted" id="test-note"></span>
+        <div class="row xtts-voice">
+          <label class="name" for="xtts-speaker">Voce</label>
+          <select id="xtts-speaker"><option value="sample">La mia voce (campione)</option></select>
+        </div>
+        <div class="row xtts-voice">
+          <button id="sample-btn">Importa un campione…</button>
+          <span class="muted" id="sample-note"></span>
+        </div>
+        <p class="muted" style="margin-top:8px">
+          Si installa una volta, nella cartella dell'app: Python 3.10, PyTorch con CUDA e il modello (circa 7 GB).
+          Tutto a versioni fisse, e ogni file viene controllato. Il servizio resta acceso, e occupa circa 2 GB
+          della scheda video, finché usi questa voce.
+        </p>
       </div>
     </section>
 
     <section>
-      <h2>File della voce</h2>
+      <h2>Kokoro</h2>
       <div class="box">
+        <div class="row">
+          <label class="name">Voce</label>
+          <div class="choices">
+            <label><input type="radio" name="kokoro-voice" value="if_sara"> Sara</label>
+            <label><input type="radio" name="kokoro-voice" value="im_nicola"> Nicola</label>
+          </div>
+        </div>
         <div id="files-line"></div>
         <div class="bar hidden" id="bar"><div id="bar-fill"></div></div>
         <div class="row">
@@ -114,6 +142,17 @@
           Kokoro-82M: licenza Apache-2.0. espeak-ng: GPL-3.0, scaricato a parte e usato solo dal processo della voce.
           ONNX Runtime (incluso nell'app): MIT.
         </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Ritmo</h2>
+      <div class="row"><label class="name" for="voice-speed">Velocità</label><input type="range" id="voice-speed" min="0.7" max="1.4" step="0.05"><output id="speed-out"></output></div>
+      <div class="row"><label class="name" for="voice-volume">Volume</label><input type="range" id="voice-volume" min="0" max="1" step="0.05"><output id="volume-out"></output></div>
+      <div class="row">
+        <button id="test-btn">▶ Prova la voce</button>
+        <button id="stop-btn">■ Basta</button>
+        <span class="muted" id="test-note"></span>
       </div>
     </section>
   </main>

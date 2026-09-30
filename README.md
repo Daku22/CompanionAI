@@ -85,6 +85,18 @@ the voice. The voice is generated on your own computer, on the processor, about
 (a few more the first time, while the model loads). Speed and volume are in the
 same page, with "Prova la voce" to hear them.
 
+**Your own voice with XTTS-v2 (optional, NVIDIA graphics card).** In the same
+page choose "XTTS-v2", accept the model's license (Coqui Public Model License:
+non-commercial use only) and press "Installa XTTS": the app installs, in its own
+folder, a private Python 3.10 with PyTorch and the XTTS-v2 model (about 7 GB,
+every file pinned and checked). Then "Importa un campione…" takes 10–30 seconds
+of a single voice, without music, and the companion speaks with that voice;
+the 58 voices included in the model are in the same menu. While this voice is
+in use a local service keeps the model on the graphics card (about 2 GB of
+video memory) and streams each sentence as it is generated. If XTTS is not
+installed or fails, Kokoro speaks instead. Use only voices you have the right
+to clone.
+
 Ask things like "open my Documents folder", "search the news about AI" or just
 chat. Anything that touches your system shows a confirmation dialog first.
 

@@ -33,6 +33,12 @@ SHA-256 hash before use:
 |---|---|---|---|
 | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (ONNX export `onnx-community/Kokoro-82M-v1.0-ONNX`, fp16 model, voices `if_sara` and `im_nicola`) | 1.0 | Apache-2.0 | Hugging Face, fixed commit |
 | [eSpeak NG](https://github.com/espeak-ng/espeak-ng), Emscripten build `@echogarden/espeak-ng-emscripten` | 0.3.5 | GPL-3.0 | jsDelivr (npm). Its license text is downloaded with it (`COPYING`). It turns Italian text into phonemes and runs only in the voice process |
+| [XTTS-v2](https://huggingface.co/coqui/XTTS-v2) model (Coqui) | commit `6c2b0d7` | [Coqui Public Model License](https://huggingface.co/coqui/XTTS-v2/blob/main/LICENSE.txt): **non-commercial use only** | Hugging Face, fixed commit. Downloaded only after you accept the license in the settings; the license text is downloaded with it (`LICENSE.txt`) |
+| [uv](https://github.com/astral-sh/uv) (Astral) | 0.12.21 | MIT or Apache-2.0 | GitHub releases. Installs the Python environment for XTTS |
+| Python 3.10 (python-build-standalone) and the packages in `src/main/xtts/requirements.txt`, including [coqui-tts](https://github.com/idiap/coqui-ai-TTS) (MPL-2.0) and [PyTorch](https://pytorch.org/) with CUDA (BSD-3-Clause, with NVIDIA's CUDA libraries under their own licenses) | pinned, with hashes | each package's own license | Python's official downloads through uv, PyPI and download.pytorch.org |
+
+`src/main/xtts/xtts_service.py` is part of CompanionAI (MIT): it only calls
+coqui-tts, which is installed separately in that Python environment.
 
 Data copied into the source:
 

@@ -6,16 +6,29 @@
 // mentre qui si prepara la seguente. Una risposta nuova interrompe quella in
 // corso.
 //
-// Il motore di base e' Kokoro, in un processo a parte (kokoro-worker.js),
-// avviato alla prima frase e chiuso dopo qualche minuto di silenzio. I suoi
-// file si scaricano dalle Impostazioni (voice-assets.js).
+// Due motori:
+// - XTTS-v2 (xtts-engine.js), la voce principale, anche clonata da un
+//   campione: un servizio Python sulla GPU, installato dalle Impostazioni
+//   (xtts-setup.js), acceso finche' la voce XTTS e' in uso. Manda l'audio a
+//   pezzi mentre genera;
+// - Kokoro, la riserva: un processo a parte (kokoro-worker.js), avviato alla
+//   prima frase e chiuso dopo qualche minuto di silenzio. I suoi file si
+//   scaricano dalle Impostazioni (voice-assets.js).
+// Se XTTS non e' installato o si guasta, parla Kokoro, se c'e'.
+// Fra una frase e l'altra il companion riceve una pausa ({ type: 'gap' }).
 
+const fs = require('fs')
+const path = require('path')
 const { KOKORO_FILES, packStatus, downloadPack, removePack } = require('./voice-assets')
 const { cleanForSpeech, splitSentences } = require('./speech-text')
+const setupDefaults = require('./xtts-setup')
 
 const IDLE_STOP_MS = 5 * 60 * 1000
 const SYNTH_TIMEOUT_MS = 60 * 1000
 const LOAD_TIMEOUT_MS = 120 * 1000
+const SENTENCE_GAP_S = 0.12
+const XTTS_IDLE_STOP_MS = 2 * 60 * 1000   // XTTS non piu' in uso: spento dopo 2 minuti
+const SAMPLE_RE = /^voce-\d{8,16}\.wav$/
 
 /**
  * @typedef {{ send: (msg: any) => void, onMessage: (fn: (msg: any) => void) => void,
@@ -25,11 +38,13 @@ const LOAD_TIMEOUT_MS = 120 * 1000
 class VoiceService {
   /**
    * @param {{ dir: string, spawn: () => VoiceWorker, play: (msg: any) => void,
-   *   onStatus?: (status: any) => void, baseUrl?: string, idleMs?: number }} opts
-   *   play: messaggi per il companion ({ type: 'chunk' | 'stop', ... })
+   *   onStatus?: (status: any) => void, baseUrl?: string, idleMs?: number,
+   *   xtts?: any, setup?: { installXtts: Function, uninstallXtts: Function, xttsInstalled: Function } }} opts
+   *   play: messaggi per il companion ({ type: 'chunk' | 'gap' | 'stop', ... })
    *   baseUrl: solo per i test, la fonte dei file
+   *   xtts: un XttsEngine (o un finto nei test); setup: xtts-setup.js
    */
-  constructor({ dir, spawn, play, onStatus, baseUrl, idleMs }) {
+  constructor({ dir, spawn, play, onStatus, baseUrl, idleMs, xtts, setup, xttsIdleMs }) {
     this.dir = dir
     this.spawn = spawn
     this.play = play
@@ -37,19 +52,41 @@ class VoiceService {
     this.baseUrl = baseUrl
     this.idleMs = idleMs || IDLE_STOP_MS
     this.worker = null
-    this.engine = 'off'          // off | loading | ready | error
+    this.engine = 'off'          // Kokoro: off | loading | ready | error
     this.error = null
     this.downloading = null      // { done, total } mentre scarica
     this.abort = null
     this.pending = new Map()     // id -> { resolve, reject, timer }
     this.nextId = 1
     this.utterance = 0           // quella in corso; una nuova interrompe le vecchie
+    this.speaking = null         // AbortController della frase XTTS in corso
     this.idleTimer = null
+    this.xtts = xtts || null
+    this.setup = setup || setupDefaults
+    this.xttsInstall = null      // { step, index, count, label, done, total } mentre installa
+    this.xttsAbort = null
+    this.xttsError = null
+    this.xttsIdleMs = xttsIdleMs || XTTS_IDLE_STOP_MS
+    this.xttsStopTimer = null
+    if (this.xtts) this.xtts.onState = () => this._emit()
   }
 
   status() {
-    return { ...packStatus(this.dir, KOKORO_FILES), downloading: this.downloading, engine: this.engine, error: this.error }
+    const x = this.xtts
+    return {
+      ...packStatus(this.dir, KOKORO_FILES), downloading: this.downloading, engine: this.engine, error: this.error,
+      xtts: {
+        available: !!x,
+        installed: !!x && this.setup.xttsInstalled(this.dir),
+        state: x ? x.state : 'off',
+        error: (x && x.error) || this.xttsError,
+        info: x ? x.info : null,
+        installing: this.xttsInstall,
+      },
+    }
   }
+
+  samplesDir() { return path.join(this.dir, 'samples') }
 
   _emit() { try { this.onStatus(this.status()) } catch (_) { /* la finestra puo' essere chiusa */ } }
 
@@ -156,47 +193,191 @@ class VoiceService {
     if (this.idleTimer.unref) this.idleTimer.unref()
   }
 
+  /** Il motore per questa risposta: XTTS se scelto e installato, se no Kokoro, se no nessuno. */
+  _pick(opts) {
+    if (opts.engine === 'xtts' && this.xtts && this.setup.xttsInstalled(this.dir)) return 'xtts'
+    return packStatus(this.dir, KOKORO_FILES).installed ? 'kokoro' : null
+  }
+
   /**
-   * Pronuncia un testo. Restituisce false se non c'e' niente da dire o la
-   * voce non e' installata; gli errori del motore finiscono nello stato.
+   * Pronuncia un testo. Restituisce false se non c'e' niente da dire, nessuna
+   * voce e' installata o la risposta e' stata interrotta; gli errori dei
+   * motori finiscono nello stato.
    * @param {string} text
-   * @param {{ voice?: string, speed?: number, volume?: number }} [opts] volume: 0..1, lo applica il companion
+   * @param {{ engine?: string, voice?: string, speaker?: { sample?: string, builtin?: string },
+   *   speed?: number, volume?: number }} [opts]
+   *   voice: la voce di Kokoro; speaker: quella di XTTS; volume: 0..1, lo applica il companion
    */
   async speak(text, opts = {}) {
     const sentences = splitSentences(cleanForSpeech(text))
     if (!sentences.length) return false
-    if (!packStatus(this.dir, KOKORO_FILES).installed) return false
+    let engine = this._pick(opts)
+    if (!engine) return false
     this.stop()
     const utterance = this.utterance
+    const live = () => utterance === this.utterance
+    const send = (seq, pcm, rate) => { if (live()) this.play({ type: 'chunk', utterance, seq, pcm, rate, text: sentences[seq], volume: opts.volume }) }
     try {
-      await this._ready()
+      if (engine === 'kokoro') await this._ready()
       for (let seq = 0; seq < sentences.length; seq++) {
-        if (utterance !== this.utterance) return false
-        const res = await this._ask({ type: 'synth', text: sentences[seq], voice: opts.voice, speed: opts.speed }, SYNTH_TIMEOUT_MS)
-        if (utterance !== this.utterance) return false
-        this.play({ type: 'chunk', utterance, seq, last: seq === sentences.length - 1, pcm: res.pcm, rate: res.rate, text: sentences[seq], volume: opts.volume })
+        if (!live()) return false
+        if (engine === 'xtts') {
+          const ctrl = new AbortController()
+          this.speaking = ctrl
+          try {
+            await this.xtts.synth(sentences[seq], { speaker: opts.speaker || {}, speed: opts.speed, signal: ctrl.signal }, (pcm, rate) => send(seq, pcm, rate))
+            this.xttsError = null
+          } catch (error) {
+            if (!live()) return false
+            // XTTS non va: il resto della risposta con Kokoro, se c'e'.
+            this.xttsError = error.message
+            this._emit()
+            if (!packStatus(this.dir, KOKORO_FILES).installed) throw error
+            engine = 'kokoro'
+            await this._ready()
+            seq--
+            continue
+          } finally {
+            if (this.speaking === ctrl) this.speaking = null
+          }
+        } else {
+          const res = await this._ask({ type: 'synth', text: sentences[seq], voice: opts.voice, speed: opts.speed }, SYNTH_TIMEOUT_MS)
+          if (!live()) return false
+          send(seq, res.pcm, res.rate)
+        }
+        if (live()) this.play({ type: 'gap', utterance, seconds: SENTENCE_GAP_S })
       }
-      return true
+      return live()
     } catch (error) {
-      this.error = error.message
-      if (this.engine === 'loading') this.engine = 'error'
+      if (engine === 'kokoro') {
+        this.error = error.message
+        if (this.engine === 'loading') this.engine = 'error'
+      }
       this._emit()
-      if (utterance === this.utterance) this.play({ type: 'stop', utterance })
+      if (live()) this.play({ type: 'stop', utterance })
       return false
     } finally {
-      this._touch()
+      if (engine === 'kokoro') this._touch()
     }
   }
 
   /** Zitto: la frase in corso si interrompe, quelle in coda non partono. */
   stop() {
     this.utterance++
+    if (this.speaking) { this.speaking.abort(); this.speaking = null }
     this.play({ type: 'stop', utterance: this.utterance })
+  }
+
+  // ─── XTTS ────────────────────────────────────────────────────────────────
+
+  /**
+   * Accende o spegne il servizio XTTS secondo la config: acceso con la voce
+   * attiva, XTTS scelto e installato. Caricare il modello richiede decine di
+   * secondi, quindi si fa prima che arrivi una risposta. Lo spegnimento
+   * aspetta un poco: chi sistema le impostazioni (motore, poi voce attiva)
+   * lo spegnerebbe e riaccenderebbe a ogni clic.
+   */
+  syncXtts(active) {
+    if (!this.xtts) return
+    clearTimeout(this.xttsStopTimer)
+    this.xttsStopTimer = null
+    if (active && this.setup.xttsInstalled(this.dir) && !this.xttsInstall) {
+      this.xtts.start().catch(() => { /* l'errore e' nello stato */ })
+    } else if (!active && !this.xttsInstall && this.xtts.state !== 'off') {
+      this.xttsStopTimer = setTimeout(() => { this.xttsStopTimer = null; this.xtts.stop() }, this.xttsIdleMs)
+      if (this.xttsStopTimer.unref) this.xttsStopTimer.unref()
+    }
+  }
+
+  /** Installa XTTS (Python, pacchetti, modello) e lo accende una volta per provarlo. */
+  async installXtts() {
+    if (!this.xtts || this.xttsInstall) return this.status()
+    this.xttsAbort = new AbortController()
+    this.xttsError = null
+    this.xttsInstall = { step: 'uv', index: 0, count: this.setup.STEPS ? this.setup.STEPS.length : 5, label: '', done: 0, total: 0 }
+    this._emit()
+    let last = 0
+    try {
+      await this.setup.installXtts(this.dir, {
+        signal: this.xttsAbort.signal,
+        baseUrl: this.baseUrl,
+        onProgress: (p) => {
+          const changed = !this.xttsInstall || this.xttsInstall.step !== p.step
+          this.xttsInstall = p
+          const now = Date.now()
+          if (changed || now - last > 500) { last = now; this._emit() }
+        },
+        check: async () => {
+          await this.xtts.start()
+          if (this.xtts.info && this.xtts.info.device !== 'cuda') throw new Error('PyTorch non vede la scheda NVIDIA: XTTS sulla CPU sarebbe troppo lento')
+        },
+      })
+    } catch (error) {
+      this.xttsError = this.xttsAbort.signal.aborted ? 'installazione annullata' : error.message
+      this.xtts.stop()
+    } finally {
+      this.xttsInstall = null
+      this.xttsAbort = null
+      this._emit()
+    }
+    return this.status()
+  }
+
+  cancelXttsInstall() { if (this.xttsAbort) this.xttsAbort.abort() }
+
+  /** Toglie XTTS (i campioni della voce restano). */
+  async removeXtts() {
+    this.stop()
+    this.cancelXttsInstall()
+    // Il processo deve aver lasciato i file prima di cancellarli.
+    clearTimeout(this.xttsStopTimer)
+    if (this.xtts) await this.xtts.stop()
+    try {
+      await this.setup.uninstallXtts(this.dir)
+      this.xttsError = null
+    } catch (error) {
+      this.xttsError = 'disinstallazione incompleta, riprova: ' + error.message
+    }
+    this._emit()
+    return this.status()
+  }
+
+  /** Le voci incluse in XTTS, se il servizio e' acceso. */
+  async xttsSpeakers() {
+    if (!this.xtts || this.xtts.state !== 'ready') return []
+    try { return await this.xtts.speakers() } catch (_) { return [] }
+  }
+
+  /**
+   * Il campione della voce da clonare: convertito dal servizio (che deve
+   * essere installato) in samples/voce-<ora>.wav. I campioni vecchi si tolgono.
+   * @param {string} src file scelto dall'utente
+   * @returns {Promise<{ file: string, seconds: number }>}
+   */
+  async importSample(src) {
+    if (!this.xtts || !this.setup.xttsInstalled(this.dir)) throw new Error('prima installa XTTS')
+    fs.mkdirSync(this.samplesDir(), { recursive: true })
+    const file = 'voce-' + Date.now() + '.wav'
+    const res = await this.xtts.prepareSample(src, path.join(this.samplesDir(), file))
+    for (const old of fs.readdirSync(this.samplesDir())) {
+      if (!old.startsWith(file)) fs.rmSync(path.join(this.samplesDir(), old), { force: true })
+    }
+    return { file, seconds: res.seconds }
+  }
+
+  /** Percorso di un campione, solo se e' uno dei nostri e c'e' ancora. */
+  samplePath(file) {
+    if (typeof file !== 'string' || !SAMPLE_RE.test(file)) return null
+    const full = path.join(this.samplesDir(), file)
+    return fs.existsSync(full) ? full : null
   }
 
   shutdown() {
     this.cancelDownload()
+    this.cancelXttsInstall()
     this._stopWorker()
+    clearTimeout(this.xttsStopTimer)
+    if (this.xtts) this.xtts.stop()
   }
 }
 

@@ -43,9 +43,19 @@ contextBridge.exposeInMainWorld('companion', {
   voiceDownload:    ()       => ipcRenderer.invoke('voice:download'),
   voiceCancelDownload: ()    => ipcRenderer.send('voice:cancel-download'),
   voiceRemove:      ()       => ipcRenderer.invoke('voice:remove'),
-  // Una frase di prova con la voce e la velocita' scelte (non salvate).
-  voiceTest:        (opts)   => ipcRenderer.invoke('voice:test', opts && typeof opts === 'object' ? { voice: opts.voice, speed: opts.speed, volume: opts.volume } : {}),
+  // Una frase di prova con motore, voce e velocita' scelti (non salvati).
+  voiceTest:        (opts)   => ipcRenderer.invoke('voice:test', opts && typeof opts === 'object'
+    ? { engine: opts.engine, kokoroVoice: opts.kokoroVoice, xttsSpeaker: opts.xttsSpeaker, speed: opts.speed, volume: opts.volume } : {}),
   voiceStop:        ()       => ipcRenderer.send('voice:stop'),
+  // XTTS: scheda video e spazio, installazione (dopo la licenza), voci incluse,
+  // campione della voce scelto con il dialogo del main.
+  voiceXttsCheck:   ()       => ipcRenderer.invoke('voice:xtts-check'),
+  voiceXttsInstall: ()       => ipcRenderer.invoke('voice:xtts-install'),
+  voiceXttsCancel:  ()       => ipcRenderer.send('voice:xtts-cancel'),
+  voiceXttsRemove:  ()       => ipcRenderer.invoke('voice:xtts-remove'),
+  voiceXttsSpeakers: ()      => ipcRenderer.invoke('voice:xtts-speakers'),
+  voiceImportSample: ()      => ipcRenderer.invoke('voice:import-sample'),
+  voiceOpenLicense: ()       => ipcRenderer.send('voice:open-license'),
 
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),

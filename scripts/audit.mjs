@@ -48,6 +48,9 @@ const KIMODO = opt('--kimodo') ? path.resolve(opt('--kimodo')) : null
 // La voce Kokoro: i suoi file (180 MB) non stanno nel repo, quindi la prova e'
 // facoltativa. Cartella con la struttura di %APPDATA%\CompanionAI\voice.
 const VOICE = opt('--voice') ? path.resolve(opt('--voice')) : null
+// XTTS installato (circa 7 GB): la cartella voice dell'app, con xtts\ e
+// samples\. Non si copia: si collega con una junction.
+const XTTS = opt('--xtts') ? path.resolve(opt('--xtts')) : null
 const OUT = path.resolve(opt('--out') || path.join(os.tmpdir(), 'companion-audit'))
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-audit-'))
 const HOME = path.join(WORK, 'home')
@@ -104,6 +107,12 @@ fs.writeFileSync(path.join(HOME, '.desktop-companion', 'config.json'), JSON.stri
   ...(KIMODO ? { kimodo: true, kimodoDir: KIMODO } : {}),
 }))
 if (VOICE) fs.cpSync(VOICE, path.join(USER_DATA, 'voice'), { recursive: true })
+if (XTTS) {
+  fs.mkdirSync(path.join(USER_DATA, 'voice'), { recursive: true })
+  for (const sub of ['xtts', 'samples']) {
+    if (fs.existsSync(path.join(XTTS, sub))) fs.symlinkSync(path.join(XTTS, sub), path.join(USER_DATA, 'voice', sub), 'junction')
+  }
+}
 const png = path.join(WORK, 'immagine-importata.png')
 fs.copyFileSync(path.join(ROOT, 'src', 'renderer', 'assets', 'icon.png'), png)
 const library = new AvatarLibrary(path.join(USER_DATA, 'avatars'))
@@ -372,6 +381,26 @@ try {
     }
     check(heard !== null && open > 0.2, 'voce: la risposta si sente dopo ' + heard + ' ms e la bocca si apre (' + open.toFixed(2) + ')')
     await chat.evaluate(`window.companion.setConfig({ voice: { enabled: false } }).then(c => c.voice.enabled)`)
+  }
+
+  // 4a-ter. XTTS (solo con --xtts): il servizio si accende e la risposta si sente.
+  if (XTTS) {
+    const sample = fs.existsSync(path.join(XTTS, 'samples')) ? fs.readdirSync(path.join(XTTS, 'samples')).find(f => /^voce-\d+\.wav$/.test(f)) : null
+    const speaker = sample ? 'sample' : 'Ana Florence'
+    await chat.evaluate(`window.companion.setConfig({ voice: { enabled: true, engine: 'xtts', xttsSpeaker: ${JSON.stringify(speaker)}, cpmlAccepted: true } }).then(c => c.voice.engine)`)
+    let state = null
+    for (let i = 0; i < 240 && state !== 'ready' && state !== 'error'; i++) { await sleep(500); state = (await chat.evaluate('window.companion.voiceStatus()')).xtts.state }
+    check(state === 'ready', 'xtts: il servizio si accende (' + state + ')')
+    const asked = Date.now()
+    await say('salutami')
+    let heard = null
+    for (let i = 0; i < 300 && heard === null; i++) {
+      if ((await comp.evaluate('window.__companion3DTest.voice()')).speaking) heard = Date.now() - asked
+      else await sleep(50)
+    }
+    check(heard !== null, 'xtts: la risposta si sente con ' + (sample ? 'la voce del campione' : speaker) + ' dopo ' + heard + ' ms')
+    await sleep(3000)
+    await chat.evaluate(`window.companion.setConfig({ voice: { enabled: false, engine: 'kokoro' } }).then(c => c.voice.enabled)`)
   }
 
   // 4b. Il mouse sul 3D: pixel del modello, sguardo, presa in braccio.
@@ -674,6 +703,12 @@ try {
   killTree(app)
   fake.close()
   await sleep(1000)
+  // Prima le junction di --xtts, da sole: la cancellazione della cartella di
+  // lavoro non deve mai scendere nell'installazione vera.
+  for (const sub of ['xtts', 'samples']) {
+    const link = path.join(USER_DATA, 'voice', sub)
+    try { if (fs.lstatSync(link).isSymbolicLink()) fs.unlinkSync(link) } catch (_) {}
+  }
   try { fs.rmSync(WORK, { recursive: true, force: true }) } catch (_) {}
 }
 const failed = results.filter(r => !r.ok)

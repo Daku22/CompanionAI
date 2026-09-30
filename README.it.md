@@ -545,6 +545,46 @@ durante il download e un file diverso non resta su disco. Lo stato e
 l'avanzamento arrivano alla finestra Impostazioni (`voice-status`). espeak-ng è
 GPL-3.0: non sta nell'app né nel repo, e gira solo nel processo della voce.
 
+**XTTS-v2, la voce principale (facoltativa).** Clona la voce da un campione
+dell'utente, o usa una delle 58 voci del modello; serve una scheda NVIDIA.
+Licenza del modello: Coqui Public Model License, solo uso non commerciale
+(l'app è gratuita): il pulsante "Installa XTTS" si abilita solo dopo averla
+accettata (`voice.cpmlAccepted`, e il main la ricontrolla).
+- **Installazione** (`xtts-setup.js`), in `<userData>/voice/xtts`: uv 0.12.21
+  (zip da GitHub, SHA-256, aperto con il `tar.exe` di Windows), Python 3.10.21
+  suo, i pacchetti di `src/main/xtts/requirements.txt` con `--require-hashes`
+  (98 pacchetti, versioni e hash generati con `uv pip compile` dall'ambiente
+  provato: `transformers` resta alla 4.x, la 5.x rompe coqui-tts 0.27.5), il
+  modello da Hugging Face a un commit fisso con SHA-256, e una prima accensione
+  che deve trovare CUDA. uv lavora con `UV_NO_CONFIG` e senza le variabili
+  `UV_*`/`PIP_*`/`PYTHON*` dell'utente; la sua cache si cancella alla fine.
+  L'avanzamento dei pacchetti è la crescita della cache (circa 3 GB).
+- **Servizio** (`xtts/xtts_service.py`, avviato da `xtts-engine.js`): HTTP su
+  `127.0.0.1` a una porta scelta dal sistema, con un token casuale nuovo a ogni
+  avvio. Carica il modello sulla GPU e fa un giro di prova, poi scrive
+  `XTTS_SERVICE_READY {porta}`. `/tts` risponde a pezzi mentre genera
+  (`inference_stream`): uint32 byte + float32 a 24 kHz, 0 = fine. Una
+  richiesta interrotta dal main ferma la generazione. Se il main muore, stdin
+  si chiude e il servizio esce, liberando la GPU. Il thread che guarda stdin
+  parte solo a modello caricato: su Windows una lettura di stdin in attesa fin
+  dall'avvio bloccava gli import di numpy e torch.
+- **Campione:** "Importa un campione…" (dialogo del main); il servizio lo
+  converte in WAV mono a 24 kHz (librosa), taglia i silenzi, tiene al massimo
+  30 s e ne salva i latenti (`.latents.pt`) accanto. Un campione nuovo
+  sostituisce il vecchio.
+- **Quando è acceso:** con la voce attiva e XTTS scelto (`syncVoice` a ogni
+  salvataggio della config e all'avvio): caricarlo richiede 30-45 secondi
+  (circa due minuti la prima volta dopo l'installazione), quindi resta acceso
+  e occupa circa 2 GB di memoria video. Quando non serve più si spegne dopo 2
+  minuti, non subito: chi sistema le impostazioni lo spegnerebbe e
+  riaccenderebbe a ogni clic. Se XTTS non è installato o si guasta, la frase e
+  il resto della risposta li dice Kokoro.
+- **Misure** (RTX 3060, Ryzen 5 5600G): installazione 8-9 minuti, 7,4 GB;
+  primo suono di una frase 1,1-1,2 s; streaming a circa 1,1 volte il tempo
+  reale. L'audit lo prova con `--xtts <cartella voice>`.
+- Nel companion le frasi di XTTS arrivano a pezzi: `voice-player.js` li mette
+  in fila senza buchi, e la pausa fra le frasi è un messaggio a parte (`gap`).
+
 `npm run voice:check -- <cartella>` prova la voce senza aprire l'app.
 L'audit la prova con `--voice <cartella>`: una risposta della chat deve
 sentirsi e aprire la bocca.

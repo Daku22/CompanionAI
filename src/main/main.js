@@ -16,6 +16,10 @@ const room = require('./room')
 const { WeatherService } = require('./weather')
 const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig } = require('./guards')
 const { VoiceService } = require('./voice')
+const { XttsEngine } = require('./xtts-engine')
+const xttsSetup = require('./xtts-setup')
+// La licenza del modello XTTS-v2, al commit scaricato.
+const XTTS_LICENSE_URL = 'https://huggingface.co/coqui/XTTS-v2/blob/6c2b0d75eae4b7047358e3b6bd9325f857d43f77/LICENSE.txt'
 const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
@@ -500,7 +504,8 @@ function sendSettings(channel, data) {
 
 // ─── Voce (voice.js) ─────────────────────────────────────────────────────────
 // Kokoro gira in un processo di utilita' (kokoro-worker.js): il main lo avvia
-// alla prima frase e gli passa la cartella con i file scaricati.
+// alla prima frase e gli passa la cartella con i file scaricati. XTTS e' un
+// servizio Python (xtts-engine.js), acceso finche' la voce XTTS e' in uso.
 
 function initVoice() {
   const dir = path.join(app.getPath('userData'), 'voice')
@@ -510,6 +515,7 @@ function initVoice() {
   voiceService = new VoiceService({
     dir,
     baseUrl,
+    xtts: new XttsEngine({ root: path.join(dir, 'xtts'), samplesDir: path.join(dir, 'samples') }),
     spawn: () => {
       const child = utilityProcess.fork(path.join(__dirname, 'kokoro-worker.js'), [dir], { serviceName: 'CompanionAI voce', stdio: 'pipe' })
       const log = (stream, level) => stream && stream.on('data', d => String(d).split(/\r?\n/).filter(Boolean).forEach(line => console[level]('[voce] ' + line)))
@@ -525,13 +531,32 @@ function initVoice() {
     play: (msg) => sendCompanion('voice-audio', msg),
     onStatus: (status) => sendSettings('voice-status', status),
   })
+  syncVoice(loadConfig())
+}
+
+/** Il servizio XTTS acceso solo se la voce e' accesa e usa XTTS. */
+function syncVoice(cfg) {
+  const voice = voiceConfig(cfg)
+  if (voiceService) voiceService.syncXtts(voice.enabled && voice.engine === 'xtts')
+}
+
+// La voce di XTTS: il campione dell'utente se c'e', altrimenti una inclusa.
+const XTTS_FALLBACK_SPEAKER = 'Ana Florence'
+function xttsSpeaker(voice) {
+  if (voice.xttsSpeaker !== 'sample') return { builtin: voice.xttsSpeaker }
+  const sample = voiceService && voiceService.samplePath(voice.xttsSample)
+  return sample ? { sample } : { builtin: XTTS_FALLBACK_SPEAKER }
+}
+
+function speakOptions(voice) {
+  return { engine: voice.engine, voice: voice.kokoroVoice, speaker: xttsSpeaker(voice), speed: voice.speed, volume: voice.volume }
 }
 
 /** Legge ad alta voce una risposta, se la voce e' accesa. */
 function speakReply(text) {
   const voice = voiceConfig(loadConfig())
   if (!voice.enabled || !voiceService) return
-  voiceService.speak(text, { voice: voice.kokoroVoice, speed: voice.speed, volume: voice.volume })
+  voiceService.speak(text, speakOptions(voice))
     .catch(e => console.error('[voce] ' + e.message))
 }
 
@@ -645,6 +670,7 @@ handle('config:set', async (_e, newCfg) => {
   // prossimo avvio. loadConfig riapplica il fallback sulle variabili d'ambiente.
   if (memoryManager) memoryManager.setModel(memoryModelFrom(loadConfig()))
   applyWindowOptions(merged)
+  syncVoice(merged)
   return publicConfig(merged)
 })
 
@@ -720,14 +746,53 @@ handle('voice:download', () => (voiceService ? voiceService.download() : null))
 on('voice:cancel-download', () => { if (voiceService) voiceService.cancelDownload() })
 handle('voice:remove', () => (voiceService ? voiceService.remove() : null))
 on('voice:stop', () => { if (voiceService) voiceService.stop() })
-// La prova usa voce e velocita' mostrate nella pagina, anche se non salvate.
+// La prova usa motore, voce e velocita' mostrati nella pagina, anche se non salvati.
 handle('voice:test', async (_e, opts) => {
   if (!voiceService) return { ok: false, error: 'voce non pronta' }
   const saved = voiceConfig(loadConfig())
   const pick = mergeConfig({ voice: saved }, { voice: opts || {} }).voice
-  const ok = await voiceService.speak('Ciao! Questa è la mia voce. Ti piace come parlo?', { voice: pick.kokoroVoice, speed: pick.speed, volume: pick.volume })
+  const ok = await voiceService.speak('Ciao! Questa è la mia voce. Ti piace come parlo?', speakOptions(pick))
+  if (ok) return { ok: true }
   const status = voiceService.status()
-  return ok ? { ok: true } : { ok: false, error: status.installed ? (status.error || 'la voce non ha parlato') : 'prima scarica i file della voce' }
+  if (pick.engine === 'xtts' && status.xtts.error) return { ok: false, error: status.xtts.error }
+  return { ok: false, error: status.installed || status.xtts.installed ? (status.error || 'la voce non ha parlato') : 'prima installa una voce' }
+})
+
+// XTTS: installazione solo dopo aver accettato la licenza del modello (CPML),
+// campione scelto con il dialogo del main, e il controllo di GPU e spazio.
+handle('voice:xtts-check', async () => {
+  const dir = path.join(app.getPath('userData'), 'voice')
+  return { gpu: await xttsSetup.nvidiaGpu(), freeBytes: xttsSetup.freeBytes(dir) }
+})
+handle('voice:xtts-install', async () => {
+  if (!voiceService) return null
+  if (!voiceConfig(loadConfig()).cpmlAccepted) throw new Error('prima accetta la licenza del modello (CPML)')
+  const status = await voiceService.installXtts()
+  syncVoice(loadConfig())
+  return status
+})
+on('voice:xtts-cancel', () => { if (voiceService) voiceService.cancelXttsInstall() })
+handle('voice:xtts-remove', () => (voiceService ? voiceService.removeXtts() : null))
+handle('voice:xtts-speakers', () => (voiceService ? voiceService.xttsSpeakers() : []))
+on('voice:open-license', () => { shell.openExternal(XTTS_LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
+handle('voice:import-sample', async () => {
+  if (!voiceService) return { canceled: true }
+  const parent = (settingsWindow && !settingsWindow.isDestroyed()) ? settingsWindow : null
+  const options = {
+    title: 'Campione della tua voce',
+    properties: /** @type {('openFile')[]} */ (['openFile']),
+    filters: [{ name: 'Audio (WAV, MP3, FLAC, OGG)', extensions: ['wav', 'mp3', 'flac', 'ogg', 'm4a'] }],
+  }
+  // Solo per le prove automatiche: il dialogo nativo non si puo' cliccare.
+  const testSample = process.env.COMPANION_TEST_SAMPLE
+  const picked = testSample && fs.existsSync(testSample) ? { canceled: false, filePaths: [testSample] }
+    : parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+  if (picked.canceled || !picked.filePaths[0]) return { canceled: true }
+  const { file, seconds } = await voiceService.importSample(picked.filePaths[0])
+  const cfg = loadConfig()
+  cfg.voice = { ...voiceConfig(cfg), xttsSample: file, xttsSpeaker: 'sample' }
+  saveConfig(cfg)
+  return { ok: true, seconds, config: publicConfig(cfg) }
 })
 
 // Elenco modelli: dal vivo per OpenRouter e Ollama, statico per gli altri.

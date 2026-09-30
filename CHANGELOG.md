@@ -137,6 +137,12 @@
 - Replies are spoken sentence by sentence: the next one is prepared while the
   current one plays, and a new message stops the old reply.
 - 3D VRM avatars move their mouth with the voice.
+- XTTS-v2 (optional, NVIDIA graphics card): the companion speaks with a voice
+  cloned from a sample you import, or with one of the model's 58 voices.
+  "Installa XTTS" (after accepting the model's non-commercial license) sets up
+  a private Python environment with pinned, hash-checked packages and the model;
+  "Disinstalla" removes it. A local service streams each sentence while it is
+  generated, so the first words come in about a second. Kokoro is the fallback.
 
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.

@@ -177,7 +177,7 @@ test('voce: spenta di base, solo valori ammessi, i campi mancanti restano', () =
   assert.equal(VOICE_DEFAULTS.enabled, false)
   const on = mergeConfig(base, { voice: { enabled: true, kokoroVoice: 'im_nicola', speed: 1.1 } })
   assert.deepEqual(on.voice, { ...VOICE_DEFAULTS, enabled: true, kokoroVoice: 'im_nicola', speed: 1.1 })
-  const bad = mergeConfig(on, { voice: { enabled: 'si', engine: 'xtts', kokoroVoice: '../x', speed: 9, volume: -3, extra: 1 } })
+  const bad = mergeConfig(on, { voice: { enabled: 'si', engine: 'inventato', kokoroVoice: '../x', speed: 9, volume: -3, extra: 1 } })
   assert.equal(bad.voice.enabled, true, 'un valore non booleano non cambia niente')
   assert.equal(bad.voice.engine, 'kokoro')
   assert.equal(bad.voice.kokoroVoice, 'im_nicola')
@@ -185,6 +185,20 @@ test('voce: spenta di base, solo valori ammessi, i campi mancanti restano', () =
   assert.equal(bad.voice.volume, 0)
   assert.equal(bad.voice.extra, undefined)
   assert.equal(mergeConfig(on, { voice: 'on' }).voice.enabled, true, 'voce non oggetto: ignorata')
+})
+
+test('voce XTTS: motore, voce inclusa o campione, licenza; il file del campione no', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {}, voice: { xttsSample: 'voce-123456789.wav' } }
+  const ok = mergeConfig(base, { voice: { engine: 'xtts', xttsSpeaker: 'Ana Florence', cpmlAccepted: true } })
+  assert.equal(ok.voice.engine, 'xtts')
+  assert.equal(ok.voice.xttsSpeaker, 'Ana Florence')
+  assert.equal(ok.voice.cpmlAccepted, true)
+  assert.equal(ok.voice.xttsSample, 'voce-123456789.wav', 'il campione salvato resta')
+  const bad = mergeConfig(ok, { voice: { xttsSpeaker: '../../x', xttsSample: 'C:/Windows/win.ini', cpmlAccepted: 'si' } })
+  assert.equal(bad.voice.xttsSpeaker, 'Ana Florence')
+  assert.equal(bad.voice.xttsSample, 'voce-123456789.wav', 'lo sceglie solo il main')
+  assert.equal(bad.voice.cpmlAccepted, true)
+  assert.equal(mergeConfig(base, { voice: { xttsSpeaker: 'sample' } }).voice.xttsSpeaker, 'sample')
 })
 
 test('verso e distanza passano solo con i valori del contratto', () => {
