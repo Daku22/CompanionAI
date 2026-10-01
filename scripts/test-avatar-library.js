@@ -129,16 +129,51 @@ async function main() {
     assert.equal(await library.resolve(imported.id, '../library.json'), null, 'avatar:// non deve uscire dalla propria cartella')
     scenari++
 
-    // L'elenco porta l'url di ogni avatar e scarta i tipi non piu' supportati
-    // (i Live2D importati prima restano su disco ma non rompono il menu).
+    // L'elenco porta l'url di ogni avatar e scarta i tipi che il renderer non
+    // sa mostrare (un record di un tipo sparito non rompe il menu).
     const manifestPath = path.join(base, 'library', 'library.json')
     const records = JSON.parse(await fs.promises.readFile(manifestPath, 'utf8'))
-    records.push({ id: 'vecchio', name: 'Live', kind: 'live2d', entry: 'x.model3.json' })
+    records.push({ id: 'vecchio', name: 'Vecchio', kind: 'tipo-sparito', entry: 'x.dat' })
     await fs.promises.writeFile(manifestPath, JSON.stringify(records))
     const listed = await new AvatarLibrary(path.join(base, 'library'), [{ id: 'Fred', builtin: true, url: 'vrm://Fred/x.vrm' }]).list()
     assert.equal(listed[0].id, 'Fred', 'gli integrati vengono per primi')
     assert.ok(listed.every(a => a.url || a.builtin), 'ogni avatar importato ha il suo url')
-    assert.ok(!listed.some(a => a.kind === 'live2d'), 'i Live2D non sono piu-` supportati')
+    assert.ok(!listed.some(a => a.kind === 'tipo-sparito'), 'un tipo sconosciuto non compare')
+    scenari++
+
+    // Live2D: dal .model3.json si copiano solo moc, texture, fisica,
+    // espressioni e movimenti dichiarati; il nome viene dalla cartella sopra
+    // "runtime", quella che esporta l'editor di Live2D.
+    const l2d = path.join(base, 'hiyori', 'runtime')
+    const model3 = {
+      Version: 3,
+      FileReferences: {
+        Moc: 'hiyori.moc3', Textures: ['hiyori.2048/texture_00.png'], Physics: 'hiyori.physics3.json',
+        Expressions: [{ Name: 'Smile', File: 'exp/smile.exp3.json' }],
+        Motions: { Idle: [{ File: 'motion/m01.motion3.json' }], Tap: [{ File: 'motion/m02.motion3.json', Sound: 'voce.wav' }] },
+      },
+    }
+    for (const rel of ['hiyori.moc3', 'hiyori.2048/texture_00.png', 'hiyori.physics3.json', 'exp/smile.exp3.json', 'motion/m01.motion3.json', 'motion/m02.motion3.json', 'voce.wav', 'appunti-privati.txt']) {
+      await file(path.join(l2d, rel))
+    }
+    await fs.promises.writeFile(path.join(l2d, 'hiyori.model3.json'), JSON.stringify(model3))
+    const l2dScan = await library.scan(path.join(base, 'hiyori'))
+    assert.deepEqual(l2dScan.candidates.map(c => [c.name, c.kind]), [['hiyori', 'live2d']], 'le texture non sono avatar a se-`')
+    const l2dRecord = await library.commit(l2dScan.token, l2dScan.candidates[0].id)
+    assert.ok(l2dRecord.url.startsWith('avatar://' + l2dRecord.id + '/') && l2dRecord.url.endsWith('hiyori.model3.json'))
+    const copied = path.join(base, 'library', l2dRecord.id)
+    for (const rel of ['hiyori.moc3', 'hiyori.2048/texture_00.png', 'exp/smile.exp3.json', 'motion/m02.motion3.json']) {
+      assert.ok(fs.existsSync(path.join(copied, rel)), 'copiato: ' + rel)
+    }
+    assert.ok(!fs.existsSync(path.join(copied, 'appunti-privati.txt')), 'un file non dichiarato non si copia')
+    assert.ok(!fs.existsSync(path.join(copied, 'voce.wav')), 'i suoni dei movimenti no: parla la voce del companion')
+    // Un riferimento che esce dalla cartella, o un file che manca: scartato.
+    const badL2d = path.join(base, 'cattivo')
+    await file(path.join(badL2d, 'x.moc3'))
+    await fs.promises.writeFile(path.join(badL2d, 'fuori.model3.json'), JSON.stringify({ FileReferences: { Moc: 'x.moc3', Textures: ['../segreti.png'] } }))
+    await fs.promises.writeFile(path.join(badL2d, 'manca.model3.json'), JSON.stringify({ FileReferences: { Moc: 'x.moc3', Textures: ['non-c-e.png'] } }))
+    await fs.promises.writeFile(path.join(badL2d, 'vuoto.model3.json'), JSON.stringify({ FileReferences: { Moc: 'x.moc3' } }))
+    await assert.rejects(() => library.scan(badL2d), /Nessun avatar supportato/)
     scenari++
 
     // Eliminazione: sparisce il record e la cartella, e un id integrato o

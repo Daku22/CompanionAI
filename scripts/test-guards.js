@@ -10,7 +10,7 @@ const os = require('os')
 const path = require('path')
 const {
   isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES,
-  voiceConfig, VOICE_DEFAULTS, allowPermission, MIC_SHORTCUTS,
+  voiceConfig, VOICE_DEFAULTS, allowPermission, MIC_SHORTCUTS, checkLive2DChoices, LIVE2D_GESTURES, LIVE2D_EMOTIONS,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -227,6 +227,24 @@ test('microfono scelto: id di Chromium e nome ripulito; vuoto torna al predefini
   assert.equal(def.voice.micDevice, '')
   assert.equal(def.voice.micDeviceLabel, '', 'predefinito: niente nome')
   assert.equal(mergeConfig(base, { voice: { micDevice: id, micDeviceLabel: 'x'.repeat(300) } }).voice.micDeviceLabel.length, 120)
+})
+
+test('Live2D: scelte solo per gesti ed emozioni noti, con nomi del modello', () => {
+  const model = { groups: ['Idle', 'Tap', 'FlickUp'], expressions: ['Smile'] }
+  const out = checkLive2DChoices('live2d-hiyori', {
+    motions: { wave: 'FlickUp', happy: '', dance: 'Inventato', volare: 'Tap', think: 3 },
+    expressions: { joy: 'Smile', sadness: 'Pianto' },
+    extra: { x: 1 },
+  }, model)
+  assert.deepEqual(out, { motions: { wave: 'FlickUp', happy: '' }, expressions: { joy: 'Smile' } })
+  assert.equal(checkLive2DChoices('../x', { motions: {} }, model), null, 'id non valido')
+  assert.equal(checkLive2DChoices('ok', null, model), null)
+  assert.deepEqual(checkLive2DChoices('ok', { motions: { wave: 'Tap\n' } }, model), { motions: {}, expressions: {} }, 'caratteri di controllo')
+  // Le stesse liste della pagina (src/renderer/live2d-map.js).
+  const window = {}
+  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'live2d-map.js'), 'utf8'), { window })
+  assert.deepEqual([...window.Live2DMap.GESTURES], LIVE2D_GESTURES)
+  assert.deepEqual([...window.Live2DMap.EMOTIONS], LIVE2D_EMOTIONS)
 })
 
 test('licenza di Live2D: solo un booleano, spenta di base', () => {

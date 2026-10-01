@@ -25,6 +25,11 @@ for (const page of PAGES) {
   assert.ok(!scriptSrc.includes("'unsafe-inline'") && !scriptSrc.includes("'unsafe-eval'"),
     page + ': script-src non deve ammettere unsafe-inline o unsafe-eval')
   assert.ok(!scriptSrc.some(s => /^https?:|^\*/.test(s)), page + ': nessuno script da rete')
+  // Oltre ai file dell'app e agli hash, solo live2d: e solo nel companion: e'
+  // il Cubism Core scaricato dall'utente, servito dal main dopo il controllo
+  // dell'hash (live2d-core.js). Niente blob:, data: o altri schemi.
+  const extra = scriptSrc.filter(s => s !== "'self'" && !s.startsWith("'sha256-"))
+  assert.deepEqual(extra, page === 'companion.html' ? ['live2d:'] : [], page + ': fonti di script in piu\' non previste: ' + extra.join(' '))
   // ui.css porta il font (Geist) dentro l'app: senza font-src 'self' la CSP
   // lo blocca in silenzio e la pagina ripiega su Segoe UI.
   if (/href="ui\.css"/.test(html)) {

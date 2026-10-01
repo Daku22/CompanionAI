@@ -333,14 +333,28 @@
           <button class="danger" id="l2d-remove">Disinstalla</button>
         </div>
         <p class="muted note">
-          Si scarica il Cubism SDK for Web 5-r.5 ufficiale (circa 20 MB) e se ne tiene solo il Core (230 KB), con la sua
+          Si scarica il Cubism SDK for Web 5-r.4 ufficiale (circa 19 MB) e se ne tiene solo il Core (200 KB), con la sua
           licenza: lo zip si cancella, e il Core viene controllato (SHA-256) prima di ogni uso. Chi pubblica un'app con
           Live2D e fattura più di dieci milioni di yen l'anno ha bisogno anche della Cubism SDK Release License di Live2D.
         </p>
       </div>
     </section>
+
+    <section>
+      <h2>Movimenti ed espressioni</h2>
+      <p class="muted" id="l2d-model-none">Scegli un avatar Live2D dal menu sull'avatar (o importane uno: la cartella con il file
+        <b>.model3.json</b>) e qui compaiono i suoi movimenti.</p>
+      <div class="box hidden" id="l2d-model-box">
+        <p class="muted" id="l2d-model-name"></p>
+        <div id="l2d-motions"></div>
+        <div id="l2d-expressions"></div>
+        <p class="muted note">"Automatico" sceglie dai nomi dei gruppi del modello. Le scelte valgono subito, per questo avatar.</p>
+        <p class="state" id="l2d-choice-state" role="status"></p>
+      </div>
+    </section>
    </div>
   </main>
+  <script src="live2d-map.js"></script>
   <script src="mic-recorder.js"></script>
   <script src="provider-form.js"></script>
   <script src="settings.js"></script>

@@ -200,6 +200,39 @@ function mergeVoice(current, incoming) {
   return next
 }
 
+// Avatar Live2D: i gesti e le emozioni che si possono abbinare ai movimenti e
+// alle espressioni di un modello. Gli stessi di src/renderer/live2d-map.js
+// (un test controlla che coincidano).
+const LIVE2D_GESTURES = ['wave', 'happy', 'click', 'dance', 'think', 'stretch', 'yawn', 'search']
+const LIVE2D_EMOTIONS = ['joy', 'affection', 'sadness', 'annoyance', 'curiosity', 'calm']
+const LIVE2D_NAME_RE = /^[^\u0000-\u001f\u007f]{0,64}$/
+const AVATAR_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+
+/**
+ * Le scelte di un modello Live2D, ripulite: solo gesti ed emozioni noti, e
+ * nomi che il modello ha davvero ('' = nessuno, voluto). null se l'id non va.
+ * @param {string} id
+ * @param {any} input { motions: { gesto: gruppo }, expressions: { emozione: nome } }
+ * @param {{ groups: string[], expressions: string[] }} model quello che il modello ha
+ */
+function checkLive2DChoices(id, input, model) {
+  if (typeof id !== 'string' || !AVATAR_ID_RE.test(id) || !input || typeof input !== 'object') return null
+  const pick = (source, keys, allowed) => {
+    const out = {}
+    if (!source || typeof source !== 'object') return out
+    for (const key of keys) {
+      const value = source[key]
+      if (typeof value !== 'string' || !LIVE2D_NAME_RE.test(value)) continue
+      if (value === '' || allowed.includes(value)) out[key] = value
+    }
+    return out
+  }
+  return {
+    motions: pick(input.motions, LIVE2D_GESTURES, (model && model.groups) || []),
+    expressions: pick(input.expressions, LIVE2D_EMOTIONS, (model && model.expressions) || []),
+  }
+}
+
 function mergeConfig(current, incoming) {
   const merged = { ...current, keys: { ...(current.keys || {}) } }
   if (!incoming || typeof incoming !== 'object') return merged
@@ -309,6 +342,9 @@ function allowPermission(permission, details, rendererDirUrl, micEnabled) {
 module.exports = {
   isTrustedSender,
   allowPermission,
+  checkLive2DChoices,
+  LIVE2D_GESTURES,
+  LIVE2D_EMOTIONS,
   MIC_SHORTCUTS,
   SAFE_COMMANDS,
   isSafeUrl,

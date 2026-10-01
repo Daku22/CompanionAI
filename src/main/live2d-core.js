@@ -20,14 +20,17 @@ const fs = require('fs')
 const path = require('path')
 const { downloadPack } = require('./voice-assets')
 
-const SDK_VERSION = '5-r.5'
+// 5-r.4, non la 5-r.5: la libreria (untitled-pixi-live2d-engine 1.4.0) e'
+// costruita sul Framework 5-r.4. Con il Core 6.0 della 5-r.5 il modello si
+// carica ma non si disegna (errore in doDrawModel a ogni frame).
+const SDK_VERSION = '5-r.4'
 const SDK_DIR = 'CubismSdkForWeb-' + SDK_VERSION
 /** @type {import('./voice-assets').AssetFile[]} */
 const SDK_ZIP = [
-  { path: 'download/' + SDK_DIR + '.zip', url: 'https://cubism.live2d.com/sdk-web/bin/' + SDK_DIR + '.zip', size: 20708681, sha256: '67064a7fb1812cf502f5c4a03bfe12cc638c75a621bb4acf06bb28763df06ba0' },
+  { path: 'download/' + SDK_DIR + '.zip', url: 'https://cubism.live2d.com/sdk-web/bin/' + SDK_DIR + '.zip', size: 18892970, sha256: 'd78904d908bd232b800219e01732e4ea2f0562b5e9f35a2670742a1c16d22942' },
 ]
-// Il Core dentro lo zip: Core 06.00.0001.
-const CORE = { name: 'live2dcubismcore.min.js', size: 228042, sha256: '8741f739779b5d5210872bd3d7d99f0f1e56e6c87409e7d26d6bb4b80aa1ef47' }
+// Il Core dentro lo zip: Core 05.01.0000, lo stesso che Live2D serve dal suo CDN.
+const CORE = { name: 'live2dcubismcore.min.js', size: 207155, sha256: '25ae938cb4fe282ce189b357bcc97e603d1e1f7ec78bf04150d401c23cdc792f' }
 const LICENSE_URL = 'https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html'
 const STEPS = [
   { id: 'download', label: 'Scarico il Cubism SDK for Web ' + SDK_VERSION },

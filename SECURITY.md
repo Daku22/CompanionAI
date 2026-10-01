@@ -44,7 +44,9 @@ change it.
 - **IPC checks:** every IPC channel accepts messages only from the app's own
   pages.
 - **Content Security Policy:** no inline scripts, no `eval`, nothing loaded
-  from the network.
+  from the network. The one script from outside the app files is the Live2D
+  Cubism Core, downloaded by the user: `live2d://` serves only that file, and
+  only while it still has the expected SHA-256.
 - **Blocked browsing:** navigation and new windows are blocked, and browser
   permissions (camera, notifications, location…) are denied. The only
   exception is the microphone: audio only, for the app's own pages, and only

@@ -19,6 +19,10 @@
 //                                    (kimodo.cpp e pesi in <dir>, docs/kimodo-locale.md)
 //   npm run audit -- --voice <dir>   la voce Kokoro (cartella voice con i suoi file)
 //   npm run audit -- --xtts <dir>    XTTS installato (cartella voice dell'app)
+//   npm run audit -- --live2d <dir> [--live2d-model <file.model3.json>]
+//                                    anche gli avatar Live2D: <dir> e' la cartella
+//                                    con il Cubism Core installato (%APPDATA%\CompanionAI\live2d);
+//                                    il modello e' quello di private-assets/ o quello indicato
 //   npm run audit -- --xtts <dir> --mic [--mic-wav <file>]
 //                                    anche il microfono (installato con XTTS): il
 //                                    microfono finto di Chromium dice una frase
@@ -58,6 +62,9 @@ const VOICE = opt('--voice') ? path.resolve(opt('--voice')) : null
 // XTTS installato (circa 7 GB): la cartella voice dell'app, con xtts\ e
 // samples\. Non si copia: si collega con una junction.
 const XTTS = opt('--xtts') ? path.resolve(opt('--xtts')) : null
+// Live2D: il Cubism Core non sta nel repo, si copia da un'installazione.
+const LIVE2D = opt('--live2d') ? path.resolve(opt('--live2d')) : null
+const LIVE2D_MODEL = opt('--live2d-model') ? path.resolve(opt('--live2d-model')) : null
 // Il microfono vive nell'ambiente di XTTS: serve --xtts.
 const MIC = argv.includes('--mic')
 if (MIC && !XTTS) { console.error('--mic richiede --xtts <cartella voice>'); process.exit(2) }
@@ -125,6 +132,7 @@ if (XTTS) {
     if (fs.existsSync(path.join(XTTS, sub))) fs.symlinkSync(path.join(XTTS, sub), path.join(USER_DATA, 'voice', sub), 'junction')
   }
 }
+if (LIVE2D) fs.cpSync(LIVE2D, path.join(USER_DATA, 'live2d'), { recursive: true })
 const png = path.join(WORK, 'immagine-importata.png')
 fs.copyFileSync(path.join(ROOT, 'src', 'renderer', 'assets', 'icon.png'), png)
 const library = new AvatarLibrary(path.join(USER_DATA, 'avatars'))
@@ -201,6 +209,12 @@ const plainGlb = path.join(WORK, 'umanoide-gltf.glb')
 stripVrm(path.join(ROOT, 'modelli-3d', 'Fred', 'Fred_optimized.vrm'), plainGlb)
 const gltfScan = await library.scan(plainGlb)
 const gltfAvatar = await library.commit(gltfScan.token, gltfScan.candidates[0].id)
+// Un modello Live2D importato, se indicato (nel repo pubblico non ce n'e' uno integrato).
+if (LIVE2D_MODEL) {
+  const l2dScan = await library.scan(path.dirname(LIVE2D_MODEL))
+  const l2dCandidate = l2dScan.candidates.find(c => c.kind === 'live2d')
+  if (l2dCandidate) await library.commit(l2dScan.token, l2dCandidate.id)
+}
 
 // Il microfono finto: una frase italiana, poi 3 s di silenzio (Chromium
 // ripete il file finche' il microfono e' aperto).
@@ -231,7 +245,13 @@ function micWav() {
 }
 const micArgs = MIC ? ['--use-fake-device-for-media-stream', '--use-file-for-fake-audio-capture=' + micWav()] : []
 
-const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA, ...micArgs], {
+// La stanza non sta sempre in primo piano: coperta da altre finestre,
+// Windows la segna come nascosta e Chromium smette di disegnarla, e i
+// controlli della stanza vedevano valori vecchi a seconda di cosa c'era sullo
+// schermo. Questi due flag la fanno disegnare comunque.
+const occlusionArgs = ['--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding']
+
+const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA, ...occlusionArgs, ...micArgs], {
   cwd: ROOT, stdio: 'ignore',
   env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, COMPANION_ONLY_USER_CLIPS: "1" },
 })
@@ -476,6 +496,41 @@ try {
   const b = await bubble()
   check(!/Nya/.test(b), 'immagine importata: fumetti neutri (' + b + ')')
 
+  // 3b. Live2D (solo con --live2d): il modello si disegna, il mouse lo prende
+  // solo sul corpo, i gesti della chat diventano i suoi movimenti, la bocca
+  // segue la voce, e si passa al 2D e al 3D senza resti.
+  const avatarL2D = LIVE2D ? avatars.find(a => a.kind === 'live2d') : null
+  if (LIVE2D && !avatarL2D) check(false, 'live2d: nessun avatar Live2D (private-assets/ o --live2d-model)')
+  if (avatarL2D) {
+    await pickAvatar(avatarL2D.name)
+    let l2 = null
+    for (let i = 0; i < 60 && !(l2 && l2.loaded); i++) { await sleep(500); l2 = await comp.evaluate('window.__live2dTest()') }
+    check(!!l2 && l2.loaded && l2.active, 'live2d: ' + avatarL2D.name + ' caricato (' + (l2 ? l2.groups.length : 0) + ' gruppi di movimenti)')
+    await sleep(2500)
+    await shot('3b-live2d')
+    const lb = l2.bounds
+    check(await comp.evaluate(`window.hitTestLive2D(${lb.x + lb.width / 2}, ${lb.y + lb.height * 0.45})`) === true, 'live2d: sul corpo il mouse viene catturato')
+    check(await comp.evaluate(`window.hitTestLive2D(3, 3) || window.hitTestLive2D(${lb.x + 2}, ${lb.y + 4})`) === false, 'live2d: sul vuoto, anche dentro il riquadro, i clic passano sotto')
+    const wanted = l2.motions.happy
+    await say('salutami')
+    let playing = null
+    for (let i = 0; i < 20 && !playing; i++) { playing = (await comp.evaluate('window.__live2dTest()')).motion; if (!playing || playing === 'Idle') { playing = null; await sleep(150) } }
+    check(!!playing, 'live2d: "salutami" fa partire un movimento del modello (' + playing + ', saluto -> ' + l2.motions.wave + ', felice -> ' + wanted + ')')
+    await shot('3b-live2d-saluto')
+    await comp.evaluate('window.__mouthReal = window.CompanionVoice.mouth; window.CompanionVoice.mouth = () => 0.8; true')
+    await sleep(400)
+    const mouthOpen = (await comp.evaluate('window.__live2dTest()')).mouth
+    await comp.evaluate('window.CompanionVoice.mouth = window.__mouthReal; true')
+    check(mouthOpen > 0.5, 'live2d: la bocca segue la voce (' + mouthOpen.toFixed(2) + ')')
+    await pickAvatar(avatar2d.name)
+    await sleep(2500)
+    const after2d = await comp.evaluate(`[window.__live2dTest().active, getComputedStyle(document.getElementById('live2d-mount')).display, getComputedStyle(document.getElementById('pixi-mount')).display]`)
+    check(after2d[0] === false && after2d[1] === 'none' && after2d[2] === 'block', 'live2d: tornando al 2D a strip il Live2D sparisce')
+    await pickAvatar(avatarL2D.name)
+    for (let i = 0; i < 40 && !(l2 = await comp.evaluate('window.__live2dTest()')).active; i++) await sleep(250)
+    check(l2.active && l2.loaded, 'live2d: e ritorna')
+  }
+
   // 4. 3D.
   await pickAvatar(VRM)
   await sleep(8000)
@@ -680,6 +735,15 @@ try {
   const layers = await comp.evaluate(`[getComputedStyle(document.getElementById('three-mount')).display, getComputedStyle(document.getElementById('pixi-mount')).display, window.__threeVisible]`)
   check(layers[0] === 'block' && layers[1] === 'block' && layers[2] === false, 'stanza: avatar 2D sopra la scena 3D')
   await shot('4e-stanza-2d')
+  if (avatarL2D) {
+    await pickAvatar(avatarL2D.name)
+    let l2r = null
+    for (let i = 0; i < 40 && !(l2r && l2r.active); i++) { await sleep(250); l2r = await comp.evaluate('window.__live2dTest()') }
+    await sleep(1500)
+    const l2layers = await comp.evaluate(`[getComputedStyle(document.getElementById('three-mount')).display, getComputedStyle(document.getElementById('live2d-mount')).display, getComputedStyle(document.getElementById('pixi-mount')).display]`)
+    check(l2r.active && l2layers[0] === 'block' && l2layers[1] === 'block' && l2layers[2] === 'none', 'stanza: avatar Live2D sopra la scena 3D')
+    await shot('4e-stanza-live2d')
+  }
   await pickAvatar(VRM)
   await sleep(2500)
   await comp.evaluate(`window.__companion3DTest.roomTime(null); window.companion.setView('desktop'); true`)

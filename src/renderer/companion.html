@@ -6,7 +6,7 @@
        aggiorna l'hash (npm test lo ricalcola e dice quale mettere).
        vrm: e avatar: servono i modelli 3D, scene: le scene importate; blob: le
        texture estratte dai .glb. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-ZbtU6faAuNdPdmM0BcNga30v1JmQYiPkfUDkH4n65CY='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: vrm: avatar: scene:; connect-src 'self' data: blob: vrm: avatar: motion: scene:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' live2d: 'sha256-ZbtU6faAuNdPdmM0BcNga30v1JmQYiPkfUDkH4n65CY='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: vrm: avatar: scene:; connect-src 'self' data: blob: vrm: avatar: motion: scene:">
   <title>CompanionAI</title>
   <link rel="stylesheet" href="ui.css">
   <style>
@@ -37,6 +37,13 @@
       position: absolute;
       inset: 0;
       pointer-events: none;
+    }
+    /* Avatar Live2D (companion-live2d.js): una sua app Pixi, accesa solo per loro. */
+    #live2d-mount {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
     }
     #three-mount {
       position: absolute;
@@ -229,7 +236,7 @@
     /* Nella stanza: la scena riempie la finestra, l'avatar 2D ci sta sopra,
        i pulsanti del desktop non servono e il fumetto scende sotto la barra. */
     body.mode-room #app { background: #1a191b; }
-    body.mode-room #pixi-mount { z-index: 2; }
+    body.mode-room #pixi-mount, body.mode-room #live2d-mount { z-index: 2; }
     body.mode-room #three-mount { z-index: 1; }
     body.mode-room #click-zone, body.mode-room #switch-zone, body.mode-room #model-menu { display: none !important; }
     body.mode-room #bubble { top: 48px; }
@@ -257,6 +264,7 @@
 <div id="app">
   <div id="bubble"></div>
   <div id="pixi-mount"></div>
+  <div id="live2d-mount"></div>
   <div id="three-mount"></div>
   <div id="drag-zone"></div>
   <div id="click-zone"></div>
@@ -294,6 +302,8 @@
 <script src="companion-input.js"></script>
 <script src="voice-player.js"></script>
 <script src="companion-2d.js"></script>
+<script src="live2d-map.js"></script>
+<script src="companion-live2d.js"></script>
 
 <script type="module" src="companion-3d.js"></script>
 </body>

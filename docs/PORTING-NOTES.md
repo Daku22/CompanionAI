@@ -832,10 +832,65 @@ canvas WebGL la sfocatura si ricalcola a ogni frame. Tolta, con lo sfondo
 pieno: 73 su 73. La sfocatura nella chat resta, perche' li' sotto non c'e'
 una scena.
 
+**Correzione del 02-10 (Blocco 4).** La causa vera era un'altra: la stanza non
+sta sempre in primo piano, e quando le finestre dell'utente la coprivano
+Windows la segnava come nascosta e Chromium smetteva di disegnarla
+(`visibilityState` "hidden" dopo circa 7 s, contatore dei frame fermo). I
+fallimenti dipendevano da cosa c'era sullo schermo. L'audit ora avvia l'app
+con `--disable-backgrounding-occluded-windows` e
+`--disable-renderer-backgrounding`. Togliere la sfocatura resta comunque
+giusto: sopra una scena 3D costa a ogni frame.
+
 Trappola del clone: nove file di Kimodo e delle animazioni erano usciti con
 CRLF nella copia di lavoro (nel repo sono LF, e git non li segnava come
 modificati); riscritti dal repo, le due copie sono di nuovo uguali byte per
 byte.
+
+## Blocco 4: Pixi 8 e Live2D (2026-10-02)
+
+**4a, Pixi 8.** Da 7.4 a 8.22: `init()` asincrono (il ticker esiste solo
+dopo, quindi companion-3d.js lo accende e spegne con `set2DActive`), ticker
+che riceve il Ticker, `ImageSource` con mipmap al posto di `BaseTexture`,
+`Graphics` con le forme nuove. Il pacchetto `unsafe-eval` ora sta dentro
+`pixi.js`. Audit 73 su 73 al primo colpo.
+
+**Libreria.** `untitled-pixi-live2d-engine` 1.4.0 (MIT, Pixi 8, Cubism 2-5):
+dentro c'e' il Cubism Framework di Live2D (Live2D Open Software License).
+Due vincoli: il suo render pipe va registrato prima di creare il renderer, e
+al caricamento pretende il Core gia' presente. Quindi Live2D ha una sua app
+Pixi, creata al primo avatar Live2D, dopo il Core e poi la libreria.
+
+**4b, Cubism Core.** Proprietario (Live2D Proprietary Software License, ma
+indicato come codice ridistribuibile): si scarica dalle Impostazioni dopo
+l'accettazione della licenza, dallo zip ufficiale con la versione nel nome
+(l'indirizzo "CDN" del Core non ha versione, e il suo hash cambierebbe). Prima
+scelta la 5-r.5, poi scartata: il suo Core 6.0 non va con il Framework 5-r.4
+della libreria (il modello si carica, poi `doDrawModel` fallisce a ogni
+frame e non si vede niente). Con la 5-r.4 (Core 05.01, lo stesso del CDN di
+oggi) tutto va. Lo schema `live2d://` serve solo il Core, solo con l'hash
+giusto, ed e' l'unica fonte di script esterna nella CSP (test-csp.js lo
+controlla).
+
+**4c, avatar.** Import delle cartelle `.model3.json` (solo i file
+dichiarati, niente suoni), Hiyori Pro (modello d'esempio di Live2D, Free
+Material License) solo in `private-assets/live2d/`. Due trappole: Pixi 8
+carica le texture in un Web Worker da `blob:`, che la CSP blocca (si spegne
+con `preferWorkers: false`, senza aprire la CSP); e i parametri del modello
+letti dopo il frame sono gia' stati rimessi com'erano (`loadParameters`),
+quindi la prova della bocca legge l'apertura applicata. Abbinamenti gesto ->
+gruppo ed emozione -> espressione proposti dai nomi (`live2d-map.js`) e
+modificabili nella scheda Live2D. Il mouse prende l'avatar solo sui
+triangoli delle mesh visibili. Hiyori: 7 gruppi, nessuna espressione (l'umore
+piega la bocca con `ParamMouthForm`).
+
+**Prova.** Audit con `--live2d <Core>` 81 su 81: Hiyori disegnata, mouse sul
+corpo e sul vuoto del riquadro, "salutami" fa partire un suo movimento, bocca
+con la voce, cambio Live2D -> 2D -> Live2D, Live2D sopra la stanza. Prova dal
+vivo anche della scheda Live2D: scaricamento vero in 3 s, il main rifiuta
+senza licenza, la tabella delle scelte cambia il movimento al volo.
+
+Non ancora: modelli Cubism 2 (serve `live2d.min.js`, non piu' distribuito da
+Live2D), suoni dei movimenti, specchiare il modello quando cammina.
 
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del

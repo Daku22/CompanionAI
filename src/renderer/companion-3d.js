@@ -871,6 +871,7 @@ function show3D() {
   const pixi = document.getElementById('pixi-mount');
   const three = document.getElementById('three-mount');
   window.unload2DAvatar();
+  if (window.unloadLive2DAvatar) window.unloadLive2DAvatar();
   window.CompanionInput.setProbe(probe3D);
   ensureThree();
   controls.enabled = true;
@@ -888,6 +889,13 @@ function show3D() {
 }
 
 let currentAvatarId = null;
+let coreAsked = false;   // la scheda Live2D aperta da sola, al massimo una volta
+
+/** L'etichetta del tipo nel menu degli avatar. */
+function kindLabel(avatar) {
+  if (avatar.kind === 'live2d') return 'Live2D';
+  return (avatar.kind === 'sprite-pack' || avatar.kind === 'sprite') ? '2D' : '3D';
+}
 
 /**
  * Mostra un avatar dell'elenco. save=false al ripristino dell'avvio: salvare
@@ -903,7 +911,19 @@ async function switchModel(avatarId, { save = true } = {}) {
   if (save) api.setConfig({ avatarModel: avatar.id }).catch(() => {});
   renderAvatarMenu(avatars);
 
-  if (avatar.kind === 'sprite-pack' || avatar.kind === 'sprite') {
+  if (avatar.kind === 'live2d') {
+    show2D();
+    try {
+      await window.loadLive2DAvatar(avatar);
+    } catch (error) {
+      console.error('Avatar Live2D non caricato:', error);
+      window.show2DPlaceholder();
+      showBubble(error.coreMissing ? 'Per vedermi serve il Cubism Core: Impostazioni, scheda Live2D' : 'Avatar Live2D non caricato: ' + error.message, 6000);
+      // Senza il Core si apre la scheda che lo scarica (una volta per avvio).
+      if (error.coreMissing && !coreAsked && api.openSettings) { coreAsked = true; api.openSettings('live2d'); }
+    }
+  } else if (avatar.kind === 'sprite-pack' || avatar.kind === 'sprite') {
+    if (window.unloadLive2DAvatar) window.unloadLive2DAvatar();
     show2D();
     try {
       const { manifest, baseUrl } = await spriteSource(avatar);
@@ -1010,7 +1030,7 @@ function renderAvatarMenu(avatars) {
     item.textContent = avatar.name;
     const kind = document.createElement('span');
     kind.className = 'kind';
-    kind.textContent = (avatar.kind === 'sprite-pack' || avatar.kind === 'sprite') ? '2D' : '3D';
+    kind.textContent = kindLabel(avatar);
     item.appendChild(kind);
     item.addEventListener('click', () => switchModel(avatar.id));
     return item;
@@ -1054,7 +1074,7 @@ function renderManageMenu(avatars) {
     });
     const kind = document.createElement('span');
     kind.className = 'kind';
-    kind.textContent = (avatar.kind === 'sprite-pack' || avatar.kind === 'sprite') ? '2D' : '3D';
+    kind.textContent = kindLabel(avatar);
     item.append(box, avatar.name, kind);
     return item;
   });

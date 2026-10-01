@@ -584,7 +584,9 @@ let loadSeq2D = 0;
 
 // Anche dal 3D: le strip di un avatar 2D occupano ~40 MB di memoria video, e
 // restavano caricate mentre si usava un modello VRM.
-window.unload2DAvatar = () => { loadSeq2D++; disposeStrips(); };
+// I fumetti tornano neutri: i "Nya!" di un pacchetto non devono passare a un
+// avatar Live2D o 3D.
+window.unload2DAvatar = () => { loadSeq2D++; disposeStrips(); bubbles = { ...DEFAULT_BUBBLES }; };
 
 function disposeStrips() {
   if (charSprite) { charC.removeChild(charSprite); charSprite = null; }

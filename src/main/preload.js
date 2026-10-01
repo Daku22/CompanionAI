@@ -63,6 +63,11 @@ contextBridge.exposeInMainWorld('companion', {
   live2dCancel:     ()       => ipcRenderer.send('live2d:cancel'),
   live2dRemove:     ()       => ipcRenderer.invoke('live2d:remove'),
   live2dOpenLicense: ()      => ipcRenderer.send('live2d:open-license'),
+  // Il modello Live2D in vista (gruppi ed espressioni) e le scelte di abbinamento
+  live2dReportModel: (m)     => ipcRenderer.send('live2d:report-model', m && typeof m === 'object'
+    ? { id: m.id, name: m.name, groups: m.groups, expressions: m.expressions } : null),
+  live2dModel:      ()       => ipcRenderer.invoke('live2d:model'),
+  live2dSetChoices: (id, choices) => ipcRenderer.invoke('live2d:set-choices', id, choices),
   voiceXttsCancel:  ()       => ipcRenderer.send('voice:xtts-cancel'),
   voiceXttsRemove:  ()       => ipcRenderer.invoke('voice:xtts-remove'),
   voiceXttsSpeakers: ()      => ipcRenderer.invoke('voice:xtts-speakers'),
@@ -199,6 +204,18 @@ contextBridge.exposeInMainWorld('companion', {
     return () => ipcRenderer.removeListener('voice-audio', handler)
   },
   // Stato della voce: file, avanzamento del download, motore
+  // Scelte di abbinamento Live2D cambiate (tutte, per avatar)
+  onLive2DChoices: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('live2d-choices', handler)
+    return () => ipcRenderer.removeListener('live2d-choices', handler)
+  },
+  // Il modello Live2D in vista e le sue scelte, per la scheda Live2D
+  onLive2DModel: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('live2d-model', handler)
+    return () => ipcRenderer.removeListener('live2d-model', handler)
+  },
   // Stato del Cubism Core: installato, avanzamento, errore
   onLive2DStatus: (cb) => {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }

@@ -98,6 +98,17 @@
   standing height: the rest pose was taken from the first frame. The rest pose
   is now the standing T-pose on the real floor.
 
+- Live2D avatars (Cubism 3, 4 and 5): import the folder with the
+  `.model3.json`; only the files it declares are copied. They play their own
+  motions for the chat's gestures (matched by name, changeable in Settings →
+  Live2D), turn the mood into an expression or a smile, blink, breathe, follow
+  the mouse, move the mouth with the voice, dangle when carried, and the mouse
+  only grabs them on their visible meshes.
+- The Live2D Cubism Core is downloaded from Settings → Live2D once you accept
+  its license: the official SDK zip at a fixed version and SHA-256, keeping
+  only the Core. It is checked again every time it is served.
+- PixiJS 7.4 → 8.22 for the 2D avatars.
+
 ### Camera and room
 - 3D camera: drag with the right or middle button to turn around the avatar,
   hold Alt to move the camera instead, wheel to zoom. The right button opens

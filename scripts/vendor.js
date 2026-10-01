@@ -26,6 +26,11 @@ const FILES = {
   // senza, la CSP dovrebbe permettere 'unsafe-eval' a tutta la pagina. Si
   // installa da solo, caricato dopo pixi.min.js.
   'pixi.js/dist/packages/unsafe-eval.min.js':        'pixi-unsafe-eval.min.js',
+  // Avatar Live2D (Cubism 3, 4 e 5) su Pixi 8: libreria MIT con dentro il
+  // Cubism Framework (Live2D Open Software License). Il Cubism Core no: lo
+  // scarica l'utente (live2d-core.js). companion-live2d.js la carica dopo il
+  // Core, che deve esserci gia'.
+  'untitled-pixi-live2d-engine/dist/cubism.min.js':  'pixi-live2d.min.js',
   'three/build/three.module.js':                     'three.module.js',
   // three.module.js importa ./three.core.js: senza, il modulo non si carica.
   'three/build/three.core.js':                       'three.core.js',

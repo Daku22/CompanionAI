@@ -11,8 +11,8 @@
 // integrati della copia locale. E' cosi' che una copia privata tiene Yanineko,
 // Dust e Neko senza che finiscano nel repository o nell'installer pubblico.
 //
-// Ordine, e quindi predefinito (il primo): 2D privati, 2D integrato, Fred,
-// poi i VRM privati.
+// Ordine, e quindi predefinito (il primo): 2D privati, 2D integrato, Live2D
+// privati, Fred, poi i VRM privati.
 
 const fs = require('fs')
 const path = require('path')
@@ -69,14 +69,16 @@ function walkPrivate(dir, depth, out) {
 }
 
 /**
- * Avatar di private-assets/: pacchetti di sprite (sprites.json) e VRM.
- * @returns {{ sprites: BuiltinAvatar[], models: BuiltinAvatar[] }}
+ * Avatar di private-assets/: pacchetti di sprite (sprites.json), modelli
+ * Live2D (.model3.json) e VRM.
+ * @returns {{ sprites: BuiltinAvatar[], live2d: BuiltinAvatar[], models: BuiltinAvatar[] }}
  */
 function privateAvatars(appRoot) {
   const root = path.join(appRoot, PRIVATE_DIR)
   /** @type {BuiltinAvatar[]} */ const sprites = []
   /** @type {BuiltinAvatar[]} */ const models = []
-  if (!fs.existsSync(root)) return { sprites, models }
+  /** @type {BuiltinAvatar[]} */ const live2d = []
+  if (!fs.existsSync(root)) return { sprites, live2d, models }
   for (const file of walkPrivate(root, 0, [])) {
     const relative = path.relative(root, file)
     const base = path.basename(file).toLowerCase()
@@ -90,6 +92,17 @@ function privateAvatars(appRoot) {
         id: name.toLowerCase(), name, kind: 'sprite-pack', builtin: true, private: true,
         capabilities: ['animation', 'walk'], url: privateUrl(relative),
       })
+    } else if (base.endsWith('.model3.json')) {
+      // Nome della cartella del modello, senza "runtime" (la cartella che
+      // l'editor di Live2D esporta).
+      let dir = path.dirname(file)
+      if (/^runtime$/i.test(path.basename(dir))) dir = path.dirname(dir)
+      const folder = path.basename(dir)
+      const name = folder.charAt(0).toUpperCase() + folder.slice(1)
+      live2d.push({
+        id: 'live2d-' + folder.toLowerCase(), name, kind: 'live2d', builtin: true, private: true,
+        capabilities: ['animation', 'expressions'], url: privateUrl(relative),
+      })
     } else if (base.endsWith('.vrm')) {
       // Nome della cartella del modello: "Dust", "Neko", come nelle versioni precedenti.
       const name = path.basename(path.dirname(file))
@@ -100,7 +113,7 @@ function privateAvatars(appRoot) {
     }
   }
   const byName = (a, b) => a.name.localeCompare(b.name)
-  return { sprites: sprites.sort(byName), models: models.sort(byName) }
+  return { sprites: sprites.sort(byName), live2d: live2d.sort(byName), models: models.sort(byName) }
 }
 
 /**
@@ -118,6 +131,7 @@ function builtinAvatars(appRoot) {
       capabilities: ['animation', 'walk'], url: null, // il renderer lo trova gia' caricato da sprites.js
     })
   }
+  list.push(...priv.live2d)
   for (const model of MODELS_3D) {
     if (!fs.existsSync(path.join(appRoot, 'modelli-3d', model.file))) continue
     list.push({

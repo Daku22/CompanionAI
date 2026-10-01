@@ -106,6 +106,7 @@ Gli avatar importati stanno in `<userData>/avatars`, serviti dal protocollo
 | `fbx` | Il file `.fbx` e le immagini accanto, fino a due livelli di cartelle (le texture non hanno un indice leggibile). Animato se ha uno scheletro umano |
 | `sprite-pack` | Una cartella con `sprites.json` (formato `companion-sprites/1`) e le strip che dichiara. Il campo facoltativo `bubbles` porta i fumetti del personaggio (`hello`, `wave`, `think`, `sit`, `smoke`, `happy`, `grab`, `drop`); senza, i fumetti sono neutri. `build-strips.js` lo prende da un `bubbles.json` accanto alle master |
 | `sprite` | Un'immagine singola, mostrata ferma in 2D |
+| `live2d` | Un modello Live2D (Cubism 3, 4 e 5): il `.model3.json` e i soli file che dichiara (moc, texture, fisica, posa, espressioni, movimenti; non i suoni). Serve il Cubism Core, vedi "Live2D" qui sotto |
 
 Dal menu, "Elimina importati" permette di spuntare gli avatar importati e
 cancellarli, record e cartella. Gli integrati non compaiono e il main li
@@ -117,11 +118,46 @@ diventa un pacchetto di sprite con `npm run strips -- --masters <cartella>
 
 In alternativa, nella propria copia del progetto, lo si mette in
 `private-assets/`, che `.gitignore` esclude e `npm run check:publish` rifiuta.
-I pacchetti di sprite (`sprites.json`) e i `.vrm` che l'app trova lì dentro,
-fino a tre livelli di cartelle, diventano avatar integrati della copia locale.
-I pacchetti 2D privati vanno in testa all'elenco, quindi il primo è il
-predefinito; i VRM privati vanno in coda. Li serve `vrm://private/…`, che nel
+I pacchetti di sprite (`sprites.json`), i modelli Live2D (`.model3.json`) e i
+`.vrm` che l'app trova lì dentro, fino a tre livelli di cartelle, diventano
+avatar integrati della copia locale. I pacchetti 2D privati vanno in testa
+all'elenco, quindi il primo è il predefinito; poi i Live2D privati, Fred e in
+coda i VRM privati. Li serve `vrm://private/…`, che nel
 pacchetto pubblico risponde 404.
+
+### Live2D
+
+Gli avatar Live2D si disegnano con `untitled-pixi-live2d-engine` (MIT, con
+dentro il Cubism Framework di Live2D) sopra Pixi 8, in una loro applicazione
+Pixi (`#live2d-mount`, `companion-live2d.js`): la libreria va registrata prima
+di creare il renderer, e si può caricare solo dopo il Cubism Core.
+
+- **Cubism Core.** È di Live2D Inc. (Live2D Proprietary Software License) e non
+  sta nell'app né nel repo. Impostazioni → Live2D, dopo aver accettato la
+  licenza (`live2dAccepted`, che il main ricontrolla): `live2d-core.js` scarica
+  lo zip ufficiale `CubismSdkForWeb-5-r.4` con SHA-256 fisso, ne estrae il Core
+  (05.01) con la sua licenza e cancella lo zip. La 5-r.5 (Core 6.0) no: la
+  libreria è costruita sul Framework 5-r.4, e con il Core 6 il modello si
+  carica ma non si disegna. Il Core resta in `<userData>/live2d` e la pagina lo
+  carica da `live2d://core/`, che serve quel solo file e solo se ha ancora
+  l'hash atteso: nella CSP del companion `live2d:` è l'unica fonte di script
+  oltre ai file dell'app.
+- **Texture senza worker.** Pixi 8 caricherebbe le texture in un Web Worker
+  creato da un `blob:`, che la CSP blocca: `Assets.setPreferences({ preferWorkers: false })`.
+- **Gesti ed espressioni** (`live2d-map.js`, puro, con test). I gesti del
+  contratto (wave, happy, think...) diventano i gruppi di movimenti del
+  modello, proposti dai nomi ("Tap", "FlickUp", "Tap@Body"...); l'umore diventa
+  un'espressione con un nome adatto, o, se il modello non ne ha, una bocca più
+  o meno sorridente (`ParamMouthForm`). Nelle Impostazioni, scheda Live2D, una
+  tabella per gesto ed emozione: "Automatico", un gruppo o un'espressione del
+  modello, o "Nessuno". Le scelte (`live2dChoices`, per avatar) le scrive solo
+  il main (`checkLive2DChoices`), con i nomi che il companion ha riportato.
+- **Bocca, sguardo, tocchi.** La bocca segue la voce (`CompanionVoice.mouth`,
+  sui parametri del gruppo LipSync, prima dell'aggiornamento del modello);
+  sguardo e testa seguono il mouse (`focus`); palpebre, respiro e fisica li fa
+  la libreria. Un clic è un tocco (gesto click); preso in braccio penzola come
+  il 2D. Il mouse prende l'avatar solo sui triangoli delle mesh visibili, e
+  passa sotto il resto, anche dentro il riquadro del modello.
 
 ## Memoria
 
@@ -670,7 +706,7 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 
 ## Test
 
-`npm test` esegue ventotto suite senza chiavi API né finestre:
+`npm test` esegue trenta suite senza chiavi API né finestre:
 
 | Suite | Cosa verifica |
 |---|---|
@@ -701,6 +737,8 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | Servizio della voce | Coda delle frasi, interruzioni, ripiego su Kokoro, XTTS e Whisper accesi solo se servono, modelli liberati dopo, installazione del microfono, trascrizione |
 | XTTS | Pezzi di audio in streaming, `/load`, `/unload`, `/stt`, comandi di uv, pacchetti con hash (quelli del microfono solo nuovi), file a commit fisso |
 | Scelta del microfono | Elenco dei microfoni senza le voci di Chromium, ritrovati per id o per nome, predefinito se mancano |
+| Cubism Core | Zip finto servito in locale: Core e licenza estratti, zip cancellato, zip o Core diversi rifiutati, Core manomesso non servito |
+| Live2D | Gesti ed emozioni proposti dai nomi di gruppi ed espressioni, scelte dell'utente solo con nomi del modello, test del punto sui triangoli |
 
 `npm run check` aggiunge il controllo dei tipi. Il progetto è JavaScript, ma
 `allowJs` e `checkJs` lo sottopongono comunque a TypeScript, con i tipi
@@ -776,6 +814,8 @@ Fatto:
 - memoria persistente riletta nel prompt;
 - umore che decade nel tempo, gesti autonomi a riposo, ciglia e sguardo nel 3D;
 - azioni OS ristrette;
+- stanza con scene 3D e camera libera; voce (Kokoro, XTTS) e microfono;
+- avatar Live2D (Cubism 3, 4 e 5) su Pixi 8;
 - installer NSIS con Fuses, CI e release automatiche.
 
 Da fare:
@@ -787,9 +827,9 @@ Da fare:
   solo nella copia privata, finché non si confermano i termini sulle uscite;
 - prova con un FBX vero (Mixamo): il percorso è lo stesso del glTF, ma i test
   non hanno un file FBX;
-- modalità stanza con scene 3D e camera libera, voce, Live2D: vedi la roadmap
-  in `IDEA.md`;
+- la roadmap che resta è in `IDEA.md` (Blocco 5 in poi);
 - Fase D: nascondersi ai bordi, chibi, danza con l'audio, mano verso il
   cursore;
 - iniziativa con freni, memoria leggibile;
-- input e sintesi vocale.
+- Live2D: modelli Cubism 2 (serve un altro runtime, non più distribuito da
+  Live2D) e suoni dei movimenti.

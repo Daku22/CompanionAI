@@ -14,6 +14,7 @@ everything the app sends out and everything it stores.
 | `open-meteo.com` | Only if you turn on "Meteo vero nella stanza" (off by default), while the room is open, at most every 30 minutes | The city you typed (to the geocoding service), then its coordinates (to the weather service). No key, no account |
 | `huggingface.co` and `cdn.jsdelivr.net` | Only when you press "Scarica" in the voice settings | Plain downloads of the voice files (about 180 MB). Nothing about you or your conversations |
 | `github.com`, Python's download mirror used by uv, `pypi.org`, `files.pythonhosted.org`, `download.pytorch.org`, `huggingface.co` | Only when you press "Installa XTTS" | Plain downloads of uv, Python, the Python packages and the XTTS-v2 model (about 5 GB). Nothing about you or your conversations |
+| `cubism.live2d.com` | Only when you press "Scarica il Cubism Core" in Settings → Live2D | A plain download of the official Cubism SDK for Web zip (about 19 MB), from which the app keeps only the Cubism Core. Nothing about you or your conversations |
 | `pypi.org`, `files.pythonhosted.org`, `huggingface.co` | Only when you press "Installa il microfono" | Plain downloads of the faster-whisper packages and the Whisper model (about 1.8 GB). Nothing about you or your conversations |
 
 The voice (Kokoro or XTTS, off by default) is generated on your computer: the
@@ -49,6 +50,7 @@ personal data.
 | Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, and the sentence each one came from in `index.json` |
 | Voice files | `%APPDATA%\CompanionAI\voice\`: Kokoro's model and phonemizer, XTTS (`xtts\`: Python, packages and model) and the microphone's Whisper model (`xtts\whisper\`). "Elimina i file" and the two "Disinstalla" buttons in the voice settings remove them |
 | Your voice sample | `%APPDATA%\CompanionAI\voice\samples\`: the sample you imported, converted to WAV (at most 30 seconds), and its voice features (`.latents.pt`). Importing a new one replaces it |
+| Live2D Cubism Core | `%APPDATA%\CompanionAI\live2d\`: the Core and its license. "Disinstalla" in Settings → Live2D removes them |
 | Imported 3D scenes | `%APPDATA%\CompanionAI\scenes\` |
 | Error log | `%APPDATA%\CompanionAI\logs\`: warnings and errors only, never your conversations. Open it from the tray icon menu |
 

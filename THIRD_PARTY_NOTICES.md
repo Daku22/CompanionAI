@@ -11,6 +11,8 @@ are released under the MIT License, whose full text is in each package's
 | [three.js](https://threejs.org/) (`three`, including `GLTFLoader`, `FBXLoader`, `BVHLoader`, `OBJLoader`, `MTLLoader`, `RGBELoader`, `RoomEnvironment`, `BufferGeometryUtils`, NURBS curves, `OrbitControls`, `Sky`, `GroundedSkybox` and the bundled `fflate`) | 0.177.0 | MIT | © 2010-2025 three.js authors (fflate © 2020 Arjun Barrett, MIT) |
 | [@pixiv/three-vrm](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 | [@pixiv/three-vrm-animation](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
+| [untitled-pixi-live2d-engine](https://github.com/Untitled-Story/untitled-pixi-live2d-engine) (`cubism.min.js`, for Live2D avatars) | 1.4.0 | MIT | © 2026 GuangChen2333 |
+| Live2D Cubism Web Framework, bundled inside untitled-pixi-live2d-engine | based on Cubism SDK for Web 5-r.4 | [Live2D Open Software License](https://www.live2d.com/eula/live2d-open-software-license-agreement_en.html) | © Live2D Inc. |
 
 The interface font is bundled in `src/renderer/assets/fonts/`, with its
 license text next to it (`Geist-OFL.txt`):
@@ -31,9 +33,15 @@ Koffi calls the Windows API (user32, dwmapi) to read the other windows' size
 and position, so the avatar can sit on them. ONNX Runtime runs the local
 voice model (Kokoro) in a separate process.
 
-Downloaded on first use, only if you turn on the voice in the settings. They
-are not part of the app or of this repository; each file is checked against a
-SHA-256 hash before use:
+Downloaded on first use, only if you turn on the voice in the settings, or ask
+for Live2D avatars. They are not part of the app or of this repository; each
+file is checked against a SHA-256 hash before use:
+
+| Component | Version | License | Source |
+|---|---|---|---|
+| Live2D Cubism Core (`live2dcubismcore.min.js`, from the Cubism SDK for Web zip) | Core 05.01.0000 (SDK 5-r.4) | [Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html), listed by Live2D as redistributable code | cubism.live2d.com, fixed version. Downloaded only after you accept the license in Settings → Live2D; its license files are kept with it. Businesses with yearly revenue above 10 million yen that publish an app with Live2D also need the [Cubism SDK Release License](https://www.live2d.com/en/download/cubism-sdk/release-license/) |
+
+Voice:
 
 | Component | Version | License | Source |
 |---|---|---|---|

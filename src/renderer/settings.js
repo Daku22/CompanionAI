@@ -490,6 +490,69 @@
     showLive2D()
   })
   if (api.onLive2DStatus) api.onLive2DStatus((s) => { l2d = s; showLive2D() })
+
+  // Movimenti ed espressioni del modello in vista: per ogni gesto e ogni
+  // emozione "Automatico" (la proposta dai nomi, live2d-map.js), un gruppo
+  // o un'espressione del modello, o "Nessuno".
+  const GESTURE_LABELS = { wave: 'Saluto', happy: 'Felice', click: 'Clic sull\'avatar', dance: 'Ballo', think: 'Pensa', stretch: 'Si stiracchia', yawn: 'Sbadiglio', search: 'Cerca' }
+  const EMOTION_LABELS = { joy: 'Allegria', affection: 'Affetto', sadness: 'Malinconia', annoyance: 'Fastidio', curiosity: 'Curiosità', calm: 'Calma' }
+  let l2dModel = null   // { model: { id, name, groups, expressions }, choices: { motions, expressions } }
+  function choiceRows(host, labels, proposed, names, chosen, kind) {
+    const rows = Object.keys(labels).map((key) => {
+      const row = document.createElement('div')
+      row.className = 'row'
+      const label = document.createElement('label')
+      label.className = 'name'
+      label.textContent = labels[key]
+      const select = document.createElement('select')
+      select.id = 'l2d-' + kind + '-' + key
+      label.htmlFor = select.id
+      select.append(new Option('Automatico' + (proposed[key] ? ' (' + proposed[key] + ')' : ' (nessuno)'), '__auto'), new Option('Nessuno', ''), ...names.map(n => new Option(n, n)))
+      select.value = Object.prototype.hasOwnProperty.call(chosen, key) ? chosen[key] : '__auto'
+      select.addEventListener('change', saveChoices)
+      row.append(label, select)
+      return row
+    })
+    host.replaceChildren(...rows)
+  }
+  function readChoices(kind, labels) {
+    const out = {}
+    for (const key of Object.keys(labels)) {
+      const value = $('l2d-' + kind + '-' + key).value
+      if (value !== '__auto') out[key] = value
+    }
+    return out
+  }
+  async function saveChoices() {
+    if (!l2dModel) return
+    const st = $('l2d-choice-state')
+    st.className = 'state'
+    try {
+      l2dModel.choices = await api.live2dSetChoices(l2dModel.model.id, {
+        motions: readChoices('motion', GESTURE_LABELS),
+        expressions: l2dModel.model.expressions.length ? readChoices('expression', EMOTION_LABELS) : {},
+      })
+      st.textContent = 'Salvato.'
+      st.classList.add('ok')
+    } catch (e) { st.textContent = 'Non salvato: ' + e.message; st.classList.add('error') }
+  }
+  function showLive2DModel() {
+    const has = !!(l2dModel && l2dModel.model)
+    $('l2d-model-none').classList.toggle('hidden', has)
+    $('l2d-model-box').classList.toggle('hidden', !has)
+    if (!has) return
+    const { model, choices } = l2dModel
+    $('l2d-model-name').textContent = model.name + ': ' + model.groups.length + ' gruppi di movimenti' +
+      (model.expressions.length ? ', ' + model.expressions.length + ' espressioni.' : ', nessuna espressione (l\'umore piega la bocca).')
+    choiceRows($('l2d-motions'), GESTURE_LABELS, window.Live2DMap.proposeMotionMap(model.groups), model.groups, (choices && choices.motions) || {}, 'motion')
+    if (model.expressions.length) choiceRows($('l2d-expressions'), EMOTION_LABELS, window.Live2DMap.proposeExpressionMap(model.expressions), model.expressions, (choices && choices.expressions) || {}, 'expression')
+    else $('l2d-expressions').replaceChildren()
+  }
+  if (api.onLive2DModel) api.onLive2DModel((m) => { l2dModel = m; showLive2DModel() })
+  ;(async () => {
+    try { l2dModel = await api.live2dModel() } catch (_) { l2dModel = null }
+    showLive2DModel()
+  })()
   ;(async () => {
     try { l2dAccepted = (await api.getConfig()).live2dAccepted === true } catch (_) {}
     try { l2d = await api.live2dStatus() } catch (_) { l2d = { installed: false, installing: null, error: null, sdk: '' } }

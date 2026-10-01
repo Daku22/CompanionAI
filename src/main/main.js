@@ -14,7 +14,7 @@ const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated
 const { builtinAvatars } = require('./builtin-avatars')
 const room = require('./room')
 const { WeatherService } = require('./weather')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS, checkLive2DChoices } = require('./guards')
 const { VoiceService } = require('./voice')
 const { XttsEngine } = require('./xtts-engine')
 const xttsSetup = require('./xtts-setup')
@@ -960,6 +960,28 @@ handle('live2d:remove', () => {
   live2dError = null
   sendLive2DStatus()
   return live2dStatus()
+})
+// Il modello Live2D in vista: gruppi ed espressioni li conosce il companion,
+// che li riporta al caricamento; le Impostazioni ci costruiscono la tabella
+// degli abbinamenti, e le scelte (live2dChoices, per avatar) tornano al
+// companion. Il main ricontrolla i nomi contro quelli riportati.
+let live2dModel = null   // { id, name, groups, expressions }
+const cleanNames = (list) => (Array.isArray(list) ? list : []).filter(n => typeof n === 'string' && n.length <= 64).slice(0, 200)
+on('live2d:report-model', (_e, m) => {
+  if (!m || typeof m.id !== 'string') return
+  live2dModel = { id: m.id, name: typeof m.name === 'string' ? m.name.slice(0, 64) : m.id, groups: cleanNames(m.groups), expressions: cleanNames(m.expressions) }
+  sendSettings('live2d-model', { model: live2dModel, choices: (loadConfig().live2dChoices || {})[live2dModel.id] || {} })
+})
+handle('live2d:model', () => (live2dModel ? { model: live2dModel, choices: (loadConfig().live2dChoices || {})[live2dModel.id] || {} } : null))
+handle('live2d:set-choices', (_e, id, input) => {
+  if (!live2dModel || live2dModel.id !== id) throw new Error('il modello Live2D non e\' in vista')
+  const clean = checkLive2DChoices(id, input, live2dModel)
+  if (!clean) throw new Error('scelte non valide')
+  const cfg = loadConfig()
+  cfg.live2dChoices = { ...(cfg.live2dChoices || {}), [id]: clean }
+  saveConfig(cfg)
+  sendCompanion('live2d-choices', cfg.live2dChoices)
+  return clean
 })
 on('live2d:open-license', () => { shell.openExternal(live2dCore.LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
 

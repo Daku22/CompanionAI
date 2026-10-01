@@ -121,9 +121,20 @@ chat. Anything that touches your system shows a confirmation dialog first.
 | **Fred** | 3D, VRM 1.0 | Built in. By Swampazzo, redistributable ([details](ASSETS-LICENSE.md)) |
 | Your own | VRM, GLB/glTF, FBX | Menu → "Importa avatar". VRM models are animated, and so are GLB/glTF and FBX models with a human skeleton (Mixamo, VRoid, Unreal, Blender Rigify, 3ds Max). Others are shown as a static preview |
 | Your own | 2D sprite pack | A folder with `sprites.json` and one PNG per animation. Create one with `npm run strips` (see [docs/avatar-brief.md](docs/avatar-brief.md)) |
+| Your own | Live2D (Cubism 3, 4, 5) | The folder with the `.model3.json` file. It plays the model's own motions, blinks, follows the mouse and moves its mouth with the voice. Needs the Live2D Cubism Core (see below) |
 
 To remove imported avatars: Menu → "Elimina importati", tick the ones to delete
 and confirm. Built-in avatars cannot be deleted.
+
+**Live2D avatars.** Live2D models need the Cubism Core by Live2D Inc., which
+cannot ship with the app. In Settings → Live2D accept its license (Live2D
+Proprietary Software License) and press "Scarica il Cubism Core": the app
+downloads the official Cubism SDK for Web 5-r.4 (about 19 MB) and keeps only
+the Core (200 KB), checked with SHA-256. Chat gestures become the model's
+motion groups, matched by their names ("Tap", "FlickUp"...), and the mood
+becomes an expression; the same tab lets you change the matches for the
+model on screen. Businesses with more than 10 million yen of yearly revenue
+that publish an app with Live2D also need Live2D's Cubism SDK Release License.
 
 **Animations.** Right-click the avatar → "Animazioni" → "Importa animazione" to
 add a clip for a gesture (idle, greeting, sitting, being carried…). It accepts

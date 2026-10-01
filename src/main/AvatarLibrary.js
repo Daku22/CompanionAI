@@ -10,7 +10,9 @@ const SPRITE_PACK_FORMAT = 'companion-sprites/1'
 const SPRITE_PACK_FILE = 'sprites.json'
 // Tipi che il renderer sa mostrare. Un record di un tipo sparito (i Live2D
 // importati dalle versioni precedenti) non compare nel menu invece di rompersi.
-const SUPPORTED_KINDS = new Set(['vrm', 'gltf', 'fbx', 'sprite', 'sprite-pack'])
+const SUPPORTED_KINDS = new Set(['vrm', 'gltf', 'fbx', 'sprite', 'sprite-pack', 'live2d'])
+// Avatar Live2D (Cubism 3, 4 e 5): l'indice e' <nome>.model3.json.
+const LIVE2D_SUFFIX = '.model3.json'
 
 // Limiti della scansione: scegliere per sbaglio C:\ o Downloads non deve far
 // percorrere al main l'intero disco.
@@ -36,6 +38,25 @@ function spritePackReferences(json) {
     throw new Error(SPRITE_PACK_FILE + ' non e\' un pacchetto ' + SPRITE_PACK_FORMAT + ' con animazione idle')
   }
   return Object.values(json.animations).map(anim => anim && anim.file).filter(file => typeof file === 'string' && file)
+}
+
+/**
+ * Riferimenti di un modello Live2D: moc, texture, fisica, posa, espressioni e
+ * movimenti dichiarati in FileReferences. I suoni dei movimenti no: il
+ * companion parla con la sua voce.
+ */
+function live2dReferences(json) {
+  const refs = json && json.FileReferences
+  if (!refs || typeof refs.Moc !== 'string' || !Array.isArray(refs.Textures) || !refs.Textures.length) {
+    throw new Error('non e\' un modello Live2D: mancano Moc o Textures')
+  }
+  const out = [refs.Moc, ...refs.Textures]
+  for (const key of ['Physics', 'Pose', 'DisplayInfo', 'UserData']) if (typeof refs[key] === 'string') out.push(refs[key])
+  for (const exp of Array.isArray(refs.Expressions) ? refs.Expressions : []) if (exp && typeof exp.File === 'string') out.push(exp.File)
+  for (const group of Object.values(refs.Motions && typeof refs.Motions === 'object' ? refs.Motions : {})) {
+    for (const motion of Array.isArray(group) ? group : []) if (motion && typeof motion.File === 'string') out.push(motion.File)
+  }
+  return out.filter(Boolean)
 }
 
 // Un FBX non ha un indice leggibile senza un parser: le texture si cercano fra
@@ -107,7 +128,7 @@ class AvatarLibrary {
     // Tipi senza un indice delle texture: il renderer le cerca fra le immagini copiate.
     this.textureKinds = new Set(['fbx'])
     this.tag = '[avatar]'
-    this.noneFound = 'Nessun avatar supportato: cerca .vrm, .glb, .gltf, .fbx, sprites.json o immagini'
+    this.noneFound = 'Nessun avatar supportato: cerca .vrm, .glb, .gltf, .fbx, .model3.json (Live2D), sprites.json o immagini'
   }
 
   _url(id, entry) { return avatarUrl(id, entry, this.scheme) }
@@ -236,6 +257,12 @@ class AvatarLibrary {
       kind = 'sprite-pack'; capabilities = ['animation', 'walk']; references = spritePackReferences
       name = path.basename(path.dirname(sourcePath))
     }
+    else if (lower.endsWith(LIVE2D_SUFFIX)) {
+      kind = 'live2d'; capabilities = ['animation', 'expressions']; references = live2dReferences
+      name = path.basename(sourcePath).slice(0, -LIVE2D_SUFFIX.length)
+      // "runtime" e' la cartella che l'editor di Live2D esporta: il nome vero e' sopra.
+      if (/^runtime$/i.test(path.basename(path.dirname(sourcePath)))) name = path.basename(path.dirname(path.dirname(sourcePath)))
+    }
     else if (ext === '.vrm') { kind = 'vrm'; capabilities = ['animation', 'expressions', 'walk'] }
     // glTF e FBX si animano se hanno uno scheletro umano (humanoid-map.js):
     // lo decide il renderer al caricamento, altrimenti restano un'anteprima.
@@ -295,4 +322,4 @@ class AvatarLibrary {
   }
 }
 
-module.exports = { AvatarLibrary, SPRITE_PACK_FORMAT, avatarUrl, fbxFiles, gltfReferences, MAX_IMPORT_BYTES }
+module.exports = { AvatarLibrary, SPRITE_PACK_FORMAT, avatarUrl, fbxFiles, gltfReferences, live2dReferences, MAX_IMPORT_BYTES }

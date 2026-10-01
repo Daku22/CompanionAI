@@ -16,7 +16,7 @@ async function main() {
   const t = async (name, fn) => { await fn(); passed++; console.log('  ok  ' + name) }
   console.log('=== Cubism Core di Live2D ===')
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-live2d-'))
-  // Lo zip finto: la stessa struttura di CubismSdkForWeb-5-r.5.zip.
+  // Lo zip finto: la stessa struttura di CubismSdkForWeb-5-r.4.zip.
   const src = path.join(work, 'src')
   const coreDir = path.join(src, 'CubismSdkForWeb-' + SDK_VERSION, 'Core')
   fs.mkdirSync(coreDir, { recursive: true })
@@ -35,12 +35,12 @@ async function main() {
     if (req.url === '/' + pack[0].path) { res.end(zipBuf); return }
     res.statusCode = 404; res.end()
   })
-  await new Promise(r => server.listen(0, '127.0.0.1', r))
-  const baseUrl = 'http://127.0.0.1:' + server.address().port + '/'
+  await new Promise(r => server.listen(0, '127.0.0.1', () => r(null)))
+  const baseUrl = 'http://127.0.0.1:' + /** @type {import('net').AddressInfo} */ (server.address()).port + '/'
   const dir = path.join(work, 'live2d')
   try {
     await t('indirizzo e hash fissati, versione nel nome dello zip', () => {
-      assert.match(SDK_ZIP[0].url, /^https:\/\/cubism\.live2d\.com\/sdk-web\/bin\/CubismSdkForWeb-5-r\.5\.zip$/)
+      assert.match(SDK_ZIP[0].url, /^https:\/\/cubism\.live2d\.com\/sdk-web\/bin\/CubismSdkForWeb-5-r\.4\.zip$/)
       assert.match(SDK_ZIP[0].sha256, /^[0-9a-f]{64}$/)
       assert.match(CORE.sha256, /^[0-9a-f]{64}$/)
     })
