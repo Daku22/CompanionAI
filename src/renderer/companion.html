@@ -160,8 +160,9 @@
       display: flex; align-items: center; gap: 2px;
       position: absolute; top: 0; left: 0; right: 0; height: 36px;
       padding: 0 4px 0 12px; z-index: var(--z-bar);
-      background: var(--glass);
-      backdrop-filter: blur(16px);
+      /* Pieno, senza backdrop-filter: sopra il canvas della scena la
+         sfocatura si ricalcola a ogni frame e la stanza rallentava. */
+      background: var(--glass-solid);
       border-bottom: 1px solid var(--line);
       font-family: var(--font); font-size: 12px; color: var(--text);
       -webkit-app-region: drag;

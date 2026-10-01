@@ -815,6 +815,28 @@ trascrizione cloud (3c), `/unload`.
 
 Resta per dopo: il vivavoce con VAD, le voci e la trascrizione cloud (3c).
 
+## Redesign della UI (2026-10-01/02)
+
+Fatto in una sessione a parte (commit `eafaba8` ed `e2fe65d`): nuova palette
+in `ui.css`, font Geist, Impostazioni in quattro schede con `provider-form.js`
+condiviso con la chat, niente piu' `confirm()`. Le repo privata e pubblica
+sono state clonate entrambe in `Downloads\bakcup`.
+
+**Verifica dopo il redesign.** I test passavano, ma l'audit si fermava a 82
+su 84 (66 su 73 senza voce), sempre sulla stanza: la camera con Alt + destro
+si spostava di 0,07 m invece di 0,40, e i controlli di luce e foto HDR
+vedevano il valore del passo prima, come se la scena andasse a scatti. La
+copia di prima del redesign, sulla stessa macchina, passava 73 su 73. Causa:
+`backdrop-filter: blur(16px)` sulla barra del titolo della stanza. Sopra il
+canvas WebGL la sfocatura si ricalcola a ogni frame. Tolta, con lo sfondo
+pieno: 73 su 73. La sfocatura nella chat resta, perche' li' sotto non c'e'
+una scena.
+
+Trappola del clone: nove file di Kimodo e delle animazioni erano usciti con
+CRLF nella copia di lavoro (nel repo sono LF, e git non li segnava come
+modificati); riscritti dal repo, le due copie sono di nuovo uguali byte per
+byte.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

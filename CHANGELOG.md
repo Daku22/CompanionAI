@@ -161,6 +161,20 @@
   the microphone on, or Whisper after turning the microphone off) frees its
   video memory after two minutes, about 2 GB each.
 
+### Look and settings
+- New look for the chat, the companion and Settings: a warm neutral palette
+  with one green accent instead of purple, shared in `ui.css`, and the Geist
+  font (SIL OFL 1.1) bundled with the app.
+- Settings in one place, with four tabs: Modello (provider, model and key),
+  Generale (start with Windows, idle life, weather), Voce and Microfono. ⚙ in
+  the chat opens Modello; the panel above the chat is left only for the
+  first start, until a key is saved. Chat and Settings stay in sync.
+- An empty chat shows a short introduction and three suggestions.
+- No more `confirm()` dialogs: a wrong-looking key, deleting the memory or
+  uninstalling ask for a second click, with the warning next to the button.
+- The room title bar is solid instead of blurred: a blur over the 3D scene
+  had to be redone every frame and slowed the room down.
+
 ### AI and memory
 - Seven providers: OpenRouter, Claude, ChatGPT, Grok, Gemini, Mistral, Ollama.
   OpenRouter and Ollama model lists are fetched live.

@@ -71,13 +71,16 @@ Scale and the avatar's spot are estimated; fix them with ⚙ in the title bar
 Imported scenes can be deleted from the same menu or panel. Respect their
 licenses: many free scenes (for example CC-BY ones from Sketchfab) ask for
 credit if you share them.
-Optional: "Meteo vero nella stanza" in the chat settings adds clouds, rain,
+Optional: "Meteo vero nella stanza" in Settings → Generale adds clouds, rain,
 snow and fog from the real weather of a city you type (through Open-Meteo, see
 [PRIVACY.md](PRIVACY.md)). The ✕ in the title bar brings the avatar back to
 the desktop.
 
-**Voice (optional, off by default).** Right-click → "Impostazioni… (voce)":
-turn on "Legge ad alta voce le risposte", press "Scarica" once (about 180 MB:
+**Settings.** Right-click the avatar (or the tray icon) → "Impostazioni…", or
+⚙ in the chat. Four tabs: Modello (provider, model and key), Generale (start
+with Windows, idle life, weather), Voce and Microfono.
+
+**Voice (optional, off by default).** In Settings → Voce turn on "Legge ad alta voce le risposte", press "Scarica" once (about 180 MB:
 the Kokoro-82M model with two Italian voices, Sara and Nicola, and the eSpeak NG
 phonemizer), and the companion reads its replies aloud while its mouth follows
 the voice. The voice is generated on your own computer, on the processor, about

@@ -504,7 +504,7 @@ notte. L'umore aggiunge una tinta di pochi punti percentuali. Il cielo e le
 foto usano il tone mapping ACES; i materiali dell'avatar ne restano fuori,
 perché resti com'è sul desktop, e lo illuminano le luci della scena.
 
-**Meteo vero (facoltativo, spento di base).** Nelle impostazioni della chat,
+**Meteo vero (facoltativo, spento di base).** In Impostazioni → Generale,
 "Meteo vero nella stanza" e una città. `src/main/weather.js` chiede a
 Open-Meteo, senza chiave, le coordinate della città e il meteo attuale, solo
 con la stanza aperta e al massimo ogni 30 minuti. All'aperto le nuvole
@@ -513,8 +513,11 @@ velano il cielo, e pioggia, neve e nebbia si vedono davvero.
 ## Voce
 
 Spenta di base. Si accende dalla finestra **Impostazioni** (menu col tasto
-destro o tray, `settings.html`), che per ora ha due schede: Voce e
-Microfono (si riapre sull'ultima usata).
+destro o tray, o ⚙ nella chat; `settings.html`), che ha quattro schede:
+Modello (provider, modello e chiave, con `provider-form.js` condiviso con il
+pannello del primo avvio della chat), Generale (avvio con Windows, vita
+autonoma, meteo), Voce e Microfono. Chat e Impostazioni si aggiornano a
+vicenda (`config-changed` a tutte e due dopo ogni `config:set`).
 
 **Il percorso di una risposta.** `ai:send-message` in `main.js`, a risposta
 arrivata, chiama `speakReply`. `speech-text.js` (puro, con test) toglie emoji,
