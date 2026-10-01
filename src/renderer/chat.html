@@ -2,35 +2,11 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:">
   <title>Chat</title>
+  <link rel="stylesheet" href="ui.css">
   <style>
-    /* Un solo sistema di colori per chat, Impostazioni e avatar: grigi caldi
-       e un solo accento, il salvia del fumetto sul desktop. */
-    :root {
-      --bg:          #151416;
-      --bg-raised:   #1c1b1e;
-      --surface:     rgba(255, 248, 238, 0.045);
-      --surface-hi:  rgba(255, 248, 238, 0.08);
-      --line:        rgba(255, 248, 238, 0.08);
-      --line-strong: rgba(255, 248, 238, 0.16);
-      --text:        #ece7df;
-      --text-2:      #aaa49a;
-      --text-3:      #7d786f;
-      --accent:      #93bf9f;
-      --accent-ink:  #12201a;
-      --accent-soft: rgba(147, 191, 159, 0.14);
-      --accent-line: rgba(147, 191, 159, 0.45);
-      --danger:      #e5907f;
-      --danger-soft: rgba(229, 144, 127, 0.12);
-      --shadow:      0 18px 50px -12px rgba(8, 6, 4, 0.7), 0 2px 6px rgba(8, 6, 4, 0.35);
-      --ease:        cubic-bezier(0.22, 1, 0.36, 1);
-      --font:        'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
-      --font-display:'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
-      --font-mono:   'Cascadia Mono', Consolas, monospace;
-      --z-overlay:   20;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --z-overlay: 20; }
 
     /* 380x520 sul desktop; nella stanza la chat e' alta quanto la stanza. */
     html, body {
@@ -40,13 +16,7 @@
       font-family: var(--font);
       color: var(--text);
       user-select: none;
-      -webkit-font-smoothing: antialiased;
     }
-    button, input, select, textarea { font: inherit; color: inherit; }
-    button { cursor: pointer; }
-    :focus { outline: none; }
-    :focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
-    svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 
     #panel {
       width: 100%; height: 100%;
@@ -68,111 +38,42 @@
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     }
 
-    /* ── Setup overlay ─────────────────────────────────────────────────────── */
+    /* ── Prima configurazione ──────────────────────────────────────────────
+       Solo finche' manca la chiave: dopo, provider e modello si cambiano
+       dalle Impostazioni (scheda Modello). */
     #setup-overlay {
       position: absolute; inset: 0;
       background: var(--bg);
       border-radius: 18px;
       z-index: var(--z-overlay);
       display: flex; flex-direction: column;
-      padding: 22px 22px 26px;
+      padding: 24px 22px 22px;
       overflow-y: auto;
       scrollbar-width: thin;
       scrollbar-color: var(--line-strong) transparent;
       animation: rise 0.28s var(--ease);
     }
     #setup-overlay.hidden { display: none; }
-
+    .setup-step { font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 8px; }
     .setup-head { margin-bottom: 20px; }
     .setup-title {
       font-family: var(--font-display);
-      font-size: 19px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2;
+      font-size: 20px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2;
       color: var(--text); margin-bottom: 6px;
     }
     .setup-sub { color: var(--text-2); font-size: 12px; line-height: 1.55; max-width: 36ch; text-wrap: pretty; }
-
-    .setup-section { width: 100%; margin-bottom: 16px; }
-    .setup-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 7px; }
-
-    .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-    .provider-btn {
-      display: flex; align-items: center; gap: 9px;
-      padding: 9px 10px;
-      border-radius: 10px;
-      border: 1px solid var(--line);
-      background: var(--surface);
-      color: var(--text-2);
-      font-size: 12px; font-weight: 500;
-      text-align: left;
-      transition: background 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease), transform 0.12s var(--ease);
-    }
-    .provider-btn:hover  { background: var(--surface-hi); color: var(--text); }
-    .provider-btn:active { transform: scale(0.98); }
-    .provider-btn.active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--text); }
-    .provider-icon {
-      width: 14px; height: 14px; border-radius: 50%; flex: none;
-      border: 1.5px solid var(--line-strong);
-      transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), background 0.2s var(--ease);
-    }
-    .provider-btn:hover .provider-icon { border-color: var(--text-3); }
-    .provider-btn.active .provider-icon { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 2.5px var(--bg); }
-
-    .setup-select, .setup-input {
-      width: 100%;
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 9px 12px;
-      color: var(--text);
-      font-size: 12.5px;
-      transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
-    }
-    .setup-input { font-family: var(--font-mono); font-size: 12px; }
-    #weather-city { font-family: var(--font); font-size: 12.5px; }
-    .setup-select { cursor: pointer; }
-    .setup-select option { background: var(--bg-raised); }
-    .setup-input::placeholder { color: var(--text-3); }
-    .setup-select:hover, .setup-input:hover { border-color: var(--line-strong); }
-    .setup-input:focus, .setup-select:focus { border-color: var(--accent-line); background: var(--surface-hi); outline: none; }
-    .setup-input.invalid { border-color: var(--danger); background: var(--danger-soft); }
-
-    .ollama-note { font-size: 11px; color: var(--text-3); line-height: 1.5; margin-top: 7px; text-wrap: pretty; }
-    .ollama-note code { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-2); }
-    .field-error { font-size: 11px; color: var(--danger); line-height: 1.5; margin-top: 7px; text-wrap: pretty; }
-    .field-error:empty { display: none; }
-
     .setup-save {
-      width: 100%; padding: 11px;
+      width: 100%; padding: 11px; flex: none;
       border-radius: 11px; border: none;
       background: var(--accent);
       color: var(--accent-ink); font-size: 13px; font-weight: 600;
-      margin-top: 8px;
+      margin-top: 4px;
       transition: filter 0.2s var(--ease), transform 0.12s var(--ease);
     }
     .setup-save:hover  { filter: brightness(1.08); }
     .setup-save:active { transform: scale(0.98); }
-
-    .link-btn {
-      background: none; border: none; padding: 4px 0; margin-top: 6px;
-      color: var(--text-2); font-size: 11.5px;
-      text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px;
-      transition: color 0.2s var(--ease), text-decoration-color 0.2s var(--ease);
-    }
-    .link-btn:hover { color: var(--text); text-decoration-color: var(--accent); }
-    #setup-cancel { align-self: center; margin-top: 10px; }
-    .link-btn.hidden, .setup-check.hidden, .setup-section.hidden { display: none; }
-
-    .setup-toggles { border-top: 1px solid var(--line); padding-top: 10px; margin-bottom: 8px; }
-    .setup-check {
-      width: 100%; display: flex; align-items: center; gap: 9px;
-      font-size: 12px; color: var(--text-2); padding: 5px 0; cursor: pointer;
-      transition: color 0.2s var(--ease);
-    }
-    .setup-check:hover { color: var(--text); }
-    input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
-    #weather-section { margin: 4px 0 6px; }
     .setup-privacy {
-      margin-top: 16px; font-size: 11px; line-height: 1.55;
+      margin-top: 14px; font-size: 11px; line-height: 1.55;
       color: var(--text-3); text-wrap: pretty;
     }
 
@@ -225,10 +126,6 @@
       text-wrap: pretty; overflow-wrap: anywhere;
       animation: rise 0.24s var(--ease);
     }
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(6px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
     .msg.user {
       align-self: flex-end;
       background: var(--accent-soft); color: #e4eee6;
@@ -251,6 +148,20 @@
       border-left: 2px solid var(--danger);
       font-size: 12px; border-radius: 4px 10px 10px 4px;
     }
+
+    /* Chat vuota: chi sono e tre cose da provare, in basso vicino al campo. */
+    .welcome { margin-top: auto; padding: 4px 2px 6px; animation: rise 0.32s var(--ease); }
+    .welcome-title { font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: -0.015em; margin-bottom: 4px; }
+    .welcome-sub { font-size: 12.5px; color: var(--text-2); line-height: 1.5; max-width: 36ch; text-wrap: pretty; margin-bottom: 12px; }
+    .suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      padding: 6px 11px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--surface);
+      color: var(--text-2); font-size: 12px;
+      transition: background 0.2s var(--ease), color 0.2s var(--ease), border-color 0.2s var(--ease), transform 0.12s var(--ease);
+    }
+    .chip:hover { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }
+    .chip:active { transform: scale(0.97); }
 
     /* Typing */
     #typing {
@@ -342,74 +253,20 @@
     #mic-btn.busy { opacity: 0.5; cursor: progress; }
     #mic-btn.hidden { display: none; }
 
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-    }
   </style>
 </head>
 <body>
 <div id="panel">
 
   <!-- ── Setup Overlay ────────────────────────────────────────────────────── -->
-  <div id="setup-overlay">
+  <div id="setup-overlay" class="hidden">
     <div class="setup-head">
-      <h2 class="setup-title">Configura il companion</h2>
-      <p class="setup-sub">Scegli il provider e incolla la tua chiave API. OpenRouter ha modelli gratuiti. Puoi cambiare quando vuoi dal tasto ⚙ in alto.</p>
+      <div class="setup-step">Primo avvio</div>
+      <h2 class="setup-title">Collega un modello</h2>
+      <p class="setup-sub">Scegli il provider e incolla la tua chiave API. OpenRouter ha modelli gratuiti. Dopo, li cambi quando vuoi dalle Impostazioni.</p>
     </div>
-
-    <div class="setup-section">
-      <div class="setup-label">Provider</div>
-      <div class="provider-grid" id="provider-grid">
-        <!-- popolato da JS -->
-      </div>
-    </div>
-
-    <div class="setup-section">
-      <label class="setup-label" for="model-select">Modello</label>
-      <select class="setup-select" id="model-select"></select>
-      <div class="ollama-note" id="model-note"></div>
-    </div>
-
-    <div class="setup-section" id="key-section">
-      <label class="setup-label" for="api-key-input">Chiave API</label>
-      <input class="setup-input" id="api-key-input" type="password" autocomplete="off" spellcheck="false">
-      <div class="field-error" id="key-error" role="alert"></div>
-      <button class="link-btn" id="key-help" type="button">Come ottengo una chiave? ↗</button>
-      <div class="ollama-note" id="key-saved" style="display:none">
-        Chiave salvata su questo PC. Lascia il campo vuoto per tenerla, scrivine una nuova per cambiarla.
-      </div>
-      <div class="ollama-note" id="key-unreadable" style="display:none">
-        La chiave salvata per questo provider non si può più leggere su questo PC:
-        è stata cifrata da un'altra installazione. Inseriscila di nuovo.
-      </div>
-      <div class="ollama-note" id="ollama-note" style="display:none">
-        Ollama non richiede una chiave. Avvia il server con <code>ollama serve</code> prima di usarlo.
-      </div>
-    </div>
-
-    <div class="setup-toggles">
-      <label class="setup-check hidden" id="login-row">
-        <input type="checkbox" id="login-item"> Avvia con Windows
-      </label>
-      <label class="setup-check" id="idle-row" title="Quando non gli scrivi si guarda attorno, fa due passi, sonnecchia. Nessuna chiamata al modello.">
-        <input type="checkbox" id="idle-life"> Vita autonoma quando non scrivi
-      </label>
-      <label class="setup-check" id="weather-row" title="Nella stanza nuvole, pioggia, neve e sole seguono il meteo vero della tua città.">
-        <input type="checkbox" id="weather-on"> Meteo vero nella stanza
-      </label>
-      <div class="setup-section hidden" id="weather-section">
-        <input class="setup-input" id="weather-city" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Città, per esempio Bologna" aria-label="Città per il meteo">
-        <div class="ollama-note" id="weather-note">
-          La città va a Open-Meteo (open-meteo.com), senza chiave, al massimo una
-          volta ogni 30 minuti e solo con la stanza aperta.
-        </div>
-        <div class="ollama-note" id="weather-status"></div>
-      </div>
-    </div>
-
-    <button class="setup-save" id="save-btn">Salva e avvia</button>
-    <button class="link-btn hidden" id="setup-cancel" type="button">Annulla</button>
-
+    <div id="provider-form"></div>
+    <button class="setup-save" id="save-btn">Salva e inizia</button>
     <p class="setup-privacy">
       Le conversazioni vanno solo al provider che scegli. Memoria e chiavi restano
       su questo PC, e le chiavi sono cifrate.
@@ -438,7 +295,15 @@
 
   <!-- ── Messages ─────────────────────────────────────────────────────────── -->
   <main id="messages" aria-live="polite">
-    <div class="msg system">Ciao. Chiedimi di aprire file, cercare sul web, o fare due chiacchiere.</div>
+    <section class="welcome" id="welcome" aria-label="Per iniziare">
+      <p class="welcome-title">Ciao, sono qui.</p>
+      <p class="welcome-sub">Posso aprire cartelle e siti, cercare sul web, muovermi sullo schermo o fare due chiacchiere.</p>
+      <div class="suggestions">
+        <button class="chip" type="button">Apri la cartella Documenti</button>
+        <button class="chip" type="button">Vieni dal mouse</button>
+        <button class="chip" type="button">Balla un po'</button>
+      </div>
+    </section>
     <div id="typing" aria-label="Sta scrivendo"><span></span><span></span><span></span></div>
   </main>
 
@@ -464,6 +329,7 @@
 </div>
 
 <script src="mic-recorder.js"></script>
+<script src="provider-form.js"></script>
 <script src="chat.js"></script>
 </body>
 </html>

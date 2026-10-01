@@ -1,10 +1,11 @@
-// settings.js — la finestra Impostazioni. Per ora la sezione Voce, con il
-// microfono.
+// settings.js — la finestra Impostazioni: Modello (provider, modello e
+// chiave), Generale (avvio, vita autonoma, meteo), Voce e Microfono.
 //
-// Le scelte si salvano subito (config.voice, controllata da guards.js). I
-// file e l'installazione di XTTS e del microfono li gestisce il main: qui si
-// mostrano stato e avanzamento, che il main manda da solo mentre cambiano
-// (voice-status).
+// Il Modello si salva con il suo pulsante, come nella chat al primo avvio
+// (provider-form.js e' la stessa scheda). Il resto si salva subito (config,
+// controllata da guards.js). I file e l'installazione di XTTS e del microfono
+// li gestisce il main: qui si mostrano stato e avanzamento, che il main manda
+// da solo mentre cambiano (voice-status).
 
 (function () {
   const api = window.companion
@@ -17,18 +18,114 @@
   const cpml = $('cpml')
   const speakerSel = $('xtts-speaker')
 
-  // Schede: Voce e Microfono. Si riapre sull'ultima scelta.
+  // Schede. La chat apre Modello (#modello nell'indirizzo, o settings-page
+  // con la finestra gia' aperta); altrimenti si riapre sull'ultima scelta.
   const tabs = [...document.querySelectorAll('nav .item[data-page]')]
   function showPage(name) {
-    if (!tabs.some(t => t.dataset.page === name)) name = 'voce'
-    for (const t of tabs) t.classList.toggle('active', t.dataset.page === name)
+    if (!tabs.some(t => t.dataset.page === name)) name = 'modello'
+    for (const t of tabs) {
+      t.classList.toggle('active', t.dataset.page === name)
+      if (t.dataset.page === name) t.setAttribute('aria-current', 'page')
+      else t.removeAttribute('aria-current')
+    }
     for (const p of document.querySelectorAll('.page')) p.classList.toggle('hidden', p.id !== 'page-' + name)
-    try { localStorage.setItem('settings-page', name) } catch (_) { /* niente memoria: si riparte da Voce */ }
+    try { localStorage.setItem('settings-page', name) } catch (_) { /* niente memoria: si riparte da Modello */ }
   }
   for (const t of tabs) t.addEventListener('click', () => showPage(t.dataset.page))
-  let lastPage = 'voce'
-  try { lastPage = localStorage.getItem('settings-page') || 'voce' } catch (_) {}
+  let lastPage = location.hash.slice(1)
+  if (!lastPage) try { lastPage = localStorage.getItem('settings-page') || '' } catch (_) {}
   showPage(lastPage)
+  if (api.onSettingsPage) api.onSettingsPage(showPage)
+
+  // Conferma con un secondo clic, al posto di confirm(): il primo arma il
+  // pulsante e scrive l'avviso sotto la sua riga, il secondo (entro 5
+  // secondi) agisce. Restituisce true solo al secondo clic.
+  function confirmClick(btn, warning) {
+    const row = btn.closest('.row') || btn
+    let note = row.nextElementSibling
+    if (!note || !note.classList.contains('confirm-note')) {
+      note = document.createElement('p')
+      note.className = 'confirm-note'
+      note.setAttribute('role', 'alert')
+      row.after(note)
+    }
+    const disarm = () => {
+      clearTimeout(btn._disarm)
+      btn.classList.remove('armed')
+      btn.textContent = btn._label
+      note.textContent = ''
+    }
+    if (btn.classList.contains('armed')) { disarm(); return true }
+    btn._label = btn.textContent
+    btn.classList.add('armed')
+    btn.textContent = 'Sicuro? Clic di nuovo'
+    note.textContent = warning
+    btn._disarm = setTimeout(disarm, 5000)
+    return false
+  }
+
+  // ─── Modello ───────────────────────────────────────────────────────────────
+  const providerForm = window.ProviderForm.mount($('provider-form'), { api })
+  const pfState = $('pf-state')
+  let formShown = ''      // provider, modello e chiavi mostrati nella scheda
+  const formKey = (cfg) => JSON.stringify([cfg.provider, cfg.model, cfg.keyConfigured, cfg.keyUnreadable])
+  function loadForm(cfg) {
+    formShown = formKey(cfg)
+    providerForm.load(cfg)
+  }
+  $('pf-save').addEventListener('click', async () => {
+    pfState.className = 'state'
+    pfState.textContent = ''
+    const saved = await providerForm.save()
+    if (!saved) return
+    formShown = formKey(saved)
+    pfState.classList.add('ok')
+    pfState.textContent = 'Salvato. La chat usa già questo modello.'
+    setTimeout(() => { if (pfState.classList.contains('ok')) { pfState.textContent = ''; pfState.className = 'state' } }, 4000)
+  })
+
+  // ─── Generale ──────────────────────────────────────────────────────────────
+  // Si salva subito: niente pulsante. Il main cerca la citta' del meteo e
+  // risponde con weatherStatus (trovata, o perche' no).
+  const loginRow = $('login-row')
+  const loginItem = $('login-item')
+  const idleLife = $('idle-life')
+  const weatherOn = $('weather-on')
+  const weatherCity = $('weather-city')
+  function showGeneral(cfg) {
+    idleLife.checked = cfg.idleLife !== false
+    weatherOn.checked = cfg.weather === true
+    $('weather-section').classList.toggle('hidden', !weatherOn.checked)
+    if (document.activeElement !== weatherCity) weatherCity.value = cfg.weatherCity || ''
+    $('weather-status').textContent = cfg.weather && cfg.weatherStatus ? '→ ' + cfg.weatherStatus : ''
+  }
+  async function saveGeneral(partial) {
+    try { showGeneral(await api.setConfig(partial)) } catch (_) {}
+  }
+  // "Avvia con Windows" esiste solo nell'app installata: in sviluppo la riga resta nascosta.
+  ;(async () => {
+    try {
+      const state = await api.getLoginItem()
+      loginRow.classList.toggle('hidden', !state.supported)
+      loginItem.checked = !!state.enabled
+    } catch (_) { loginRow.classList.add('hidden') }
+  })()
+  loginItem.addEventListener('change', async () => {
+    try { loginItem.checked = !!(await api.setLoginItem(loginItem.checked)).enabled } catch (_) {}
+  })
+  idleLife.addEventListener('change', () => saveGeneral({ idleLife: idleLife.checked }))
+  weatherOn.addEventListener('change', () => saveGeneral({ weather: weatherOn.checked, weatherCity: weatherCity.value }))
+  weatherCity.addEventListener('change', () => saveGeneral({ weatherCity: weatherCity.value }))
+  weatherCity.addEventListener('keydown', (e) => { if (e.key === 'Enter') weatherCity.blur() })
+
+  // Config cambiata altrove (chat, menu sull'avatar, o questa finestra): gli
+  // interruttori si allineano. La scheda Modello si ricarica solo se provider,
+  // modello o chiavi sono cambiati davvero, per non perdere una scelta a meta'.
+  if (api.onConfigChanged) api.onConfigChanged((cfg) => {
+    if (!cfg) return
+    showGeneral(cfg)
+    if (formKey(cfg) !== formShown) loadForm(cfg)
+  })
 
   const micEnabled = $('mic-enabled')
   const shortcutSel = $('mic-shortcut')
@@ -218,21 +315,21 @@
   })
   $('cancel-btn').addEventListener('click', () => api.voiceCancelDownload())
   $('remove-btn').addEventListener('click', async () => {
-    if (!confirm('Eliminare i file di Kokoro? Si possono riscaricare quando vuoi.')) return
+    if (!confirmClick($('remove-btn'), 'Si cancellano i file di Kokoro. Si possono riscaricare quando vuoi.')) return
     try { status = await api.voiceRemove() } catch (_) { /* lo stato arriva comunque */ }
     showStatus()
   })
 
   $('xtts-install').addEventListener('click', async () => {
     if (check && check.freeBytes !== null && check.freeBytes < XTTS_NEEDS &&
-      !confirm('Lo spazio libero sembra poco (servono circa 10 GB). Provare lo stesso?')) return
+      !confirmClick($('xtts-install'), 'Lo spazio libero sembra poco: servono circa 10 GB. Clic di nuovo per provare lo stesso.')) return
     try { status = await api.voiceXttsInstall() } catch (e) { $('xtts-line').textContent = 'Errore: ' + e.message }
     speakersLoaded = false
     showStatus()
   })
   $('xtts-cancel').addEventListener('click', () => api.voiceXttsCancel())
   $('xtts-remove').addEventListener('click', async () => {
-    if (!confirm('Disinstallare XTTS? Si cancellano Python, i pacchetti e il modello (circa 7 GB), e con loro il microfono. Il campione della tua voce resta.')) return
+    if (!confirmClick($('xtts-remove'), 'Si cancellano Python, i pacchetti e il modello (circa 7 GB), e con loro il microfono. Il campione della tua voce resta.')) return
     try { status = await api.voiceXttsRemove() } catch (_) { /* lo stato arriva comunque */ }
     speakersLoaded = false
     showStatus()
@@ -296,7 +393,7 @@
   })
   $('stt-cancel').addEventListener('click', () => api.voiceSttCancel())
   $('stt-remove').addEventListener('click', async () => {
-    if (!confirm('Disinstallare il microfono? Si cancella il modello Whisper (1,6 GB). Si può reinstallare quando vuoi.')) return
+    if (!confirmClick($('stt-remove'), 'Si cancella il modello Whisper (1,6 GB). Si può reinstallare quando vuoi.')) return
     try { status = await api.voiceSttRemove() } catch (_) { /* lo stato arriva comunque */ }
     micShortcutActive = null
     showStatus()
@@ -353,6 +450,8 @@
   ;(async () => {
     try {
       const cfg = await api.getConfig()
+      loadForm(cfg)
+      showGeneral(cfg)
       voice = { ...voice, ...(cfg.voice || {}) }
       micShortcutActive = cfg.micShortcutActive || null
       shortcutSel.replaceChildren(...(cfg.micShortcuts || []).map(s => new Option(s.label, s.id)))

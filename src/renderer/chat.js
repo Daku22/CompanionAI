@@ -4,17 +4,9 @@ const api = window.companion
 // ── State ───────────────────────────────────────────────────────────────────
 let config = {}
 let conversationHistory = []
-let selectedProvider = 'openrouter'
-let selectedModel    = ''
-
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 const setupOverlay   = document.getElementById('setup-overlay')
-const providerGrid   = document.getElementById('provider-grid')
-const modelSelect    = document.getElementById('model-select')
-const apiKeyInput    = document.getElementById('api-key-input')
-const ollamaNote     = document.getElementById('ollama-note')
-const keySection     = document.getElementById('key-section')
 const saveBtn        = document.getElementById('save-btn')
 const messagesEl     = document.getElementById('messages')
 const inputEl        = document.getElementById('input')
@@ -27,20 +19,15 @@ const memoryFooter   = document.getElementById('memory-footer')
 const memoryInfo     = document.getElementById('memory-info')
 const compactBtn     = document.getElementById('compact-btn')
 const forgetBtn      = document.getElementById('forget-btn')
-const keyHelp        = document.getElementById('key-help')
-const modelNote      = document.getElementById('model-note')
-const loginRow       = document.getElementById('login-row')
-const loginItem      = document.getElementById('login-item')
-const idleLife       = document.getElementById('idle-life')
-const weatherOn      = document.getElementById('weather-on')
-const weatherSection = document.getElementById('weather-section')
-const weatherCity    = document.getElementById('weather-city')
-const weatherStatus  = document.getElementById('weather-status')
 const moodChip       = document.getElementById('mood-chip')
-const setupCancel    = document.getElementById('setup-cancel')
-const keyUnreadable  = document.getElementById('key-unreadable')
-const keySaved       = document.getElementById('key-saved')
-const keyError       = document.getElementById('key-error')
+
+// Provider, modello e chiave: la stessa scheda della pagina Modello nelle
+// Impostazioni (provider-form.js). Qui serve solo al primo avvio, finche'
+// manca la chiave; dopo si cambia tutto dalle Impostazioni.
+const providerForm = window.ProviderForm.mount(document.getElementById('provider-form'), { api })
+
+// L'elenco dal vivo ha i nomi leggibili dei modelli di OpenRouter.
+document.getElementById('provider-form').addEventListener('models', () => updateBadge())
 
 // ── Init ────────────────────────────────────────────────────────────────────
 async function init() {
@@ -51,73 +38,37 @@ async function init() {
     messagesEl.insertAdjacentHTML('beforeend', '<div class="msg error">Bridge Electron non disponibile (apri via npm start).</div>')
     config = { provider: 'openrouter', model: '', keyConfigured: {}, providers: {} }
   }
-  selectedProvider = config.provider || 'openrouter'
-  // Nessun id di modello codificato qui: la lista arriva dal router via config,
-  // cosi' la UI non puo' proporre un modello che il backend non conosce.
-  selectedModel    = config.model
-    || config.providers?.[selectedProvider]?.models?.[0]?.id
-    || ''
 
-  buildProviderGrid()
-  updateModelSelect()
-  updateKeyField()
+  providerForm.load(config)
   updateBadge()
   updateMemoryFooter()
-  initLoginItem()
-  idleLife.checked = config.idleLife !== false
-  showWeather()
   showMicButton()
   if (api && api.getMood) api.getMood().then(showMood).catch(() => {})
 
-  // Mostra setup solo se non c'è key per il provider attivo
-  setupCancel.classList.toggle('hidden', !isConfigured())
-  if (isConfigured()) {
-    setupOverlay.classList.add('hidden')
-  }
+  // La configurazione si mostra solo se non c'e' la chiave del provider attivo.
+  setupOverlay.classList.toggle('hidden', isConfigured())
 }
 
 function isConfigured() {
   return config.provider === 'ollama' || !!config.keyConfigured?.[config.provider]
 }
 
-// "Avvia con Windows" esiste solo nell'app installata: in sviluppo la riga resta nascosta.
-async function initLoginItem() {
-  try {
-    const state = await api.getLoginItem()
-    loginRow.classList.toggle('hidden', !state.supported)
-    loginItem.checked = !!state.enabled
-  } catch (_) { loginRow.classList.add('hidden') }
+function showSetup() {
+  providerForm.load(config)
+  setupOverlay.classList.remove('hidden')
 }
-loginItem.addEventListener('change', async () => {
-  try { loginItem.checked = !!(await api.setLoginItem(loginItem.checked)).enabled } catch (_) {}
-})
 
-// Si salva subito, come "Avvia con Windows": non serve premere "Salva e avvia".
-idleLife.addEventListener('change', async () => {
-  try { config.idleLife = (await api.setConfig({ idleLife: idleLife.checked })).idleLife !== false } catch (_) {}
-  idleLife.checked = config.idleLife !== false
-})
-// Meteo della stanza: l'interruttore e la citta' si salvano subito; il main
-// cerca la citta' e risponde con weatherStatus (trovata, o perche' no).
-function showWeather() {
-  weatherOn.checked = config.weather === true
-  weatherSection.classList.toggle('hidden', !weatherOn.checked)
-  if (document.activeElement !== weatherCity) weatherCity.value = config.weatherCity || ''
-  weatherStatus.textContent = config.weather && config.weatherStatus ? '→ ' + config.weatherStatus : ''
-}
-async function saveWeather(partial) {
-  try { config = { ...config, ...(await api.setConfig(partial)) } } catch (_) {}
-  showWeather()
-}
-weatherOn.addEventListener('change', () => saveWeather({ weather: weatherOn.checked, weatherCity: weatherCity.value }))
-weatherCity.addEventListener('change', () => saveWeather({ weatherCity: weatherCity.value }))
-weatherCity.addEventListener('keydown', (e) => { if (e.key === 'Enter') weatherCity.blur() })
-
-// "Vita autonoma" si cambia anche dal menu col tasto destro sull'avatar.
+// Provider o modello cambiati dalle Impostazioni (o altre opzioni dal menu
+// sull'avatar): l'intestazione si aggiorna, e con la chiave arrivata la
+// configurazione si chiude da sola.
 if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
   if (!cfg) return
-  config.idleLife = cfg.idleLife
-  idleLife.checked = cfg.idleLife !== false
+  config = { ...config, ...cfg }
+  updateBadge()
+  if (isConfigured() && !setupOverlay.classList.contains('hidden')) {
+    setupOverlay.classList.add('hidden')
+    inputEl.focus()
+  }
 })
 
 // Umore del companion accanto alla memoria. Lo decide il main: qui si mostra.
@@ -129,17 +80,13 @@ function showMood(mood) {
 }
 if (api && api.onMoodChanged) api.onMoodChanged(showMood)
 
-// La pagina della chiave la apre il main: qui si indica solo il provider.
-keyHelp.addEventListener('click', () => { api.openKeyPage(selectedProvider).catch(() => {}) })
-setupCancel.addEventListener('click', () => setupOverlay.classList.add('hidden'))
-
 async function updateMemoryFooter() {
   try {
     const stats = await api.memoryStats()
     if (!stats || stats.error) return
     memoryFooter.classList.remove('hidden')
     // Il pie' di pagina e' stretto: il conto corto qui, il dettaglio nel tooltip.
-    memoryInfo.textContent = `Memoria · ${stats.rawTurns} recenti · ${stats.archivedTurns} archiviati`
+    memoryInfo.textContent = `Memoria · ${stats.rawTurns + stats.archivedTurns} turni`
     memoryInfo.title = `Riassunto: ${stats.hasSummary ? 'sì' : 'non ancora'} · ${stats.rawTurns} turni in buffer · ${stats.archivedTurns} archiviati`
   } catch(e) { /* memoria non disponibile: nascondi footer */ }
 }
@@ -160,180 +107,34 @@ compactBtn.addEventListener('click', async () => {
   }, 2000)
 })
 
-function buildProviderGrid() {
-  providerGrid.innerHTML = ''
-  const providers = config.providers || {}
-
-  Object.entries(providers).forEach(([id, p]) => {
-    const btn = document.createElement('button')
-    btn.className = 'provider-btn' + (id === selectedProvider ? ' active' : '')
-    btn.dataset.provider = id
-    const icon = document.createElement('span')
-    // Un indicatore di scelta al posto dei pallini colorati, che facevano
-    // sette accenti diversi in una finestra sola.
-    icon.className = 'provider-icon'
-    icon.setAttribute('aria-hidden', 'true')
-    btn.append(icon, p.name)
-    btn.addEventListener('click', () => selectProvider(id))
-    providerGrid.appendChild(btn)
-  })
-}
-
-function selectProvider(id) {
-  selectedProvider = id
-  document.querySelectorAll('.provider-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.provider === id)
-  })
-  updateModelSelect()
-  updateKeyField()
-}
-
-// Modelli per provider: prima l'elenco statico del router, poi quello dal vivo
-// (OpenRouter e Ollama), che arriva dopo e lo sostituisce.
-const liveModels = {}
-
-function fillModelSelect(models) {
-  // Opzioni costruite con textContent: nomi e id dei modelli di OpenRouter
-  // arrivano dalla rete, e con innerHTML potrebbero iniettare markup.
-  const list = [...models]
-  if (selectedModel && !list.some(m => m.id === selectedModel) && selectedProvider === config.provider) {
-    list.unshift({ id: selectedModel, label: selectedModel + ' (attuale)' })
-  }
-  modelSelect.replaceChildren(...list.map(m => {
-    const option = document.createElement('option')
-    option.value = m.id
-    option.textContent = m.label
-    option.selected = m.id === selectedModel
-    return option
-  }))
-  if (list.length) selectedModel = modelSelect.value
-}
-
-function updateModelSelect() {
-  const provider = selectedProvider
-  fillModelSelect(liveModels[provider] || config.providers?.[provider]?.models || [])
-  modelNote.textContent = ''
-  api.listModels(provider).then(({ models, live }) => {
-    if (selectedProvider !== provider) return
-    if (live) {
-      liveModels[provider] = models
-      fillModelSelect(models)
-      modelNote.textContent = provider === 'ollama' ? 'Modelli installati su questo PC.' : 'Elenco aggiornato dei modelli gratuiti.'
-    } else if (provider === 'ollama') {
-      modelNote.textContent = 'Ollama non risponde: elenco di esempio.'
-    }
-  }).catch(() => {})
-}
-
-function updateKeyField() {
-  const providers = config.providers || {}
-  const p = providers[selectedProvider]
-  showKeyError('')
-
-  if (selectedProvider === 'ollama') {
-    keySection.style.opacity = '0.4'
-    keySection.style.pointerEvents = 'none'
-    apiKeyInput.value = ''
-    apiKeyInput.placeholder = 'Non richiesta'
-    ollamaNote.style.display = 'block'
-    keyHelp.textContent = 'Scarica Ollama ↗'
-  } else {
-    keyHelp.textContent = 'Come ottengo una chiave? ↗'
-    keySection.style.opacity = '1'
-    keySection.style.pointerEvents = 'auto'
-    ollamaNote.style.display = 'none'
-    // Le chiavi non tornano mai dal main process: campo vuoto significa
-    // “mantieni la chiave già salvata”, non “cancella la configurazione”.
-    // Il segnaposto lo dice: con l'esempio "sk-or-..." sembrava che la chiave
-    // appena salvata fosse andata persa.
-    apiKeyInput.placeholder = config.keyConfigured?.[selectedProvider] ? '•••••••• chiave salvata' : (p?.keyPlaceholder || 'API key...')
-    apiKeyInput.value = ''
-  }
-  keySaved.style.display = selectedProvider !== 'ollama' && config.keyConfigured?.[selectedProvider] ? 'block' : 'none'
-  // Chiave salvata ma illeggibile: senza questa nota la schermata di
-  // configurazione ricompariva senza spiegazione, come se la chiave fosse sparita.
-  keyUnreadable.style.display = selectedProvider !== 'ollama' && config.keyUnreadable?.[selectedProvider] ? 'block' : 'none'
-}
-
 function updateBadge() {
-  const providers = config.providers || {}
-  const p = providers[config.provider]
-  const models = liveModels[config.provider] || p?.models || []
-  const m = models.find(x => x.id === config.model)
-  providerBadge.textContent = p ? `${p.name} · ${m?.label || config.model}` : '—'
+  const p = (config.providers || {})[config.provider]
+  providerBadge.textContent = p ? `${p.name} · ${providerForm.labelOf(config.provider, config.model) || config.model}` : '—'
 }
 
 // ── Setup save ──────────────────────────────────────────────────────────────
-function isKeyFormatOk(provider, key) {
-  const p = (config.providers || {})[provider]
-  const prefix = p && p.keyPrefix
-  if (!prefix) return true
-  return !key || key.startsWith(prefix)
-}
-// Errori della chiave sotto il campo, non in un confirm(): si leggono mentre
-// si corregge, e "salva comunque" e' un secondo clic sullo stesso pulsante.
-let keyOddAccepted = ''
-function showKeyError(text) {
-  keyError.textContent = text
-  apiKeyInput.classList.toggle('invalid', !!text)
-  apiKeyInput.setAttribute('aria-invalid', text ? 'true' : 'false')
-}
-apiKeyInput.addEventListener('input', () => { if (keyError.textContent) showKeyError('') })
-
 saveBtn.addEventListener('click', async () => {
-  selectedModel = modelSelect.value
-  const key     = apiKeyInput.value.trim()
-  const providerName = (config.providers || {})[selectedProvider]?.name || selectedProvider
-
-  if (selectedProvider !== 'ollama' && !key && !config.keyConfigured?.[selectedProvider]) {
-    showKeyError('Serve la chiave di ' + providerName + ' per iniziare.')
-    apiKeyInput.focus()
-    return
-  }
-  if (key && !isKeyFormatOk(selectedProvider, key) && keyOddAccepted !== key) {
-    const prefix = (config.providers || {})[selectedProvider]?.keyPrefix
-    showKeyError('Le chiavi di ' + providerName + ' di solito iniziano con «' + prefix + '». Controllala, oppure premi di nuovo "Salva e avvia" per tenerla così.')
-    keyOddAccepted = key
-    return
-  }
-  keyOddAccepted = ''
-  showKeyError('')
-
-  const newKeys = {}
-  if (selectedProvider !== 'ollama' && key) {
-    newKeys[selectedProvider] = key
-  }
-
-  try {
-    config = await api.setConfig({
-      provider: selectedProvider,
-      model:    selectedModel,
-      keys:     newKeys,
-    })
-  } catch (e) {
-    addMessage('error', 'Salvataggio config fallito: ' + e.message)
-    return
-  }
-
+  const saved = await providerForm.save()
+  if (!saved) return
+  config = saved
   updateBadge()
-  setupCancel.classList.toggle('hidden', !isConfigured())
   setupOverlay.classList.add('hidden')
   inputEl.focus()
 })
 
 // ── Header buttons ───────────────────────────────────────────────────────────
 closeBtn.addEventListener('click',    () => api.toggleChat())
-settingsBtn.addEventListener('click', async () => {
-  // Ricarica la config dal main per avere sempre la lista provider/modelli
-  config = await api.getConfig()
-  selectedProvider = config.provider || 'openrouter'
-  selectedModel    = config.model    || config.providers?.[selectedProvider]?.models?.[0]?.id || ''
-  buildProviderGrid()
-  updateModelSelect()
-  updateKeyField()
-  setupCancel.classList.toggle('hidden', !isConfigured())
-  setupOverlay.classList.remove('hidden')
-})
+settingsBtn.addEventListener('click', () => api.openSettings('modello'))
+
+// ── Chat vuota: i suggerimenti scrivono nel campo, l'invio resta a te ───────
+for (const chip of document.querySelectorAll('.welcome .chip')) {
+  chip.addEventListener('click', () => {
+    inputEl.value = chip.textContent
+    inputEl.dispatchEvent(new Event('input'))
+    inputEl.focus()
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
+  })
+}
 let typingEl = document.getElementById('typing')
 function resetChatView(notice) {
   conversationHistory = []
@@ -384,6 +185,8 @@ forgetBtn.addEventListener('click', async () => {
 
 // ── Messages ─────────────────────────────────────────────────────────────────
 function addMessage(role, text) {
+  // Il benvenuto lascia il posto alla conversazione appena scrivi.
+  if (role === 'user') document.getElementById('welcome')?.remove()
   const el = document.createElement('div')
   el.className = `msg ${role}`
   el.textContent = text
@@ -430,7 +233,8 @@ async function sendMessage(spoken) {
   try {
     const currentConfig = await api.getConfig()
     if (currentConfig.provider !== 'ollama' && !currentConfig.keyConfigured?.[currentConfig.provider]) {
-      setupOverlay.classList.remove('hidden')
+      config = currentConfig
+      showSetup()
       return
     }
   } catch (e) {

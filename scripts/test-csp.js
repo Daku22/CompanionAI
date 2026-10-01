@@ -25,6 +25,11 @@ for (const page of PAGES) {
   assert.ok(!scriptSrc.includes("'unsafe-inline'") && !scriptSrc.includes("'unsafe-eval'"),
     page + ': script-src non deve ammettere unsafe-inline o unsafe-eval')
   assert.ok(!scriptSrc.some(s => /^https?:|^\*/.test(s)), page + ': nessuno script da rete')
+  // ui.css porta il font (Geist) dentro l'app: senza font-src 'self' la CSP
+  // lo blocca in silenzio e la pagina ripiega su Segoe UI.
+  if (/href="ui\.css"/.test(html)) {
+    assert.deepEqual(policy['font-src'], ["'self'"], page + ": usa ui.css, serve font-src 'self' (e nient'altro)")
+  }
 
   // Gli script inline ammessi sono solo quelli con un hash nella policy.
   const hashes = scriptSrc.filter(s => s.startsWith("'sha256-")).map(s => s.slice(8, -1))
@@ -45,6 +50,13 @@ for (const page of PAGES) {
     assert.ok(generated || fs.existsSync(file), page + ': script mancante ' + m[1])
   }
   passed++
+}
+// I file che ui.css carica con url(...) devono esistere: un font mancante non
+// da' errori, la pagina cambia carattere e basta.
+const css = fs.readFileSync(path.join(DIR, 'ui.css'), 'utf8')
+for (const m of css.matchAll(/url\('([^'"]+)'\)/g)) {
+  if (m[1].startsWith('data:')) continue
+  assert.ok(fs.existsSync(path.join(DIR, m[1])), 'ui.css: file mancante ' + m[1])
 }
 console.log('=== CSP: ' + passed + ' pagine verificate ===')
 

@@ -37,7 +37,13 @@ contextBridge.exposeInMainWorld('companion', {
   removeScene:      (id)     => ipcRenderer.send('scenes:remove', String(id)),
 
   // ─── Impostazioni e voce (voice.js) ────────────────────────────────────────
-  openSettings:     ()       => ipcRenderer.send('settings:open'),
+  // page: la scheda da mostrare ('modello', 'generale', 'voce', 'microfono')
+  openSettings:     (page)   => ipcRenderer.send('settings:open', typeof page === 'string' ? page : ''),
+  onSettingsPage: (cb) => {
+    const handler = (_e, page) => { try { cb(page) } catch (_) {} }
+    ipcRenderer.on('settings-page', handler)
+    return () => ipcRenderer.removeListener('settings-page', handler)
+  },
   voiceStatus:      ()       => ipcRenderer.invoke('voice:status'),
   // Scaricamento dei file della voce: gli indirizzi e gli hash li sa il main.
   voiceDownload:    ()       => ipcRenderer.invoke('voice:download'),
@@ -149,7 +155,8 @@ contextBridge.exposeInMainWorld('companion', {
     ipcRenderer.on('menu-command', handler)
     return () => ipcRenderer.removeListener('menu-command', handler)
   },
-  // Opzioni cambiate dal menu, per tenere allineati gli interruttori della chat
+  // Config cambiata altrove (Impostazioni, chat, menu sull'avatar): arriva a
+  // chat e Impostazioni, che tengono allineati intestazione e interruttori
   onConfigChanged: (cb) => {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('config-changed', handler)

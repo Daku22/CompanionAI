@@ -13,6 +13,13 @@ are released under the MIT License, whose full text is in each package's
 | [@pixiv/three-vrm](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 | [@pixiv/three-vrm-animation](https://github.com/pixiv/three-vrm) | 3.5.5 | MIT | © 2019-2026 pixiv Inc. |
 
+The interface font is bundled in `src/renderer/assets/fonts/`, with its
+license text next to it (`Geist-OFL.txt`):
+
+| Font | Version | License | Copyright |
+|---|---|---|---|
+| [Geist](https://vercel.com/font) (`Geist-Variable.woff2`, from the `geist` npm package) | 1.7.2 | SIL Open Font License 1.1 | © 2023 Vercel, in collaboration with basement.studio |
+
 The main process uses two libraries, installed as regular dependencies and
 packed by electron-builder:
 

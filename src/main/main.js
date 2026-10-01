@@ -473,10 +473,15 @@ function createChatWindow() {
 
 // ─── Impostazioni ────────────────────────────────────────────────────────────
 // Una finestra normale, con cornice: si apre dal menu col tasto destro, dalla
-// tray e dalla chat. Per ora ha la sezione Voce.
+// tray e dalla chat. Schede: Modello, Generale, Voce, Microfono. page sceglie
+// la scheda (la chat apre Modello); senza, si riapre sull'ultima usata.
 
-function openSettings() {
+const SETTINGS_PAGES = ['modello', 'generale', 'voce', 'microfono']
+
+function openSettings(page) {
+  page = SETTINGS_PAGES.includes(page) ? page : ''
   if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (page) sendSettings('settings-page', page)
     if (settingsWindow.isMinimized()) settingsWindow.restore()
     settingsWindow.show()
     settingsWindow.focus()
@@ -497,7 +502,7 @@ function openSettings() {
     },
   })
   settingsWindow.setMenu(null)
-  settingsWindow.loadFile(path.join(__dirname, '../renderer/settings.html'))
+  settingsWindow.loadFile(path.join(__dirname, '../renderer/settings.html'), page ? { hash: page } : undefined)
   settingsWindow.once('ready-to-show', () => settingsWindow && settingsWindow.show())
   settingsWindow.on('closed', () => { settingsWindow = null })
 }
@@ -745,8 +750,10 @@ handle('config:set', async (_e, newCfg) => {
   if (memoryManager) memoryManager.setModel(memoryModelFrom(loadConfig()))
   applyWindowOptions(merged)
   syncVoice(merged)
-  // Il microfono acceso o spento dalle Impostazioni: il pulsante della chat.
-  if (JSON.stringify(voiceConfig(current)) !== JSON.stringify(voiceConfig(merged))) sendChatConfig(merged)
+  // Chat e Impostazioni si aggiornano a vicenda: provider e modello per
+  // l'intestazione della chat, il microfono per il suo pulsante, gli
+  // interruttori di Generale. La finestra che ha salvato riceve la stessa config.
+  sendChatConfig(merged)
   return publicConfig(merged)
 })
 
@@ -816,7 +823,7 @@ handle('ai:send-message', async (_e, { history }) => {
 
 // Impostazioni e voce. Gli indirizzi dei file, gli hash e la cartella li
 // decide il main: la pagina chiede solo di scaricare, eliminare o provare.
-on('settings:open', () => openSettings())
+on('settings:open', (_e, page) => openSettings(typeof page === 'string' ? page : ''))
 handle('voice:status', () => (voiceService ? voiceService.status() : null))
 handle('voice:download', () => (voiceService ? voiceService.download() : null))
 on('voice:cancel-download', () => { if (voiceService) voiceService.cancelDownload() })
@@ -1796,11 +1803,13 @@ function applyWindowOptions(cfg) {
   applyScale(cfg.scale)
 }
 
-/** Manda la config alla chat, che mostra gli stessi interruttori e il pulsante 🎙. */
+/** Manda la config a chat e Impostazioni: intestazione, pulsante del microfono, interruttori. */
 function sendChatConfig(cfg) {
+  const pub = publicConfig(cfg)
   if (chatWindow && !chatWindow.isDestroyed()) {
-    try { chatWindow.webContents.send('config-changed', publicConfig(cfg)) } catch (_) {}
+    try { chatWindow.webContents.send('config-changed', pub) } catch (_) {}
   }
+  sendSettings('config-changed', pub)
 }
 
 /** Cambia un'opzione dal menu e avvisa la chat. */
@@ -1872,7 +1881,7 @@ async function showCompanionMenu() {
       ? { label: 'Movimenti nuovi con Kimodo', type: 'checkbox', checked: cfg.kimodo, click: (item) => setOption({ kimodo: item.checked }) }
       : { label: 'Movimenti nuovi con Kimodo (non installato)', enabled: false },
     { type: 'separator' },
-    { label: 'Impostazioni… (voce)', click: () => openSettings() },
+    { label: 'Impostazioni…', click: () => openSettings() },
     { label: 'Nascondi (torna dall\'icona nella barra)', click: () => { if (companionWindow) companionWindow.hide() } },
     { label: 'Esci', click: () => app.quit() },
   ]
