@@ -22,9 +22,10 @@ const MODULES = path.join(ROOT, 'node_modules')
 // sorgente in node_modules -> destinazione dentro src/renderer/vendor
 const FILES = {
   'pixi.js/dist/pixi.min.js':                        'pixi.min.js',
-  // Sostituisce il codice che Pixi 7 genera con new Function: senza, la CSP
-  // dovrebbe permettere 'unsafe-eval' a tutta la pagina.
-  '@pixi/unsafe-eval/dist/unsafe-eval.min.js':       'pixi-unsafe-eval.min.js',
+  // Sostituisce il codice che Pixi genera con new Function (shader, uniform):
+  // senza, la CSP dovrebbe permettere 'unsafe-eval' a tutta la pagina. Si
+  // installa da solo, caricato dopo pixi.min.js.
+  'pixi.js/dist/packages/unsafe-eval.min.js':        'pixi-unsafe-eval.min.js',
   'three/build/three.module.js':                     'three.module.js',
   // three.module.js importa ./three.core.js: senza, il modulo non si carica.
   'three/build/three.core.js':                       'three.core.js',

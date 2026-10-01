@@ -33,21 +33,33 @@ function showBubble(text, ms = 2800) {
 }
 
 // ── Pixi Application ────────────────────────────────────────────────────────
-window.app = new PIXI.Application({
+// Pixi 8: l'applicazione si crea e poi si avvia con init(), che e' asincrono.
+// Il ticker esiste solo dopo: chi lo usa aspetta appReady. WebGL, non
+// WebGPU: il rendering di Live2D (blocco 4) e' scritto per WebGL.
+window.app = new PIXI.Application();
+// Nitidezza in enlarge: filtro lineare (mipmap per-strip al load).
+PIXI.TextureSource.defaultOptions.scaleMode = 'linear';
+let active2D = true;   // companion-3d.js lo spegne quando mostra un modello 3D
+const appReady = app.init({
   resizeTo: window,
   backgroundAlpha: 0,
   antialias: true,
   resolution: window.devicePixelRatio || 1,
   autoDensity: true,
+  preference: 'webgl',
+}).then(() => {
+  // 30 fps bastano: le strip vanno da 3 a 13 fotogrammi al secondo e il resto
+  // (respiro, sobbalzo) e' lento. A 60 il companion consumava il doppio stando fermo.
+  app.ticker.maxFPS = 30;
+  document.getElementById('pixi-mount').appendChild(app.canvas);
+  app.ticker.add(tick2D);
+  if (!active2D) app.ticker.stop();
 });
-// 30 fps bastano: le strip vanno da 3 a 13 fotogrammi al secondo e il resto
-// (respiro, sobbalzo) e' lento. A 60 il companion consumava il doppio stando fermo.
-app.ticker.maxFPS = 30;
-// Nitidezza in enlarge: filtro lineare + mipmaps (impostate per-strip al load)
-try {
-  if (PIXI.settings && PIXI.SCALE_MODES) PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.LINEAR;
-} catch (_) {}
-document.getElementById('pixi-mount').appendChild(app.view);
+window.set2DActive = (on) => {
+  active2D = !!on;
+  if (!app.ticker) return;   // non ancora avviata: lo applica init
+  if (active2D) app.ticker.start(); else app.ticker.stop();
+};
 
 // ── Containers ─────────────────────────────────────────────────────────────
 const rootC   = new PIXI.Container();
@@ -71,9 +83,7 @@ charC.y = window.innerHeight - 12;
 
 // Ground shadow: e' anche l'ancora per sedersi sulle finestre, quindi scura
 // abbastanza da vedersi (l'alpha a ogni frame la decide il ticker).
-shadowG.beginFill(0x000000, 1);
-shadowG.drawEllipse(0, 0, 28, 6);
-shadowG.endFill();
+shadowG.ellipse(0, 0, 28, 6).fill({ color: 0x000000, alpha: 1 });
 shadowG.x = stageCenterX();
 shadowG.y = window.innerHeight - 12;
 
@@ -85,18 +95,16 @@ shadowG.y = window.innerHeight - 12;
 // avatar://. Un'immagine singola importata e' un pacchetto con la sola idle e
 // nessun riquadro: si usa l'immagine intera.
 let STRIPS = {};           // anim -> { file, fps, frames }
-let stripTextures = {};    // anim -> PIXI.BaseTexture
-let textureCache = {};     // key -> PIXI.Texture
+let stripTextures = {};    // anim -> PIXI.ImageSource (l'immagine della strip)
+let textureCache = {};     // key -> PIXI.Texture (un fotogramma)
 
 function loadOneStrip(meta, baseUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       try {
-        const baseTex = PIXI.BaseTexture.from(img);
         // Mipmap: nitidezza quando la finestra rimpicciolisce il personaggio.
-        if (PIXI.MIPMAP_MODES) baseTex.mipmap = PIXI.MIPMAP_MODES.ON;
-        resolve(baseTex);
+        resolve(new PIXI.ImageSource({ resource: img, autoGenerateMipmaps: true }));
       } catch (e) { reject(e); }
     };
     img.onerror = () => reject(new Error('immagine ' + meta.file + ' non trovata'));
@@ -115,7 +123,7 @@ function getFrameTexture(anim, i) {
   const base = stripTextures[anim];
   if (!meta || !base) return null;
   const f = meta.frames && meta.frames[i % meta.frames.length];
-  const tex = f ? new PIXI.Texture(base, new PIXI.Rectangle(f[0], f[1], f[2], f[3])) : new PIXI.Texture(base);
+  const tex = new PIXI.Texture({ source: base, frame: f ? new PIXI.Rectangle(f[0], f[1], f[2], f[3]) : undefined });
   textureCache[key] = tex;
   return tex;
 }
@@ -165,9 +173,7 @@ function tickSmoke(delta = 1) {
     p.r  += 0.15 * delta;
     p.a   = (1 - p.life / p.maxLife) * 0.55;
     if (p.life >= p.maxLife) { particles.splice(i, 1); continue; }
-    overlayG.beginFill(0xd4dbd6, p.a);
-    overlayG.drawCircle(p.x, p.y, p.r);
-    overlayG.endFill();
+    overlayG.circle(p.x, p.y, p.r).fill({ color: 0xd4dbd6, alpha: p.a });
   }
 }
 
@@ -216,7 +222,9 @@ function updateScale() {
 // ── Main Ticker ─────────────────────────────────────────────────────────────
 let t = 0;
 
-app.ticker.add((delta) => {
+// Pixi 8 passa il ticker, non il delta: deltaTime e' 1 per un frame a 60 fps.
+function tick2D(ticker) {
+  const delta = ticker.deltaTime;
   t += delta * 0.045;
 
   if (!charSprite) return;
@@ -342,7 +350,7 @@ app.ticker.add((delta) => {
   shadowG.alpha = 0.35; shadowG.scale.set(1); shadowG.x = State.posX;
   charC.x = State.posX;
   overlayG.clear();
-});
+}
 
 // ── Seduta su finestre e taskbar ────────────────────────────────────────────
 // L'ancora per il main e' l'ombra ai piedi, al centro. La seduta 2D poggia
@@ -439,13 +447,13 @@ const hitCtx = hitCanvas.getContext('2d', { willReadFrequently: true });
 const HIT_ALPHA = 24;
 
 window.hitTest2D = (x, y) => {
-  if (!charSprite) return charC.children.length > 0 && charC.getBounds().contains(x, y);
+  if (!charSprite) return charC.children.length > 0 && charC.getBounds().rectangle.contains(x, y);
   const tex = charSprite.texture;
   const local = charSprite.toLocal(new PIXI.Point(x, y));
   const u = local.x + charSprite.anchor.x * tex.frame.width;
   const v = local.y + charSprite.anchor.y * tex.frame.height;
   if (u < 0 || v < 0 || u >= tex.frame.width || v >= tex.frame.height) return false;
-  const source = tex.baseTexture && tex.baseTexture.resource && tex.baseTexture.resource.source;
+  const source = tex.source && tex.source.resource;
   if (!source) return true;
   try {
     hitCtx.clearRect(0, 0, 1, 1);
@@ -614,12 +622,7 @@ window.load2DAvatar = async (manifest, baseUrl) => {
 window.show2DPlaceholder = () => {
   disposeStrips();
   const g = new PIXI.Graphics();
-  g.beginFill(0x9ab7a4, 0.9);
-  g.drawRoundedRect(-20, -60, 40, 70, 8);
-  g.endFill();
-  g.beginFill(0x5a7a63);
-  g.drawCircle(-8, -68, 8);
-  g.drawCircle(8, -68, 8);
-  g.endFill();
+  g.roundRect(-20, -60, 40, 70, 8).fill({ color: 0x9ab7a4, alpha: 0.9 });
+  g.circle(-8, -68, 8).circle(8, -68, 8).fill({ color: 0x5a7a63 });
   charC.addChild(g);
 };

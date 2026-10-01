@@ -34,14 +34,14 @@
     "dist": "node scripts/build.js --dir"
   },
   "devDependencies": {
-    "@pixi/unsafe-eval": "^7.4.3",
     "@pixiv/three-vrm": "^3.5.5",
     "@pixiv/three-vrm-animation": "^3.5.5",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
-    "pixi.js": "^7.4.2",
+    "pixi.js": "^8.22.0",
     "three": "^0.177.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "untitled-pixi-live2d-engine": "^1.4.0"
   },
   "build": {
     "appId": "ai.companion.desktop",

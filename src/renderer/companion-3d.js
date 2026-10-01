@@ -860,7 +860,7 @@ function show2D() {
   if (body) body.visible = false;
   window.CompanionInput.setProbe(window.hitTest2D);
   document.body.classList.remove('mode-3d');
-  if (window.app) window.app.ticker.start();
+  if (window.set2DActive) window.set2DActive(true);
   pixi.style.display = 'block';
   three.style.display = roomMode ? 'block' : 'none';
   three.style.pointerEvents = 'none';
@@ -877,7 +877,7 @@ function show3D() {
   body.visible = true;
   window.__threeVisible = true;
   document.body.classList.add('mode-3d');
-  if (window.app) window.app.ticker.stop();
+  if (window.set2DActive) window.set2DActive(false);
   onWindowResize();
   startLoop();
   pixi.style.display = 'none';

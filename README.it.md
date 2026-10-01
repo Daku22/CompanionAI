@@ -65,9 +65,9 @@ sistema operativo vengono eseguite soltanto nel processo main.
 Le pagine hanno una Content Security Policy che accetta solo script del
 progetto: niente script inline, niente `eval`, niente dalla rete. L'unica
 eccezione è l'importmap di `companion.html`, ammessa per hash: se la cambi,
-`npm test` fallisce e stampa l'hash nuovo da mettere nella policy. Pixi 7 di
-suo vorrebbe `unsafe-eval`, e `@pixi/unsafe-eval`, copiato da `vendor.js`, gliene
-toglie il bisogno.
+`npm test` fallisce e stampa l'hash nuovo da mettere nella policy. Pixi 8 di
+suo vorrebbe `unsafe-eval`, e il suo pacchetto `unsafe-eval` (`pixi.js/dist/packages`,
+copiato da `vendor.js`) gliene toglie il bisogno.
 
 ```
 src/
