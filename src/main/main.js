@@ -18,6 +18,7 @@ const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, i
 const { VoiceService } = require('./voice')
 const { XttsEngine } = require('./xtts-engine')
 const xttsSetup = require('./xtts-setup')
+const live2dCore = require('./live2d-core')
 // La licenza del modello XTTS-v2, al commit scaricato.
 const XTTS_LICENSE_URL = 'https://huggingface.co/coqui/XTTS-v2/blob/6c2b0d75eae4b7047358e3b6bd9325f857d43f77/LICENSE.txt'
 const { walkTarget } = require('./walk-target')
@@ -476,7 +477,7 @@ function createChatWindow() {
 // tray e dalla chat. Schede: Modello, Generale, Voce, Microfono. page sceglie
 // la scheda (la chat apre Modello); senza, si riapre sull'ultima usata.
 
-const SETTINGS_PAGES = ['modello', 'generale', 'voce', 'microfono']
+const SETTINGS_PAGES = ['modello', 'generale', 'voce', 'microfono', 'live2d']
 
 function openSettings(page) {
   page = SETTINGS_PAGES.includes(page) ? page : ''
@@ -510,6 +511,23 @@ function openSettings(page) {
 function sendSettings(channel, data) {
   if (!settingsWindow || settingsWindow.isDestroyed()) return
   try { settingsWindow.webContents.send(channel, data) } catch (_) {}
+}
+
+// ─── Live2D: il Cubism Core (live2d-core.js) ─────────────────────────────────
+// Si scarica dalle Impostazioni, solo dopo che l'utente ha accettato la
+// licenza di Live2D (live2dAccepted). Lo stato va alle Impostazioni e al
+// companion, che puo' mostrare un avatar Live2D appena il Core arriva.
+const live2dDir = () => path.join(app.getPath('userData'), 'live2d')
+let live2dInstall = null   // { step, index, count, label, done, total } mentre installa
+let live2dAbort = null
+let live2dError = null
+function live2dStatus() {
+  return { installed: live2dCore.coreInstalled(live2dDir()), installing: live2dInstall, error: live2dError, sdk: live2dCore.SDK_VERSION }
+}
+function sendLive2DStatus() {
+  const status = live2dStatus()
+  sendSettings('live2d-status', status)
+  sendCompanion('live2d-status', status)
 }
 
 // ─── Voce (voice.js) ─────────────────────────────────────────────────────────
@@ -903,6 +921,48 @@ on('mic:state', (_e, state) => {
     sendCompanion('companion-bubble', { text: '' })
   }
 })
+// Live2D: Cubism Core scaricato solo dopo l'accettazione della licenza, che
+// il main ricontrolla.
+handle('live2d:status', () => live2dStatus())
+handle('live2d:install', async () => {
+  if (live2dInstall) return live2dStatus()
+  if (!loadConfig().live2dAccepted) throw new Error('prima accetta la licenza di Live2D')
+  live2dAbort = new AbortController()
+  live2dError = null
+  live2dInstall = { step: 'download', index: 0, count: live2dCore.STEPS.length, label: live2dCore.STEPS[0].label, done: 0, total: 0 }
+  sendLive2DStatus()
+  let last = 0
+  try {
+    await live2dCore.installCore(live2dDir(), {
+      signal: live2dAbort.signal,
+      onProgress: (p) => {
+        const changed = live2dInstall.step !== p.step
+        live2dInstall = p
+        const now = Date.now()
+        if (changed || now - last > 300) { last = now; sendLive2DStatus() }
+      },
+    })
+    console.log('[live2d] Cubism Core ' + live2dCore.SDK_VERSION + ' installato')
+  } catch (e) {
+    live2dError = live2dAbort.signal.aborted ? 'installazione annullata' : e.message
+    console.warn('[live2d] installazione non riuscita: ' + live2dError)
+  } finally {
+    live2dInstall = null
+    live2dAbort = null
+    sendLive2DStatus()
+  }
+  return live2dStatus()
+})
+on('live2d:cancel', () => { if (live2dAbort) live2dAbort.abort() })
+handle('live2d:remove', () => {
+  if (live2dAbort) live2dAbort.abort()
+  live2dCore.removeCore(live2dDir())
+  live2dError = null
+  sendLive2DStatus()
+  return live2dStatus()
+})
+on('live2d:open-license', () => { shell.openExternal(live2dCore.LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
+
 on('voice:open-license', () => { shell.openExternal(XTTS_LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
 handle('voice:import-sample', async () => {
   if (!voiceService) return { canceled: true }
@@ -2091,6 +2151,12 @@ protocol.registerSchemesAsPrivileged([
   {
     scheme: 'motion',
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
+  },
+  // Il Cubism Core di Live2D (live2d-core.js): un solo file, l'unico script
+  // che la pagina del companion carica da fuori dall'app.
+  {
+    scheme: 'live2d',
+    privileges: { standard: true, secure: true }
   }
 ]);
 
@@ -2212,6 +2278,18 @@ app.whenReady().then(() => {
       const headers = new Headers(res.headers)
       headers.set('Access-Control-Allow-Origin', '*')
       return new Response(res.body, { status: res.status, headers })
+    } catch (_) { return new Response('Forbidden', { status: 403 }) }
+  })
+
+  // live2d://core/live2dcubismcore.min.js e nient'altro, e solo se il file
+  // ha ancora l'hash del Core scaricato: e' codice che la pagina esegue.
+  protocol.handle('live2d', async (request) => {
+    try {
+      const url = new URL(request.url)
+      if (url.hostname !== 'core' || url.pathname !== '/' + live2dCore.CORE.name) return new Response('Not found', { status: 404 })
+      const file = live2dCore.coreFileIfValid(live2dDir())
+      if (!file) return new Response('Not found', { status: 404 })
+      return new Response(fs.readFileSync(file), { headers: { 'Content-Type': 'text/javascript; charset=utf-8' } })
     } catch (_) { return new Response('Forbidden', { status: 403 }) }
   })
 

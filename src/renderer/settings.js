@@ -445,6 +445,57 @@
   testBtn.addEventListener('pointerup', testRelease)
   testBtn.addEventListener('pointercancel', testRelease)
 
+  // ─── Live2D: il Cubism Core ────────────────────────────────────────────────
+  // Si scarica solo con la licenza accettata (live2dAccepted, ricontrollata dal
+  // main). Lo stato arriva da solo mentre cambia (live2d-status).
+  const l2dLicense = $('l2d-license')
+  let l2dAccepted = false
+  let l2d = null
+  function showLive2D() {
+    if (!l2d) return
+    const installing = l2d.installing
+    const line = $('l2d-line')
+    line.className = 'state'
+    if (installing) line.textContent = 'Scaricamento in corso: puoi chiudere questa finestra, continua lo stesso.'
+    else if (l2d.installed) { line.textContent = 'Cubism Core installato (SDK ' + l2d.sdk + '): gli avatar Live2D si possono usare.'; line.classList.add('ok') }
+    else line.textContent = 'Cubism Core non installato: gli avatar Live2D non si possono mostrare.'
+    if (l2d.error && !installing) { line.textContent += ' Errore: ' + l2d.error; line.classList.remove('ok'); line.classList.add('error') }
+    $('l2d-step').classList.toggle('hidden', !installing)
+    $('l2d-bar').classList.toggle('hidden', !installing)
+    if (installing) {
+      const bytes = installing.total ? ' (' + size(installing.done) + ' di ' + size(installing.total) + ')' : ''
+      $('l2d-step').textContent = 'Passo ' + (installing.index + 1) + ' di ' + installing.count + ': ' + installing.label + bytes
+      const part = installing.total ? installing.done / installing.total : 0
+      $('l2d-bar-fill').style.width = Math.round(100 * (installing.index + part) / installing.count) + '%'
+    }
+    l2dLicense.checked = l2dAccepted
+    $('l2d-install').classList.toggle('hidden', l2d.installed || !!installing)
+    $('l2d-install').disabled = !l2dAccepted
+    $('l2d-cancel').classList.toggle('hidden', !installing)
+    $('l2d-remove').classList.toggle('hidden', !l2d.installed || !!installing)
+  }
+  l2dLicense.addEventListener('change', async () => {
+    try { l2dAccepted = (await api.setConfig({ live2dAccepted: l2dLicense.checked })).live2dAccepted === true } catch (_) {}
+    showLive2D()
+  })
+  $('l2d-license-link').addEventListener('click', (e) => { e.preventDefault(); api.live2dOpenLicense() })
+  $('l2d-install').addEventListener('click', async () => {
+    try { l2d = await api.live2dInstall() } catch (e) { l2d = { ...(l2d || {}), error: e.message } }
+    showLive2D()
+  })
+  $('l2d-cancel').addEventListener('click', () => api.live2dCancel())
+  $('l2d-remove').addEventListener('click', async () => {
+    if (!confirmClick($('l2d-remove'), 'Si cancella il Cubism Core: gli avatar Live2D non si vedranno finché non lo riscarichi.')) return
+    try { l2d = await api.live2dRemove() } catch (_) { /* lo stato arriva comunque */ }
+    showLive2D()
+  })
+  if (api.onLive2DStatus) api.onLive2DStatus((s) => { l2d = s; showLive2D() })
+  ;(async () => {
+    try { l2dAccepted = (await api.getConfig()).live2dAccepted === true } catch (_) {}
+    try { l2d = await api.live2dStatus() } catch (_) { l2d = { installed: false, installing: null, error: null, sdk: '' } }
+    showLive2D()
+  })()
+
   if (api.onVoiceStatus) api.onVoiceStatus((s) => { status = s; showStatus() })
 
   ;(async () => {

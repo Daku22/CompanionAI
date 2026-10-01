@@ -229,6 +229,15 @@ test('microfono scelto: id di Chromium e nome ripulito; vuoto torna al predefini
   assert.equal(mergeConfig(base, { voice: { micDevice: id, micDeviceLabel: 'x'.repeat(300) } }).voice.micDeviceLabel.length, 120)
 })
 
+test('licenza di Live2D: solo un booleano, spenta di base', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {} }
+  assert.equal(mergeConfig(base, {}).live2dAccepted, undefined)
+  const yes = mergeConfig(base, { live2dAccepted: true })
+  assert.equal(yes.live2dAccepted, true)
+  assert.equal(mergeConfig(yes, { live2dAccepted: 'si' }).live2dAccepted, true)
+  assert.equal(mergeConfig(yes, { live2dAccepted: false }).live2dAccepted, false)
+})
+
 test('permessi: solo il microfono, solo per le pagine dell\'app, solo se acceso', () => {
   const dir = 'file:///C:/app/src/renderer/'
   const chat = 'file:///C:/app/src/renderer/chat.html'

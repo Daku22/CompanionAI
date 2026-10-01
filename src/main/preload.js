@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld('companion', {
   removeScene:      (id)     => ipcRenderer.send('scenes:remove', String(id)),
 
   // ─── Impostazioni e voce (voice.js) ────────────────────────────────────────
-  // page: la scheda da mostrare ('modello', 'generale', 'voce', 'microfono')
+  // page: la scheda da mostrare ('modello', 'generale', 'voce', 'microfono', 'live2d')
   openSettings:     (page)   => ipcRenderer.send('settings:open', typeof page === 'string' ? page : ''),
   onSettingsPage: (cb) => {
     const handler = (_e, page) => { try { cb(page) } catch (_) {} }
@@ -57,6 +57,12 @@ contextBridge.exposeInMainWorld('companion', {
   // campione della voce scelto con il dialogo del main.
   voiceXttsCheck:   ()       => ipcRenderer.invoke('voice:xtts-check'),
   voiceXttsInstall: ()       => ipcRenderer.invoke('voice:xtts-install'),
+  // Live2D: il Cubism Core, scaricato dopo l'accettazione della licenza
+  live2dStatus:     ()       => ipcRenderer.invoke('live2d:status'),
+  live2dInstall:    ()       => ipcRenderer.invoke('live2d:install'),
+  live2dCancel:     ()       => ipcRenderer.send('live2d:cancel'),
+  live2dRemove:     ()       => ipcRenderer.invoke('live2d:remove'),
+  live2dOpenLicense: ()      => ipcRenderer.send('live2d:open-license'),
   voiceXttsCancel:  ()       => ipcRenderer.send('voice:xtts-cancel'),
   voiceXttsRemove:  ()       => ipcRenderer.invoke('voice:xtts-remove'),
   voiceXttsSpeakers: ()      => ipcRenderer.invoke('voice:xtts-speakers'),
@@ -193,6 +199,12 @@ contextBridge.exposeInMainWorld('companion', {
     return () => ipcRenderer.removeListener('voice-audio', handler)
   },
   // Stato della voce: file, avanzamento del download, motore
+  // Stato del Cubism Core: installato, avanzamento, errore
+  onLive2DStatus: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('live2d-status', handler)
+    return () => ipcRenderer.removeListener('live2d-status', handler)
+  },
   onVoiceStatus: (cb) => {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('voice-status', handler)

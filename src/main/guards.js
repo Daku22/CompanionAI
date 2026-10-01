@@ -219,6 +219,8 @@ function mergeConfig(current, incoming) {
   // view e roomBounds li scrive solo il main.
   if (typeof incoming.roomScene === 'string' && /^[a-z0-9-]{1,40}$/.test(incoming.roomScene)) merged.roomScene = incoming.roomScene
   if (typeof incoming.weather === 'boolean') merged.weather = incoming.weather
+  // Licenza di Live2D accettata: il Cubism Core si scarica solo dopo.
+  if (typeof incoming.live2dAccepted === 'boolean') merged.live2dAccepted = incoming.live2dAccepted
   if (typeof incoming.weatherCity === 'string') merged.weatherCity = incoming.weatherCity.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
   if (incoming.keys && typeof incoming.keys === 'object') {
     for (const [provider, value] of Object.entries(incoming.keys)) {

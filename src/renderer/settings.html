@@ -150,6 +150,8 @@
     <div class="group">Voce</div>
     <button class="item" data-page="voce"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg> Voce</button>
     <button class="item" data-page="microfono"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg> Microfono</button>
+    <div class="group">Avatar</div>
+    <button class="item" data-page="live2d"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M5 20c.8-3.6 3.6-6 7-6s6.2 2.4 7 6"/><path d="M8.5 7.5c1.5-2 5.5-2 7 0"/></svg> Live2D</button>
   </nav>
   <main>
    <div class="page hidden" id="page-modello">
@@ -308,6 +310,32 @@
           Lo trascrive Whisper large-v3-turbo (licenza MIT) sulla scheda video, nello stesso servizio di XTTS
           (scheda Voce). Si installa dopo XTTS (circa 1,8 GB) e, mentre il microfono è acceso, occupa circa
           2,5 GB della scheda video. Il servizio resta acceso finché il microfono è acceso, anche se a parlare è Kokoro.
+        </p>
+      </div>
+    </section>
+   </div>
+
+   <div class="page hidden" id="page-live2d">
+    <h1>Live2D</h1>
+    <p class="sub">Gli avatar Live2D (Cubism 3, 4 e 5) si muovono con i loro movimenti, sbattono le palpebre, seguono il mouse
+      e muovono la bocca con la voce. Per mostrarli serve il Cubism Core di Live2D Inc., che non può stare nell'app:
+      si scarica una volta, dal sito ufficiale.</p>
+    <section>
+      <div class="box">
+        <div class="state" id="l2d-line" role="status"></div>
+        <div id="l2d-step" class="muted hidden"></div>
+        <div class="bar hidden" id="l2d-bar"><div id="l2d-bar-fill"></div></div>
+        <label class="switch license"><input type="checkbox" id="l2d-license">
+          <span>Accetto la <b>Live2D Proprietary Software License</b>, la licenza del Cubism Core. <a href="#" id="l2d-license-link">Leggi la licenza</a></span></label>
+        <div class="row">
+          <button class="primary" id="l2d-install">Scarica il Cubism Core</button>
+          <button id="l2d-cancel" class="hidden">Annulla</button>
+          <button class="danger" id="l2d-remove">Disinstalla</button>
+        </div>
+        <p class="muted note">
+          Si scarica il Cubism SDK for Web 5-r.5 ufficiale (circa 20 MB) e se ne tiene solo il Core (230 KB), con la sua
+          licenza: lo zip si cancella, e il Core viene controllato (SHA-256) prima di ogni uso. Chi pubblica un'app con
+          Live2D e fattura più di dieci milioni di yen l'anno ha bisogno anche della Cubism SDK Release License di Live2D.
         </p>
       </div>
     </section>
