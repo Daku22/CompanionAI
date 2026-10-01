@@ -95,7 +95,7 @@
     $('mic-test').disabled = !voice.micEnabled
     const note = $('shortcut-note')
     if (!voice.micEnabled) note.textContent = 'Accendi il microfono per usare la scorciatoia e la prova.'
-    else if (voice.micShortcut === 'off') note.textContent = 'Parli solo con 🎙 nella chat.'
+    else if (voice.micShortcut === 'off') note.textContent = 'Parli solo con il pulsante del microfono nella chat.'
     else if (micShortcutActive !== voice.micShortcut) note.textContent = 'Questa scorciatoia la usa già un altro programma: scegline un\'altra.'
     else note.textContent = 'Funziona anche con la chat chiusa: tieni premuto, parla, lascia.'
   }

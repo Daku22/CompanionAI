@@ -1102,8 +1102,7 @@ function chooseCandidate(choices) {
     const menu = document.getElementById('model-menu');
     const host = document.getElementById('avatar-list');
     const title = document.createElement('div');
-    title.className = 'menu-item';
-    title.style.opacity = '0.6';
+    title.className = 'menu-item menu-note';
     title.textContent = 'Scegli il modello:';
     const items = choices.map(choice => {
       const item = document.createElement('div');
@@ -1113,8 +1112,7 @@ function chooseCandidate(choices) {
       return item;
     });
     const cancel = document.createElement('div');
-    cancel.className = 'menu-item';
-    cancel.style.opacity = '0.6';
+    cancel.className = 'menu-item menu-note';
     cancel.textContent = 'Annulla';
     cancel.addEventListener('click', () => resolve(null));
     host.replaceChildren(title, ...items, cancel);

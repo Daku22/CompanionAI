@@ -9,13 +9,43 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-ZbtU6faAuNdPdmM0BcNga30v1JmQYiPkfUDkH4n65CY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: vrm: avatar: scene:; connect-src 'self' data: blob: vrm: avatar: motion: scene:">
   <title>CompanionAI</title>
   <style>
+    /* Stessi colori di chat e Impostazioni: grigi caldi, un solo accento salvia.
+       Gli strati hanno una scala sola, dal basso verso l'alto. */
+    :root {
+      --glass:       rgba(21, 20, 22, 0.86);
+      --glass-solid: rgba(21, 20, 22, 0.94);
+      --surface-hi:  rgba(255, 248, 238, 0.08);
+      --line:        rgba(255, 248, 238, 0.1);
+      --line-strong: rgba(255, 248, 238, 0.18);
+      --text:        #ece7df;
+      --text-2:      #aaa49a;
+      --accent:      #93bf9f;
+      --accent-soft: rgba(147, 191, 159, 0.16);
+      --danger:      #e5907f;
+      --danger-solid:#c9594b;
+      --shadow:      0 10px 30px -8px rgba(8, 6, 4, 0.6), 0 1px 3px rgba(8, 6, 4, 0.3);
+      --ease:        cubic-bezier(0.22, 1, 0.36, 1);
+      --font:        'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+      --z-drag:      10;
+      --z-buttons:   20;
+      --z-menu:      30;
+      --z-bar:       40;
+      --z-panel:     42;
+      --z-grip:      45;
+      --z-bubble:    50;
+      --icon-chat:   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-4.5 3.5V17H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z'/%3E%3C/svg%3E");
+      --icon-switch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8h13l-3.5-3.5M20 16H7l3.5 3.5'/%3E%3C/svg%3E");
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
       width: 100%; height: 100%;
       background: transparent;
       overflow: hidden;
       user-select: none;
+      -webkit-font-smoothing: antialiased;
     }
+    :focus { outline: none; }
+    :focus-visible { outline: 2px solid rgba(147, 191, 159, 0.6); outline-offset: 2px; }
     #app {
       width: 100%; height: 100%;
       position: relative;
@@ -37,28 +67,30 @@
       top: 6px;
       left: 50%;
       transform: translateX(-50%) translateY(-4px);
-      background: rgba(255,255,255,0.96);
-      border: 1.5px solid #7a9e82;
-      border-radius: 14px;
-      padding: 4px 12px;
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      font-size: 11px;
+      background: #f7f4ef;
+      border: 1px solid rgba(60, 90, 70, 0.28);
+      border-radius: 12px;
+      padding: 4px 11px 5px;
+      font-family: var(--font);
+      font-size: 11.5px;
       font-weight: 600;
-      color: #2c4033;
+      color: #24332a;
       white-space: nowrap;
       pointer-events: none;
       opacity: 0;
-      transition: opacity 0.22s ease, transform 0.22s ease;
-      z-index: 50;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+      transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
+      z-index: var(--z-bubble);
+      box-shadow: 0 4px 14px -2px rgba(30, 45, 35, 0.28), 0 1px 2px rgba(30, 45, 35, 0.18);
     }
     #bubble::after {
       content: '';
       position: absolute;
-      bottom: -7px; left: 50%;
-      transform: translateX(-50%);
-      border: 4px solid transparent;
-      border-top-color: #7a9e82;
+      bottom: -5px; left: 50%;
+      width: 8px; height: 8px;
+      transform: translateX(-50%) rotate(45deg);
+      background: #f7f4ef;
+      border-right: 1px solid rgba(60, 90, 70, 0.28);
+      border-bottom: 1px solid rgba(60, 90, 70, 0.28);
     }
     #bubble.show {
       opacity: 1;
@@ -71,126 +103,135 @@
     #drag-zone {
       position: absolute;
       inset: 0;
-      z-index: 10;
+      z-index: var(--z-drag);
       cursor: grab;
       touch-action: none;
     }
     #drag-zone:active { cursor: grabbing; }
     /* I pulsanti compaiono solo con il mouse sull'avatar o su di loro. */
-    #click-zone, #switch-zone { opacity: 0; }
-    body.hover-avatar #click-zone, body.hover-avatar #switch-zone, body.menu-open #switch-zone { opacity: 1; }
-    /* Chat button (clickable, not draggable) */
-    #click-zone {
+    #click-zone, #switch-zone { opacity: 0; transform: scale(0.9); }
+    body.hover-avatar #click-zone, body.hover-avatar #switch-zone, body.menu-open #switch-zone { opacity: 1; transform: scale(1); }
+    /* Chat (destra) e avatar (sinistra): vetro scuro, icona disegnata. */
+    #click-zone, #switch-zone {
       position: absolute;
       top: 8px;
-      right: 8px;
-      width: 24px;
-      height: 24px;
+      width: 26px;
+      height: 26px;
       cursor: pointer;
-      z-index: 20;
-      border-radius: 50%;
-      background: rgba(120, 160, 140, 0.35);
-      border: 1.5px solid rgba(100, 140, 120, 0.5);
-      transition: opacity 0.2s ease, background 0.15s;
+      z-index: var(--z-buttons);
+      border-radius: 9px;
+      background: var(--glass);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      color: var(--text);
+      transition: opacity 0.2s var(--ease), transform 0.2s var(--ease), background 0.2s var(--ease), color 0.2s var(--ease);
     }
-    #click-zone:hover {
-      background: rgba(120, 160, 140, 0.6);
-    }
-    #switch-zone {
+    #click-zone { right: 8px; }
+    #switch-zone { left: 8px; }
+    #click-zone:hover, #switch-zone:hover, body.menu-open #switch-zone { background: var(--glass-solid); color: var(--accent); border-color: var(--line-strong); }
+    #click-zone:active, #switch-zone:active { transform: scale(0.94); }
+    #click-zone::after, #switch-zone::after {
+      content: '';
       position: absolute;
-      top: 8px;
-      left: 8px;
-      width: 24px;
-      height: 24px;
-      cursor: pointer;
-      z-index: 20;
-      border-radius: 50%;
-      background: rgba(120, 160, 140, 0.35);
-      border: 1.5px solid rgba(100, 140, 120, 0.5);
-      transition: opacity 0.2s ease, background 0.15s;
-      display: flex; align-items: center; justify-content: center;
+      inset: 0;
+      margin: auto;
+      width: 14px; height: 14px;
+      background: currentColor;
+      -webkit-mask: var(--icon-chat) center / contain no-repeat;
     }
-    #switch-zone:hover {
-      background: rgba(120, 160, 140, 0.6);
-    }
-    /* Switch button icon */
-    #switch-zone::after {
-      content: '🔄';
-      font-size: 13px;
-    }
-    /* Chat button icon */
-    #click-zone::after {
-      content: '💬';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 13px;
-      line-height: 1;
+    #switch-zone::after { -webkit-mask-image: var(--icon-switch); }
+    /* Menu avatar: lo apre companion-2d.js/companion-3d.js, che leggono e
+       scrivono style.display (per questo display:none resta nell'attributo). */
+    #model-menu {
+      position: absolute; top: 40px; left: 8px;
+      min-width: 170px; padding: 4px;
+      background: var(--glass-solid);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      box-shadow: var(--shadow);
+      z-index: var(--z-menu);
+      font-family: var(--font); font-size: 11.5px; color: var(--text);
     }
     /* Voci del menu avatar, generate da companion-3d.js */
-    .menu-item { padding: 5px; cursor: pointer; white-space: nowrap; }
-    .menu-item:hover { background: rgba(180, 140, 255, 0.15); border-radius: 6px; }
-    .menu-item.active { color: #d9c4ff; }
-    .menu-item .kind { opacity: 0.5; margin-left: 6px; }
+    .menu-item {
+      padding: 5px 8px; border-radius: 7px; cursor: pointer; white-space: nowrap;
+      transition: background 0.15s var(--ease), color 0.15s var(--ease);
+    }
+    .menu-item:hover { background: var(--surface-hi); }
+    .menu-item.active { color: var(--accent); background: var(--accent-soft); }
+    .menu-item .kind { color: var(--text-2); margin-left: 6px; }
+    .menu-item.action { color: var(--text-2); }
+    .menu-item.action:hover { color: var(--text); }
+    #avatar-list:not(:empty) { padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
     /* La finestra e' piccola: con molti avatar l'elenco scorre invece di uscire. */
-    #avatar-list { max-height: calc(100vh - 110px); overflow-y: auto; }
-    .menu-item.menu-note { opacity: 0.6; }
-    .menu-item.check { display: flex; align-items: center; gap: 5px; }
-    .menu-item.check input { margin: 0; accent-color: #b48cff; cursor: pointer; }
-    .menu-item.danger { color: #ff9a9a; }
+    #avatar-list { max-height: calc(100vh - 110px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+    .menu-item.menu-note { color: var(--text-2); }
+    .menu-item.check { display: flex; align-items: center; gap: 6px; }
+    .menu-item.check input { margin: 0; accent-color: var(--accent); cursor: pointer; }
+    .menu-item.danger { color: var(--danger); }
     .menu-item.disabled { opacity: 0.4; pointer-events: none; }
 
     /* ── Stanza (room-ui.js): barra del titolo e bordi ─────────────────── */
     #room-bar, .room-grip { display: none; }
     body.mode-room #room-bar {
-      display: flex; align-items: center; gap: 6px;
+      display: flex; align-items: center; gap: 2px;
       position: absolute; top: 0; left: 0; right: 0; height: 36px;
-      padding: 0 6px 0 12px; z-index: 40;
-      background: rgba(14, 11, 22, 0.82);
-      border-bottom: 1px solid rgba(180,140,255,0.18);
-      font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; color: #e8ddff;
+      padding: 0 4px 0 12px; z-index: var(--z-bar);
+      background: var(--glass);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--line);
+      font-family: var(--font); font-size: 12px; color: var(--text);
       -webkit-app-region: drag;
     }
-    body.mode-room .room-grip { display: block; position: absolute; z-index: 45; }
+    body.mode-room .room-grip { display: block; position: absolute; z-index: var(--z-grip); }
     body.room-maximized .room-grip { display: none; }
-    #room-bar .room-title { font-weight: 600; letter-spacing: 0.3px; margin-right: auto; opacity: 0.9; }
+    #room-bar .room-title { font-weight: 600; margin-right: auto; color: var(--text-2); }
+    #room-bar .room-title b { color: var(--text); font-weight: 600; }
     #room-bar select, #room-bar button { -webkit-app-region: no-drag; font: inherit; color: inherit; }
     #room-bar select {
-      background: rgba(255,255,255,0.06); border: 1px solid rgba(180,140,255,0.25);
-      border-radius: 6px; padding: 3px 6px; margin-right: 6px; cursor: pointer;
+      background: var(--surface-hi); border: 1px solid var(--line);
+      border-radius: 7px; padding: 3px 6px; margin-right: 6px; cursor: pointer;
+      transition: border-color 0.2s var(--ease);
     }
-    #room-bar select option { background: #1b1528; }
+    #room-bar select:hover { border-color: var(--line-strong); }
+    #room-bar select option { background: #1c1b1e; }
     #room-bar button {
-      width: 32px; height: 26px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: 14px;
+      width: 32px; height: 28px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; font-size: 14px;
+      display: grid; place-items: center; color: var(--text-2);
+      transition: background 0.15s var(--ease), color 0.15s var(--ease);
     }
-    #room-bar button:hover { background: rgba(180,140,255,0.18); }
-    #room-bar #room-close:hover { background: rgba(232,72,85,0.85); color: white; }
+    #room-bar button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+    #room-bar button:hover { background: var(--surface-hi); color: var(--text); }
+    #room-bar #room-close:hover { background: var(--danger-solid); color: white; }
     #room-bar #room-adjust { display: none; }
-    #room-bar #room-adjust.shown { display: block; }
+    #room-bar #room-adjust.shown { display: grid; }
 
     /* ── Sistema la scena (scene-adjust.js), per le scene importate ────── */
     #scene-adjust {
-      display: none; position: absolute; top: 46px; left: 10px; z-index: 42; width: 250px;
-      padding: 10px 12px; border-radius: 10px;
-      background: rgba(14, 11, 22, 0.9); border: 1px solid rgba(180,140,255,0.22);
-      font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; color: #e8ddff;
+      display: none; position: absolute; top: 46px; left: 10px; z-index: var(--z-panel); width: 280px;
+      padding: 12px 14px; border-radius: 12px;
+      background: var(--glass-solid); border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      font-family: var(--font); font-size: 12px; color: var(--text);
     }
     body.mode-room #scene-adjust.open { display: block; }
-    #scene-adjust .title { font-weight: 600; margin-bottom: 8px; }
-    #scene-adjust .title span { font-weight: 400; opacity: 0.7; }
-    #scene-adjust label { display: grid; grid-template-columns: 70px 1fr 52px; align-items: center; gap: 6px; margin: 4px 0; }
-    #scene-adjust input[type=range] { width: 100%; accent-color: #b48cff; }
-    #scene-adjust output { text-align: right; opacity: 0.85; font-variant-numeric: tabular-nums; }
+    #scene-adjust .title { font-weight: 600; margin-bottom: 10px; }
+    #scene-adjust .title span { font-weight: 400; color: var(--text-2); }
+    #scene-adjust label { display: grid; grid-template-columns: 70px 1fr 52px; align-items: center; gap: 6px; margin: 5px 0; color: var(--text-2); }
+    #scene-adjust input[type=range] { width: 100%; accent-color: var(--accent); }
+    #scene-adjust output { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
     #scene-adjust .row { display: flex; gap: 6px; margin-top: 8px; }
     #scene-adjust button {
-      flex: 1; padding: 5px 6px; border-radius: 6px; cursor: pointer; font: inherit; color: inherit;
-      background: rgba(255,255,255,0.06); border: 1px solid rgba(180,140,255,0.25);
+      flex: 1; padding: 6px; border-radius: 7px; cursor: pointer; font: inherit; color: inherit;
+      background: var(--surface-hi); border: 1px solid var(--line);
+      transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.12s var(--ease);
     }
-    #scene-adjust button:hover { background: rgba(180,140,255,0.18); }
-    #scene-adjust button.active { background: rgba(180,140,255,0.35); }
-    #scene-adjust button.danger { color: #ff9a9a; }
-    #scene-adjust .hint { margin-top: 6px; opacity: 0.75; min-height: 1em; }
+    #scene-adjust button:hover { background: rgba(255, 248, 238, 0.12); border-color: var(--line-strong); }
+    #scene-adjust button:active { transform: scale(0.98); }
+    #scene-adjust button.active { background: var(--accent-soft); border-color: rgba(147, 191, 159, 0.45); color: var(--accent); }
+    #scene-adjust button.danger { color: var(--danger); background: transparent; border-color: transparent; }
+    #scene-adjust button.danger:hover { background: rgba(229, 144, 127, 0.12); }
+    #scene-adjust .hint { margin-top: 8px; color: var(--text-2); min-height: 1em; line-height: 1.45; }
     body.scene-placing #drag-zone, body.scene-placing #drag-zone:active { cursor: crosshair; }
     /* Bordi per ridimensionare: 6 px sui lati, 12 agli angoli. */
     .room-grip[data-edge="n"]  { top: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
@@ -203,7 +244,7 @@
     .room-grip[data-edge="se"] { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
     /* Nella stanza: la scena riempie la finestra, l'avatar 2D ci sta sopra,
        i pulsanti del desktop non servono e il fumetto scende sotto la barra. */
-    body.mode-room #app { background: #1d1b22; }
+    body.mode-room #app { background: #1a191b; }
     body.mode-room #pixi-mount { z-index: 2; }
     body.mode-room #three-mount { z-index: 1; }
     body.mode-room #click-zone, body.mode-room #switch-zone, body.mode-room #model-menu { display: none !important; }
@@ -211,6 +252,9 @@
     body.mode-room #drag-zone { cursor: default; }
     body.mode-room #drag-zone:active { cursor: grabbing; }
 
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: 0.01ms !important; }
+    }
   </style>
   <!-- Librerie copiate sotto src/ da scripts/vendor.js: dentro l'app
        impacchettata i percorsi di node_modules non sono garantiti. -->
@@ -237,20 +281,20 @@
   <div id="click-zone"></div>
   <div id="switch-zone"></div>
   <div id="room-bar">
-    <span class="room-title">CompanionAI · Stanza</span>
+    <span class="room-title">CompanionAI · <b>Stanza</b></span>
     <select id="room-scene" title="Scena"></select>
-    <button id="room-adjust" title="Sistema la scena">⚙</button>
-    <button id="room-chat" title="Chat">💬</button>
-    <button id="room-min" title="Riduci a icona">–</button>
-    <button id="room-max" title="Ingrandisci">□</button>
-    <button id="room-close" title="Torna sul desktop">✕</button>
+    <button id="room-adjust" title="Sistema la scena" aria-label="Sistema la scena"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.4" stroke-width="2.6" stroke-dasharray="3.3 3.3" stroke-linecap="butt"/><circle cx="12" cy="12" r="6.6"/><circle cx="12" cy="12" r="2.4"/></svg></button>
+    <button id="room-chat" title="Chat" aria-label="Chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-4.5 3.5V17H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg></button>
+    <button id="room-min" title="Riduci a icona" aria-label="Riduci a icona"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+    <button id="room-max" title="Ingrandisci" aria-label="Ingrandisci"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
+    <button id="room-close" title="Torna sul desktop" aria-label="Torna sul desktop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
   </div>
   <div id="scene-adjust">
     <div class="title">Sistema la scena <span id="adj-name"></span></div>
     <label>Grandezza <input type="range" id="adj-scale" min="-3" max="3" step="0.01" value="0"><output id="adj-scale-out"></output></label>
     <label>Rotazione <input type="range" id="adj-rot" min="0" max="359" step="1" value="0"><output id="adj-rot-out"></output></label>
     <label>Pavimento <input type="range" id="adj-lift" min="-100" max="100" step="1" value="0"><output id="adj-lift-out"></output></label>
-    <div class="row"><button id="adj-place">📍 Metti l'avatar qui</button><button id="adj-auto">Stima di nuovo</button></div>
+    <div class="row"><button id="adj-place">Metti l'avatar qui</button><button id="adj-auto">Stima di nuovo</button></div>
     <div class="row"><button id="adj-remove" class="danger">Elimina scena</button><button id="adj-done">Fatto</button></div>
     <div class="hint" id="adj-hint"></div>
   </div>
@@ -258,10 +302,10 @@
   <div class="room-grip" data-edge="e"></div><div class="room-grip" data-edge="w"></div>
   <div class="room-grip" data-edge="ne"></div><div class="room-grip" data-edge="nw"></div>
   <div class="room-grip" data-edge="se"></div><div class="room-grip" data-edge="sw"></div>
-  <div id="model-menu" style="display: none; position: absolute; top: 35px; left: 8px; background: rgba(14, 11, 22, 0.94); border: 1px solid rgba(180,140,255,0.2); border-radius: 10px; padding: 5px; z-index: 30; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; color: white; ">
+  <div id="model-menu" style="display: none;">
     <div id="avatar-list"></div>
-    <div id="btn-import-avatar" class="menu-item" style="color: #d9c4ff;">+ Importa avatar…</div>
-    <div id="btn-manage-avatars" class="menu-item" style="color: #d9c4ff; display: none;">− Elimina importati…</div>
+    <div id="btn-import-avatar" class="menu-item action">+ Importa avatar…</div>
+    <div id="btn-manage-avatars" class="menu-item action" style="display: none;">− Elimina importati…</div>
   </div>
 </div>
 

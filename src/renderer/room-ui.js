@@ -9,6 +9,10 @@
  * @param {{ api: any, scenes: () => { id: string, label: string, imported?: boolean }[], currentScene: () => string | null,
  *   onScene: (id: string) => void, onAdjust: () => void }} opts
  */
+// Icone fisse, scritte qui: innerHTML non riceve mai testo da fuori.
+const MAXIMIZE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+const RESTORE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="8.5" width="10.5" height="10.5" rx="1.5"/><path d="M8.5 5.5h8.5a1.5 1.5 0 0 1 1.5 1.5v8.5"/></svg>';
+
 export function initRoomUI({ api, scenes, currentScene, onScene, onAdjust }) {
   const select = /** @type {HTMLSelectElement} */ (document.getElementById('room-scene'));
   const maxBtn = document.getElementById('room-max');
@@ -45,8 +49,9 @@ export function initRoomUI({ api, scenes, currentScene, onScene, onAdjust }) {
   return {
     /** room: stanza accesa; maximized: la stanza copre l'area di lavoro. */
     setState({ room, maximized }) {
-      maxBtn.textContent = maximized ? '❐' : '□';
+      maxBtn.innerHTML = maximized ? RESTORE_ICON : MAXIMIZE_ICON;
       maxBtn.title = maximized ? 'Ripristina' : 'Ingrandisci';
+      maxBtn.setAttribute('aria-label', maxBtn.title);
       document.body.classList.toggle('room-maximized', !!room && !!maximized);
     },
     /** Rilegge l'elenco delle scene e segna quella in uso; ⚙ solo per le importate. */

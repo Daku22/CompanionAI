@@ -7,15 +7,6 @@ let conversationHistory = []
 let selectedProvider = 'openrouter'
 let selectedModel    = ''
 
-const PROVIDER_ICONS = {
-  claude:  '🟠',
-  openai:  '🟢',
-  grok:    '⚫',
-  gemini:  '🔵',
-  mistral: '🔴',
-  ollama:  '🟣',
-  openrouter: '⚡',
-}
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 const setupOverlay   = document.getElementById('setup-overlay')
@@ -49,6 +40,7 @@ const moodChip       = document.getElementById('mood-chip')
 const setupCancel    = document.getElementById('setup-cancel')
 const keyUnreadable  = document.getElementById('key-unreadable')
 const keySaved       = document.getElementById('key-saved')
+const keyError       = document.getElementById('key-error')
 
 // ── Init ────────────────────────────────────────────────────────────────────
 async function init() {
@@ -146,8 +138,9 @@ async function updateMemoryFooter() {
     const stats = await api.memoryStats()
     if (!stats || stats.error) return
     memoryFooter.classList.remove('hidden')
-    const summaryDot = stats.hasSummary ? '✓' : '—'
-    memoryInfo.textContent = `Memoria: ${summaryDot} riassunto · ${stats.rawTurns} in buffer · ${stats.archivedTurns} archiviati`
+    // Il pie' di pagina e' stretto: il conto corto qui, il dettaglio nel tooltip.
+    memoryInfo.textContent = `Memoria · ${stats.rawTurns} recenti · ${stats.archivedTurns} archiviati`
+    memoryInfo.title = `Riassunto: ${stats.hasSummary ? 'sì' : 'non ancora'} · ${stats.rawTurns} turni in buffer · ${stats.archivedTurns} archiviati`
   } catch(e) { /* memoria non disponibile: nascondi footer */ }
 }
 
@@ -176,8 +169,10 @@ function buildProviderGrid() {
     btn.className = 'provider-btn' + (id === selectedProvider ? ' active' : '')
     btn.dataset.provider = id
     const icon = document.createElement('span')
+    // Un indicatore di scelta al posto dei pallini colorati, che facevano
+    // sette accenti diversi in una finestra sola.
     icon.className = 'provider-icon'
-    icon.textContent = PROVIDER_ICONS[id] || '●'
+    icon.setAttribute('aria-hidden', 'true')
     btn.append(icon, p.name)
     btn.addEventListener('click', () => selectProvider(id))
     providerGrid.appendChild(btn)
@@ -233,6 +228,7 @@ function updateModelSelect() {
 function updateKeyField() {
   const providers = config.providers || {}
   const p = providers[selectedProvider]
+  showKeyError('')
 
   if (selectedProvider === 'ollama') {
     keySection.style.opacity = '0.4'
@@ -264,7 +260,7 @@ function updateBadge() {
   const p = providers[config.provider]
   const models = liveModels[config.provider] || p?.models || []
   const m = models.find(x => x.id === config.model)
-  providerBadge.textContent = p ? `${PROVIDER_ICONS[config.provider] || ''} ${p.name} · ${m?.label || config.model}` : '—'
+  providerBadge.textContent = p ? `${p.name} · ${m?.label || config.model}` : '—'
 }
 
 // ── Setup save ──────────────────────────────────────────────────────────────
@@ -274,18 +270,34 @@ function isKeyFormatOk(provider, key) {
   if (!prefix) return true
   return !key || key.startsWith(prefix)
 }
+// Errori della chiave sotto il campo, non in un confirm(): si leggono mentre
+// si corregge, e "salva comunque" e' un secondo clic sullo stesso pulsante.
+let keyOddAccepted = ''
+function showKeyError(text) {
+  keyError.textContent = text
+  apiKeyInput.classList.toggle('invalid', !!text)
+  apiKeyInput.setAttribute('aria-invalid', text ? 'true' : 'false')
+}
+apiKeyInput.addEventListener('input', () => { if (keyError.textContent) showKeyError('') })
+
 saveBtn.addEventListener('click', async () => {
   selectedModel = modelSelect.value
   const key     = apiKeyInput.value.trim()
+  const providerName = (config.providers || {})[selectedProvider]?.name || selectedProvider
 
   if (selectedProvider !== 'ollama' && !key && !config.keyConfigured?.[selectedProvider]) {
+    showKeyError('Serve la chiave di ' + providerName + ' per iniziare.')
     apiKeyInput.focus()
-    apiKeyInput.style.borderColor = 'rgba(255,80,80,0.6)'
     return
   }
-  if (key && !isKeyFormatOk(selectedProvider, key)) {
-    if (!confirm('La key non inizia con il prefisso atteso. Salvare comunque?')) return
+  if (key && !isKeyFormatOk(selectedProvider, key) && keyOddAccepted !== key) {
+    const prefix = (config.providers || {})[selectedProvider]?.keyPrefix
+    showKeyError('Le chiavi di ' + providerName + ' di solito iniziano con «' + prefix + '». Controllala, oppure premi di nuovo "Salva e avvia" per tenerla così.')
+    keyOddAccepted = key
+    return
   }
+  keyOddAccepted = ''
+  showKeyError('')
 
   const newKeys = {}
   if (selectedProvider !== 'ollama' && key) {
@@ -341,8 +353,29 @@ clearBtn.addEventListener('click', () => {
   resetChatView('Chat pulita. Mi ricordo ancora di te: per cancellare la memoria usa "Dimentica tutto".')
 })
 
+// Due clic invece di un confirm(): il primo arma il pulsante e dice cosa
+// succede, il secondo (entro qualche secondo) cancella davvero.
+const FORGET_LABEL = forgetBtn.textContent
+let forgetTimer = null
+function disarmForget() {
+  clearTimeout(forgetTimer)
+  forgetTimer = null
+  forgetBtn.classList.remove('armed')
+  forgetBtn.textContent = FORGET_LABEL
+  updateMemoryFooter()
+}
 forgetBtn.addEventListener('click', async () => {
-  if (!confirm('Cancellare tutta la memoria del companion?\n\nRiassunto, conversazioni recenti e archivio vengono eliminati dal disco. Non si torna indietro.')) return
+  if (!forgetBtn.classList.contains('armed')) {
+    forgetBtn.classList.add('armed')
+    forgetBtn.textContent = 'Sicuro? Clic di nuovo'
+    memoryInfo.textContent = 'Cancella tutta la memoria, per sempre.'
+    memoryInfo.title = 'Riassunto, conversazioni e archivio spariscono dal disco. Non si torna indietro.'
+    forgetTimer = setTimeout(disarmForget, 4000)
+    return
+  }
+  clearTimeout(forgetTimer)
+  forgetBtn.classList.remove('armed')
+  forgetBtn.textContent = FORGET_LABEL
   const res = await api.memoryClear().catch(e => ({ ok: false, error: e.message }))
   if (!res?.ok) { addMessage('error', 'Cancellazione memoria fallita: ' + (res?.error || 'errore sconosciuto')); return }
   resetChatView('Memoria cancellata. Ripartiamo da zero.')

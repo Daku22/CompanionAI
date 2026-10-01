@@ -487,7 +487,7 @@ function openSettings() {
     title: 'Impostazioni — CompanionAI',
     icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
     autoHideMenuBar: true,
-    backgroundColor: '#15111e',
+    backgroundColor: '#151416',
     show: false,
     webPreferences: {
       nodeIntegration: false,
