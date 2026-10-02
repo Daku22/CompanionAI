@@ -830,6 +830,43 @@ try {
     await sleep(300)
   }
 
+  // Chibi (Blocco 5d): testa grande, corpo piccolo, piedi a terra; si salva
+  // per avatar, torna al ricaricamento, ed e' spento (con il motivo) nel 2D.
+  {
+    const bw = (name) => comp.evaluate(`window.__companion3DTest.boneWorld(${JSON.stringify(name)})`)
+    const state0 = await comp.evaluate('window.companion.chibiState()')
+    check(state0.available && !state0.on, '3D: chibi disponibile e spento di base (' + JSON.stringify(state0) + ')')
+    const [head0, hips0, foot0] = [await bw('head'), await bw('hips'), await bw('leftFoot')]
+    const state1 = await comp.evaluate('window.companion.setChibi(true)')
+    await sleep(600)
+    const [head1, hips1, foot1] = [await bw('head'), await bw('hips'), await bw('leftFoot')]
+    const ratio = (a, b) => (b.scale / a.scale).toFixed(2)
+    check(state1.on && ratio(head0, head1) === '1.70' && ratio(hips0, hips1) === '0.70' && Math.abs(foot1.y / foot0.y - 0.7) < 0.02,
+      '3D: chibi, testa x' + ratio(head0, head1) + ', corpo x' + ratio(hips0, hips1) + ', piedi a terra (' + foot0.y.toFixed(3) + ' -> ' + foot1.y.toFixed(3) + ' m)')
+    await shot('2f-chibi')
+    const bone = (name) => comp.evaluate(`window.__companion3DTest.boneScreen(${JSON.stringify(name)})`)
+    const [hips, neck, head] = [await bone('hips'), await bone('neck'), await bone('head')]
+    const at = (from, to, f) => ({ x: Math.round(from.x + (to.x - from.x) * f), y: Math.round(from.y + (to.y - from.y) * f) })
+    // In chibi il centro della testa sta 1,7 / 0,7 volte piu' in la' (in unita' collo-testa).
+    const top = at(neck, head, 1 + 1.6 * 1.7 / 0.7)
+    const belly = at(hips, neck, 0.35)
+    const zones = { head: await comp.evaluate(`window.CompanionInput.zoneAt(${top.x}, ${top.y})`), belly: await comp.evaluate(`window.CompanionInput.zoneAt(${belly.x}, ${belly.y})`) }
+    check(zones.head === 'head' && zones.belly === 'belly', '3D: in chibi le zone seguono la testa grande (' + JSON.stringify(zones) + ')')
+    const saved = await comp.evaluate('window.companion.getConfig().then(c => c.chibiAvatars)')
+    await pickAvatar(avatar2d.name)
+    await sleep(2500)
+    const state2d = await comp.evaluate('window.companion.chibiState()')
+    check(!state2d.available && /2D/.test(state2d.reason || ''), 'chibi: nel 2D non c\'e\', e dice perche\' (' + state2d.reason + ')')
+    await pickAvatar(VRM)
+    await sleep(6000)
+    const back = await comp.evaluate('window.__companion3DTest.chibi()')
+    check(Array.isArray(saved) && saved.length === 1 && !!back, 'chibi: salvato per avatar, torna al ricaricamento (' + JSON.stringify(saved) + ')')
+    await comp.evaluate('window.companion.setChibi(false)')
+    await sleep(600)
+    const head2 = await bw('head')
+    check(!(await comp.evaluate('window.__companion3DTest.chibi()')) && ratio(head0, head2) === '1.00', '3D: chibi spento, misura piena')
+  }
+
   // 4c. Camera: destro + trascina gira senza aprire il menu, destro fermo apre
   // il menu, la rotella zooma, doppio clic centrale rimette la camera.
   const mouse = (type, x, y, button = 'none', buttons = 0) => comp.send('Input.dispatchMouseEvent', { type, x, y, button, buttons, clickCount: 1 })

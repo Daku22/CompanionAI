@@ -103,6 +103,8 @@
     .toggle .what b { display: block; font-weight: 600; margin-bottom: 2px; }
     .toggle .what span { display: block; color: var(--text-3); font-size: 12px; line-height: 1.5; text-wrap: pretty; }
     .toggle input { margin-top: 2px; }
+    .toggle.disabled { cursor: default; }
+    .toggle.disabled b, .toggle.disabled input { opacity: 0.45; }
     #weather-section { padding: 0 0 14px; }
     #weather-city { max-width: 320px; font-family: var(--font); }
     .save-row { margin-top: 4px; }
@@ -189,6 +191,10 @@
           <input class="pf-input" id="dance-apps" type="text" maxlength="900" autocomplete="off" spellcheck="false" aria-label="App che fanno ballare">
           <p class="pf-note">Le app il cui suono fa ballare, separate da virgole: il nome del programma, per esempio spotify.exe. Le altre (giochi, videochiamate, notifiche) non contano.</p>
         </div>
+        <label class="toggle" id="chibi-row">
+          <span class="what"><b>Chibi</b><span id="chibi-note">Testa grande e corpo piccolo, per l'avatar in vista. Solo avatar 3D con scheletro umano.</span></span>
+          <input type="checkbox" id="chibi">
+        </label>
         <label class="toggle">
           <span class="what"><b>Meteo vero nella stanza</b><span>Nuvole, pioggia, neve e sole seguono il meteo della tua città.</span></span>
           <input type="checkbox" id="weather-on">

@@ -79,6 +79,12 @@ contextBridge.exposeInMainWorld('companion', {
   live2dReportModel: (m)     => ipcRenderer.send('live2d:report-model', m && typeof m === 'object'
     ? { id: m.id, name: m.name, groups: m.groups, expressions: m.expressions } : null),
   live2dModel:      ()       => ipcRenderer.invoke('live2d:model'),
+  // L'avatar caricato e se ha uno scheletro umano; risponde { chibi } (Blocco 5d)
+  reportAvatar:     (info)   => ipcRenderer.invoke('avatar:report', info && typeof info === 'object'
+    ? { id: info.id, kind: info.kind, humanoid: info.humanoid } : null),
+  // Chibi per l'avatar in vista: { available, reason, on }
+  chibiState:       ()       => ipcRenderer.invoke('avatar:chibi-state'),
+  setChibi:         (on)     => ipcRenderer.invoke('avatar:set-chibi', on === true),
   live2dSetChoices: (id, choices) => ipcRenderer.invoke('live2d:set-choices', id, choices),
   voiceXttsCancel:  ()       => ipcRenderer.send('voice:xtts-cancel'),
   voiceXttsRemove:  ()       => ipcRenderer.invoke('voice:xtts-remove'),
@@ -227,6 +233,18 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('live2d-model', handler)
     return () => ipcRenderer.removeListener('live2d-model', handler)
+  },
+  // Chibi acceso o spento per un avatar ({ id, on }), al companion
+  onChibi: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('avatar-chibi', handler)
+    return () => ipcRenderer.removeListener('avatar-chibi', handler)
+  },
+  // Chibi per l'avatar in vista ({ available, reason, on }), alle Impostazioni
+  onChibiState: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('chibi-state', handler)
+    return () => ipcRenderer.removeListener('chibi-state', handler)
   },
   // Stato del Cubism Core: installato, avanzamento, errore
   onLive2DStatus: (cb) => {

@@ -118,8 +118,9 @@
    * @param {Record<string, {x: number, y: number}|null|undefined>} bones hips,
    *        neck e head obbligatorie; leftHand, rightHand, leftLowerArm,
    *        rightLowerArm facoltative
-   * @param {{ facingAway?: boolean }} [options] facingAway: lo si guarda da
-   *        dietro, e li' non c'e' il basso ventre
+   * @param {{ facingAway?: boolean, headScale?: number }} [options]
+   *        facingAway: lo si guarda da dietro, e li' non c'e' il basso ventre;
+   *        headScale: la testa rispetto al busto (chibi), 1 di base
    */
   function zoneFromBones(p, bones, options = {}) {
     const { hips, neck, head } = bones || {}
@@ -135,9 +136,10 @@
     const upHead = sub(head, neck)
     const upLen = len(upHead) || 1
     const uh = { x: upHead.x / upLen, y: upHead.y / upLen }
-    const center = { x: head.x + uh.x * BODY.headCenter * H, y: head.y + uh.y * BODY.headCenter * H }
-    if (len(sub(p, center)) < BODY.headRadius * H) {
-      const along = dot(sub(p, head), uh) / H
+    const hs = options.headScale > 0 ? options.headScale : 1
+    const center = { x: head.x + uh.x * BODY.headCenter * hs * H, y: head.y + uh.y * BODY.headCenter * hs * H }
+    if (len(sub(p, center)) < BODY.headRadius * hs * H) {
+      const along = dot(sub(p, head), uh) / (hs * H)
       if (along >= -0.04) return along > BODY.eyeLine ? 'head' : 'face'
     }
     const axis = sub(neck, hips)

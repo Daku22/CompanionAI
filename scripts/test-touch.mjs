@@ -81,6 +81,17 @@ t('ossa: le zone seguono il corpo anche inclinato', () => {
   assert.equal(zoneFromBones(rot({ x: 300, y: 510 }), lying), 'lowerBelly')
 })
 
+t('ossa: in chibi la testa è più grande, e la zona con lei', () => {
+  // Sopra la testa a misura piena non e' testa; con la testa a 1,875 si'.
+  assert.notEqual(zoneFromBones({ x: 300, y: 190 }, STAND), 'head')
+  assert.equal(zoneFromBones({ x: 300, y: 190 }, STAND, { headScale: 1.875 }), 'head')
+  // La linea degli occhi scende con la testa.
+  assert.equal(zoneFromBones({ x: 300, y: 255 }, STAND), 'head')
+  assert.equal(zoneFromBones({ x: 300, y: 255 }, STAND, { headScale: 1.875 }), 'face')
+  // Il resto del corpo non cambia.
+  assert.equal(zoneFromBones({ x: 300, y: 440 }, STAND, { headScale: 1.875 }), 'belly')
+})
+
 t('ossa: senza bacino, collo o testa nessuna zona', () => {
   assert.equal(zoneFromBones({ x: 1, y: 1 }, { hips: STAND.hips, neck: STAND.neck }), null)
   assert.equal(zoneFromBones({ x: 1, y: 1 }, { hips: { x: 0, y: 0 }, neck: { x: 0, y: 0 }, head: { x: 0, y: 1 } }), null)

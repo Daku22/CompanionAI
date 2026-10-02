@@ -11,7 +11,7 @@ const path = require('path')
 const {
   isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES,
   voiceConfig, VOICE_DEFAULTS, allowPermission, MIC_SHORTCUTS, checkLive2DChoices, LIVE2D_GESTURES, LIVE2D_EMOTIONS,
-  allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT,
+  allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT, chibiAvatars, chibiUnavailable,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -360,6 +360,22 @@ test('ballo: elenco delle app ripulito', () => {
   assert.equal(danceApps('spotify.exe'), null)
   assert.equal(danceApps(Array.from({ length: 50 }, (_, i) => 'app' + i)).length, 30)
   assert.ok(DANCE_APPS_DEFAULT.includes('spotify.exe') && DANCE_APPS_DEFAULT.every(a => a.endsWith('.exe')))
+})
+
+test('chibi: elenco degli avatar ripulito', () => {
+  assert.deepEqual(chibiAvatars(['Alicia', 'Alicia', '', 3, 'a\nb', 'x'.repeat(201), '3f2c-uuid']), ['Alicia', '3f2c-uuid'])
+  assert.equal(chibiAvatars('Alicia'), null)
+  assert.equal(chibiAvatars(Array.from({ length: 250 }, (_, i) => 'a' + i)).length, 200)
+})
+
+test('chibi: solo avatar 3D con scheletro umano, e il motivo per gli altri', () => {
+  assert.equal(chibiUnavailable({ kind: 'vrm', humanoid: true }), null)
+  assert.equal(chibiUnavailable({ kind: 'fbx', humanoid: true }), null)
+  assert.match(chibiUnavailable({ kind: 'fbx', humanoid: false }), /scheletro/)
+  assert.match(chibiUnavailable({ kind: 'live2d', humanoid: false }), /Live2D/)
+  assert.match(chibiUnavailable({ kind: 'sprite-pack' }), /2D/)
+  assert.match(chibiUnavailable({ kind: 'sprite' }), /2D/)
+  assert.ok(chibiUnavailable(null))
 })
 
 console.log('\n=== ' + passed + ' test superati ===')

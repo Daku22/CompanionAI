@@ -14,7 +14,7 @@ const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated
 const { builtinAvatars } = require('./builtin-avatars')
 const room = require('./room')
 const { WeatherService } = require('./weather')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS, checkLive2DChoices, allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS, checkLive2DChoices, allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT, chibiAvatars, chibiUnavailable } = require('./guards')
 const winAudio = require('./win-audio')
 const { VoiceService } = require('./voice')
 const { XttsEngine } = require('./xtts-engine')
@@ -67,12 +67,14 @@ const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 // da' solo il sorriso di prima.
 // danceMusic: balla con la musica (Blocco 5c), spento di base; danceApps: le
 // app il cui suono conta (win-audio.js).
+// chibiAvatars: gli avatar 3D in chibi (Blocco 5d), per id; lo scrive solo il
+// main, dal menu o dalle Impostazioni.
 // view: 'desktop' (trasparente, sul desktop) o 'room' (la stanza, room.js);
 // roomBounds: dove era la stanza, la scrive solo il main.
 const DEFAULT_CONFIG = {
   provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true,
   followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, perch: true, view: 'desktop', keys: {},
-  touchReactions: true, danceMusic: false, danceApps: DANCE_APPS_DEFAULT,
+  touchReactions: true, danceMusic: false, danceApps: DANCE_APPS_DEFAULT, chibiAvatars: [],
 }
 
 function loadEnvFile() {
@@ -140,6 +142,7 @@ function loadConfig() {
   cfg.touchReactions = cfg.touchReactions !== false
   cfg.danceMusic = cfg.danceMusic === true
   cfg.danceApps = danceApps(cfg.danceApps) || DANCE_APPS_DEFAULT
+  cfg.chibiAvatars = chibiAvatars(cfg.chibiAvatars) || []
   cfg.view = cfg.view === 'room' ? 'room' : 'desktop'
   if (typeof cfg.scale !== 'string' || !Object.prototype.hasOwnProperty.call(WINDOW_SCALES, cfg.scale)) cfg.scale = DEFAULT_CONFIG.scale
   if (!PROVIDERS[cfg.provider]) { cfg.provider = DEFAULT_CONFIG.provider; cfg.model = DEFAULT_CONFIG.model }
@@ -1006,6 +1009,40 @@ handle('live2d:set-choices', (_e, id, input) => {
   sendCompanion('live2d-choices', cfg.live2dChoices)
   return clean
 })
+
+// ─── Chibi (Blocco 5d) ───────────────────────────────────────────────────────
+// Il companion riporta l'avatar che ha caricato e se ha uno scheletro umano
+// (lo sa solo lui, per glTF e FBX); il main risponde se va in chibi. Menu e
+// Impostazioni accendono e spengono il chibi per quell'avatar.
+let avatarInfo = null   // { id, kind, humanoid }
+
+function chibiState() {
+  const reason = chibiUnavailable(avatarInfo)
+  const on = !reason && loadConfig().chibiAvatars.includes(avatarInfo.id)
+  return { available: !reason, reason, on }
+}
+
+handle('avatar:report', (_e, info) => {
+  if (!info || typeof info.id !== 'string' || info.id.length > 200 || typeof info.kind !== 'string' || info.kind.length > 20) return { chibi: false }
+  avatarInfo = { id: info.id, kind: info.kind, humanoid: info.humanoid === true }
+  const state = chibiState()
+  sendSettings('chibi-state', state)
+  return { chibi: state.on }
+})
+handle('avatar:chibi-state', () => chibiState())
+
+function setChibi(on) {
+  if (chibiUnavailable(avatarInfo)) return chibiState()
+  const cfg = loadConfig()
+  const others = cfg.chibiAvatars.filter(id => id !== avatarInfo.id)
+  cfg.chibiAvatars = on ? [...others, avatarInfo.id].slice(-200) : others
+  saveConfig(cfg)
+  sendCompanion('avatar-chibi', { id: avatarInfo.id, on })
+  const state = chibiState()
+  sendSettings('chibi-state', state)
+  return state
+}
+handle('avatar:set-chibi', (_e, on) => setChibi(on === true))
 on('live2d:open-license', () => { shell.openExternal(live2dCore.LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
 
 on('voice:open-license', () => { shell.openExternal(XTTS_LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
@@ -1978,10 +2015,11 @@ async function showCompanionMenu() {
   let avatars = []
   try { avatars = avatarLibrary ? await avatarLibrary.list() : [] } catch (_) {}
   const current = avatars.find(a => a.id === cfg.avatarModel) || avatars.find(a => a.default) || avatars[0]
-  const kind = (a) => (a.kind === 'sprite-pack' || a.kind === 'sprite') ? '2D' : '3D'
+  const kind = (a) => a.kind === 'live2d' ? 'Live2D' : (a.kind === 'sprite-pack' || a.kind === 'sprite') ? '2D' : '3D'
   const command = (data) => sendCompanion('menu-command', data)
   const is3D = !!current && kind(current) === '3D'
   const inRoom = viewMode === 'room'
+  const chibi = chibiState()
   /** @type {Electron.MenuItemConstructorOptions[]} */
   const template = [
     { label: 'Apri chat', click: () => toggleChat() },
@@ -2020,6 +2058,10 @@ async function showCompanionMenu() {
         click: () => setOption({ scale: id }),
       })),
     }]),
+    // Chibi, per questo avatar: solo i 3D con scheletro umano.
+    chibi.available
+      ? { label: 'Chibi', type: 'checkbox', checked: chibi.on, click: (item) => setChibi(item.checked) }
+      : { label: 'Chibi (solo avatar 3D con scheletro umano)', enabled: false },
     { type: 'separator' },
     { label: 'Segue il mouse', type: 'checkbox', checked: cfg.followMouse, click: (item) => setOption({ followMouse: item.checked }) },
     { label: 'Vita autonoma', type: 'checkbox', checked: cfg.idleLife, click: (item) => setOption({ idleLife: item.checked }) },

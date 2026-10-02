@@ -16,6 +16,7 @@ import { GLTFSpecularGlossinessPlugin } from './gltf-specgloss.js';
 import { createRoomScene } from './room-scene.js';
 import { initRoomUI } from './room-ui.js';
 import { initSceneAdjust } from './scene-adjust.js';
+import { setChibi, chibiOf } from './chibi.js';
 
 
 window.__threeVisible = false;
@@ -314,6 +315,16 @@ window.__companion3DTest = {
     const node = currentVrm && currentVrm.humanoid && currentVrm.humanoid.getRawBoneNode(name);
     return node ? toWindowPx(node.getWorldPosition(new THREE.Vector3())) : null;
   },
+  /** Chibi: il piano applicato ({ bones, root, headRatio }) o null; set lo accende senza il main. */
+  chibi: () => chibiOf(currentVrm),
+  setChibi: (on, options) => applyChibi(!!on, options),
+  /** Scala nel mondo di un osso vero (da confrontare con e senza chibi), e altezza dal pavimento. */
+  boneWorld: (name) => {
+    const node = currentVrm && currentVrm.humanoid && currentVrm.humanoid.getRawBoneNode(name);
+    if (!node) return null;
+    const e = node.matrixWorld.elements;
+    return { scale: Math.hypot(e[0], e[1], e[2]), y: node.getWorldPosition(new THREE.Vector3()).y };
+  },
   /** Direzione nel mondo da un osso all'altro, sulle ossa vere del modello. */
   boneDir: (from, to) => {
     const h = currentVrm && currentVrm.humanoid;
@@ -416,7 +427,9 @@ function zone3D(x, y) {
   let facingAway = false;
   const { hips, neck, leftUpperArm: l, rightUpperArm: r } = pts;
   if (hips && neck && l && r) facingAway = (neck.x - hips.x) * (l.y - r.y) - (neck.y - hips.y) * (l.x - r.x) < 0;
-  return window.CompanionTouch.zoneFromBones({ x, y }, pts, { facingAway });
+  // In chibi la testa e' piu' grande rispetto al busto: la zona cresce con lei.
+  const chibi = chibiOf(currentVrm);
+  return window.CompanionTouch.zoneFromBones({ x, y }, pts, { facingAway, headScale: chibi ? chibi.headRatio : 1 });
 }
 
 // Seduto su una finestra i gesti in piedi (saltello, mani sulla pancia)
@@ -721,6 +734,7 @@ async function loadVRMModel(avatar) {
       keepAvatarLook(currentGltf);
       body.add(currentGltf);
       showBubble('Modello statico: nessuno scheletro umano da animare', 3600);
+      reportAvatar(avatar, false);
       return;
     }
   }
@@ -747,8 +761,35 @@ async function loadVRMModel(avatar) {
   currentVrm = vrm;
   clips.attach(vrm);
   keepAvatarLook(vrm.scene);
+  // Il chibi prima di entrare in scena, o si vedrebbe un frame a misura piena.
+  const { chibi } = await reportAvatar(avatar, true);
+  if (seq !== loadSeq) return;
+  if (chibi) applyChibi(true);
   body.add(vrm.scene);
 }
+
+/** Dice al main quale avatar e' in vista; risponde se va in chibi. */
+async function reportAvatar(avatar, humanoid) {
+  if (!api || !api.reportAvatar) return { chibi: false };
+  try { return (await api.reportAvatar({ id: avatar.id, kind: avatar.kind, humanoid })) || { chibi: false }; } catch (_) { return { chibi: false }; }
+}
+
+// ─── Chibi (Blocco 5d) ─────────────────────────────────────────────────────
+// Testa grande e corpo piccolo (chibi.js), per avatar, dal menu o dalle
+// Impostazioni. Seduto su una finestra il bacino non si rimisura (e' in posa
+// seduta): la seduta gia' misurata scala con il corpo, e il main sposta la
+// finestra finche' il bacino torna sul bordo.
+function applyChibi(on, options) {
+  if (!currentVrm) return;
+  const before = chibiOf(currentVrm);
+  setChibi(currentVrm, on, options);
+  const after = chibiOf(currentVrm);
+  const ratio = (after ? after.root : 1) / (before ? before.root : 1);
+  if (ratio !== 1 && seatMeasured) seatPoint.y = (seatPoint.y + SEAT_BELOW_HIPS_M) * ratio - SEAT_BELOW_HIPS_M;
+  seatKey = '';
+  seatSentAt = 0;
+}
+if (api && api.onChibi) api.onChibi((data) => { if (data && data.id === currentAvatarId) applyChibi(!!data.on); });
 
 // Nella stanza cielo e foto HDR usano il tone mapping; l'avatar deve restare
 // com'e' sul desktop, quindi i suoi materiali ne restano fuori. Le luci della
@@ -975,6 +1016,8 @@ async function switchModel(avatarId, { save = true } = {}) {
   if (save) api.setConfig({ avatarModel: avatar.id }).catch(() => {});
   renderAvatarMenu(avatars);
 
+  // Live2D e 2D non hanno ossa: il chibi resta spento (il main lo sa da qui).
+  if (avatar.kind === 'live2d' || avatar.kind === 'sprite-pack' || avatar.kind === 'sprite') reportAvatar(avatar, false);
   if (avatar.kind === 'live2d') {
     show2D();
     try {

@@ -262,6 +262,34 @@ function danceApps(input) {
   return out
 }
 
+// ─── Chibi (Blocco 5d) ───────────────────────────────────────────────────────
+// Si salva per avatar: l'elenco degli id con il chibi acceso.
+
+/** Elenco degli avatar in chibi, ripulito: stringhe senza caratteri di controllo, al massimo 200. */
+function chibiAvatars(input) {
+  if (!Array.isArray(input)) return null
+  const out = []
+  for (const id of input) {
+    if (typeof id !== 'string' || !id || id.length > 200 || /[\u0000-\u001f\u007f]/.test(id) || out.includes(id)) continue
+    out.push(id)
+    if (out.length >= 200) break
+  }
+  return out
+}
+
+/**
+ * Perche' il chibi non si puo' accendere sull'avatar in vista, o null se si
+ * puo'. info e' quello che riporta il companion dopo il caricamento.
+ * @param {{ kind?: string, humanoid?: boolean } | null} info
+ */
+function chibiUnavailable(info) {
+  if (!info || typeof info.kind !== 'string') return 'nessun avatar in vista'
+  if (info.kind === 'live2d') return 'gli avatar Live2D non hanno ossa da scalare'
+  if (info.kind === 'sprite-pack' || info.kind === 'sprite') return 'gli avatar 2D sono disegni: per la misura c\'è Dimensione'
+  if (!info.humanoid) return 'questo modello non ha uno scheletro umano riconosciuto'
+  return null
+}
+
 function mergeConfig(current, incoming) {
   const merged = { ...current, keys: { ...(current.keys || {}) } }
   if (!incoming || typeof incoming !== 'object') return merged
@@ -385,6 +413,7 @@ module.exports = {
   checkLive2DChoices,
   LIVE2D_GESTURES,
   allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT,
+  chibiAvatars, chibiUnavailable,
   LIVE2D_EMOTIONS,
   MIC_SHORTCUTS,
   SAFE_COMMANDS,

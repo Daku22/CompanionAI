@@ -129,6 +129,23 @@
   weatherCity.addEventListener('change', () => saveGeneral({ weatherCity: weatherCity.value }))
   weatherCity.addEventListener('keydown', (e) => { if (e.key === 'Enter') weatherCity.blur() })
 
+  // Chibi, per l'avatar in vista: lo sa il main, dopo che il companion l'ha
+  // caricato. Grigio, con il motivo, per Live2D, 2D e modelli senza scheletro.
+  const chibi = $('chibi')
+  const CHIBI_NOTE = $('chibi-note').textContent
+  function showChibi(state) {
+    const s = state || { available: false, reason: 'nessun avatar in vista', on: false }
+    chibi.checked = !!s.on
+    chibi.disabled = !s.available
+    $('chibi-row').classList.toggle('disabled', !s.available)
+    $('chibi-note').textContent = s.available ? CHIBI_NOTE : 'Non disponibile: ' + s.reason + '.'
+  }
+  if (api.chibiState) api.chibiState().then(showChibi).catch(() => showChibi(null))
+  if (api.onChibiState) api.onChibiState(showChibi)
+  chibi.addEventListener('change', async () => {
+    try { showChibi(await api.setChibi(chibi.checked)) } catch (_) {}
+  })
+
   // Config cambiata altrove (chat, menu sull'avatar, o questa finestra): gli
   // interruttori si allineano. La scheda Modello si ricarica solo se provider,
   // modello o chiavi sono cambiati davvero, per non perdere una scelta a meta'.
