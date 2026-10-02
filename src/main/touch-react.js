@@ -129,6 +129,17 @@ function pickLine(family, chance, last, rand = Math.random) {
   return line
 }
 
+/**
+ * La battuta si dice anche a voce? Solo se c'e', e se la voce e' libera: una
+ * battuta non deve interrompere una risposta che sta leggendo, ne' partire
+ * mentre si aspetta una risposta o il microfono ascolta.
+ * @param {string|null} line
+ * @param {{ voiceOn: boolean, speaking: boolean, awaitingReply: boolean, listening: boolean }} state
+ */
+function shouldSayLine(line, state) {
+  return !!line && state.voiceOn && !state.speaking && !state.awaitingReply && !state.listening
+}
+
 const ZONE_TEXT = {
   head: 'sulla testa', face: 'sul viso', chest: 'sul petto', belly: 'sulla pancia',
   lowerBelly: 'sul basso ventre', hand: 'sulla mano', legs: 'sulle gambe',
@@ -153,5 +164,5 @@ function touchPromptText(last, now) {
 
 module.exports = {
   ZONES, KINDS, STEPS, REACTIONS,
-  checkTouch, createTouchState, pickLine, touchPromptText,
+  checkTouch, createTouchState, pickLine, shouldSayLine, touchPromptText,
 }

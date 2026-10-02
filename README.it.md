@@ -433,7 +433,9 @@ gradini: imbarazzo, poi rimprovero, poi si gira di spalle per 5 s; ogni 20 s
 senza clic si scende di un gradino, e una carezza lo addolcisce. Tanti clic
 fitti ovunque lo fanno ridere più in fretta e poi lo stufano un poco. Ogni
 tocco sposta un po' l'umore, a volte porta una battuta (`touch-lines.js`,
-locali, senza genere) e l'ultimo entra nel prompt per tre minuti.
+locali, senza genere) e l'ultimo entra nel prompt per tre minuti. Con la voce
+accesa la battuta si sente anche, ma solo se la voce è libera: non
+interrompe una risposta e tace mentre il microfono ascolta.
 - Nel 3D ogni reazione è uno slot (`pat`, `flinch`, `giggle`, `hop`, `shy`,
   `scold`, `turnaway`): con una clip importata per quello slot vale la clip,
   altrimenti un ripiego procedurale in `vrm-animation.js`. Seduto su una

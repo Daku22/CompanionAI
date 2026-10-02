@@ -13,7 +13,8 @@
 //   Una serie: --series scripts/kimodo-series.json --out <cartella>. Ogni voce
 //   e' una clip o una sequenza (entrata, ciclo, uscita) generata in una sola
 //   richiesta e poi tagliata, cosi' le fasi si raccordano. Le voci con
-//   "loop" si tagliano nel tratto che si ripete meglio e si chiudono.
+//   "loop" si tagliano nel tratto che si ripete meglio e si chiudono; con
+//   "seed" una voce usa il suo seme invece di --seed.
 //
 //   --keep-raw: salva anche l'uscita grezza (<nome>.root.f32, <nome>.rot.f32)
 //   nella sottocartella raw/, per riconvertire senza rigenerare:
@@ -60,7 +61,8 @@ async function main() {
   const seed = Number(opts.seed || 1)
 
   // Richieste: ognuna e' una lista di segmenti { out, seconds, prompt, loop }.
-  /** @type {{ out: string, seconds: number, prompt: string, loop?: boolean }[][]} */
+  // Una voce della serie puo' fissare il suo seme ("seed"), che vince su --seed.
+  /** @type {{ out: string, seconds: number, prompt: string, loop?: boolean, seed?: number }[][]} */
   let requests
   let outDir = null
   if (opts.series) {
@@ -91,7 +93,8 @@ async function main() {
     const dir = path.join(work, 'clip-' + n)
     fs.mkdirSync(dir)
     // transizione, passi, seme, cartella, poi coppie fotogrammi / file del prompt
-    const fields = [TRANSITION, steps, seed, dir]
+    const own = segments.find(s => Number.isInteger(s.seed))
+    const fields = [TRANSITION, steps, own ? own.seed : seed, dir]
     for (const [i, s] of segments.entries()) {
       const promptFile = path.join(dir, 'prompt-' + i + '.txt')
       fs.writeFileSync(promptFile, s.prompt)

@@ -15,9 +15,10 @@ contextBridge.exposeInMainWorld('companion', {
   startDrag:        ()       => ipcRenderer.send('drag:start'),
   endDrag:          ()       => ipcRenderer.send('drag:end'),
   showMenu:         ()       => ipcRenderer.send('companion:menu'),
-  // Un tocco sull'avatar: zona e tipo ('poke', 'pat'). Torna la reazione da
+  // Un tocco sull'avatar: zona e tipo ('poke', 'pat'), e se la voce sta gia'
+  // parlando (allora la battuta resta nel fumetto). Torna la reazione da
   // recitare, { off: true } se i tocchi sono spenti, o null.
-  touch:            (zone, kind) => ipcRenderer.invoke('companion:touch', { zone: String(zone), kind: String(kind) }),
+  touch:            (zone, kind, speaking) => ipcRenderer.invoke('companion:touch', { zone: String(zone), kind: String(kind), speaking: speaking === true }),
   // Dove sono l'ombra ai piedi (feet) e il bacino (seat) dentro la finestra:
   // il main posa l'ombra sul bordo di una finestra o della taskbar, e seduto
   // ci mette il bacino.

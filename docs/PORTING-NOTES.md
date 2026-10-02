@@ -924,8 +924,11 @@ carezza sulla testa, basso ventre shy > scold > scold > turnaway con il
 fastidio che sale, giro vero di spalle, nessuna reazione mentre e' girato,
 interruttore spento; in Live2D zone per altezza e reazione al clic.
 
-Non ancora: la voce non dice le battute; le clip Kimodo delle reazioni
-(prompt in `docs/kimodo-prompts.md`) sono da generare.
+**Dopo.** Con la voce accesa la battuta si dice anche, solo con la voce
+libera: che stia gia' parlando lo sa la pagina (il main manda l'audio ma non
+lo suona), e il microfono conta da `mic:state` oltre che dalla scorciatoia.
+Le sette clip Kimodo delle reazioni stanno nella serie privata
+(`kimodo-series-touch.json`).
 
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del

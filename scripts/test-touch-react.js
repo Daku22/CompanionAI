@@ -4,7 +4,7 @@
 const assert = require('node:assert/strict')
 const fs = require('fs')
 const path = require('path')
-const { ZONES, KINDS, STEPS, REACTIONS, checkTouch, createTouchState, pickLine, touchPromptText } = require('../src/main/touch-react')
+const { ZONES, KINDS, STEPS, REACTIONS, checkTouch, createTouchState, pickLine, shouldSayLine, touchPromptText } = require('../src/main/touch-react')
 const { LINES } = require('../src/main/touch-lines')
 const { ANIMATION_SLOTS } = require('../src/main/AnimationLibrary')
 const { EMOTION_NAMES } = require('../src/main/mood')
@@ -124,6 +124,16 @@ test('battute: corte, senza genere', () => {
       assert.ok(!/\b(contenta|contento|arrabbiata|arrabbiato|imbarazzata|imbarazzato|offesa|offeso)\b/i.test(line), family + ': ' + line)
     }
   }
+})
+
+test('voce: la battuta si dice solo con la voce libera', () => {
+  const free = { voiceOn: true, speaking: false, awaitingReply: false, listening: false }
+  assert.equal(shouldSayLine('Ehi!', free), true)
+  assert.equal(shouldSayLine(null, free), false)
+  assert.equal(shouldSayLine('Ehi!', { ...free, voiceOn: false }), false)
+  assert.equal(shouldSayLine('Ehi!', { ...free, speaking: true }), false, 'non interrompe una risposta')
+  assert.equal(shouldSayLine('Ehi!', { ...free, awaitingReply: true }), false)
+  assert.equal(shouldSayLine('Ehi!', { ...free, listening: true }), false)
 })
 
 test('prompt: l\'ultimo tocco, solo per tre minuti', () => {

@@ -71,22 +71,31 @@ fase.
 
 ## Reazioni ai tocchi (Blocco 5b)
 
-Gesti brevi, da generare nella serie privata. Senza clip vale il ripiego
-procedurale di `vrm-animation.js`.
+Gesti brevi, nella serie privata (`scripts/kimodo-series-touch.json`):
+
+```
+npm run kimodo -- --series scripts/kimodo-series-touch.json --out private-assets/animations --keep-raw
+```
+
+Senza clip vale il ripiego procedurale di `vrm-animation.js`, che e' quello
+del repo pubblico.
 
 | Gesto | Fase | Durata | Prompt | File |
 |---|---|---|---|---|
-| Carezza | gesto | 2 s | A person tilts the head to one side and lowers the shoulders, relaxed, as if enjoying a pat on the head. | `pat.bvh` |
-| Sussulto | gesto | 1 s | A person flinches, pulling the head back quickly, then relaxes. | `flinch.bvh` |
-| Risatina | gesto | 2 s | A person giggles, bending forward slightly with both hands on the belly. | `giggle.bvh` |
-| Saltello | gesto | 1 s | A person does a small hop in place. | `hop.bvh` |
-| Imbarazzo | gesto | 2 s | A person looks away shyly, hands together in front of the body, taking a small step back. | `shy.bvh` |
-| Rimprovero | gesto | 3 s | A person crosses the arms and shakes the head disapprovingly. | `scold.bvh` |
-| Si gira di spalle | gesto | 5 s | A person turns around, stands with the back to the viewer with arms crossed, then turns back. | `turnaway.bvh` |
+| Carezza | gesto | 2,5 s | A person tilts the head to one side and lowers the shoulders, relaxed and content, then straightens up. | `pat.vrma` |
+| Sussulto | gesto | 2 s | A person flinches, pulling the head and upper body back quickly in surprise, then relaxes. | `flinch.vrma` |
+| Risatina | gesto | 2,5 s | A person giggles, bending forward slightly with both hands on the belly, shoulders shaking. | `giggle.vrma` |
+| Saltello | gesto | 2 s | A person does a small hop in place and lands softly. | `hop.vrma` |
+| Imbarazzo | gesto | 2,5 s | A person stands facing forward, lowers the head and glances to the side shyly, hands clasped in front of the body. (seme 2) | `shy.vrma` |
+| Rimprovero | gesto | 3 s | A person stands facing forward with the arms folded across the chest and shakes the head slowly. | `scold.vrma` |
+| Si gira di spalle | gesto | 5 s | A person stands still with the arms folded across the chest and the head lowered, sulking. | `turnaway.vrma` |
 
-Nota per `turnaway`: il ripiego procedurale gira tutto il corpo da se'
-(`yaw` della clip). Una clip che si gira gia' da sola si somma a quel giro:
-se la si importa, va controllata.
+Per le braccia incrociate "crosses the arms" non basta, Kimodo gesticola:
+servono "arms folded across the chest" e "facing forward". Con il seme 1
+l'imbarazzo si volta quasi di schiena, quindi `shy` usa il seme 2.
+
+`turnaway` non si volta: il giro di spalle lo fa il player (`yaw` della clip
+in `vrm-animation.js`), e una clip che si gira da sola lo raddoppierebbe.
 
 ## Controllo dopo l'import
 

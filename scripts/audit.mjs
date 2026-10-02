@@ -576,6 +576,18 @@ try {
       await sleep(50)
     }
     check(heard !== null && open > 0.2, 'voce: la risposta si sente dopo ' + heard + ' ms e la bocca si apre (' + open.toFixed(2) + ')')
+    // La battuta di un tocco si dice anche (Blocco 5b): tocchi sul viso finche'
+    // una porta una battuta, poi la voce deve partire.
+    await sleep(1500)
+    let touched = null
+    for (let i = 0; i < 25 && !(touched && touched.line); i++) {
+      touched = await comp.evaluate("window.companion.touch('face', 'poke', false)")
+      await sleep(350)
+    }
+    let spoke = false
+    for (let i = 0; i < 120 && !spoke; i++) { spoke = (await comp.evaluate('window.__companion3DTest.voice()')).speaking; if (!spoke) await sleep(50) }
+    check(!!(touched && touched.line) && spoke, 'voce: la battuta di un tocco si sente ("' + (touched && touched.line) + '")')
+    await sleep(2500)
     await chat.evaluate(`window.companion.setConfig({ voice: { enabled: false } }).then(c => c.voice.enabled)`)
   }
 

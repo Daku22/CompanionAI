@@ -19,7 +19,9 @@
     then scolding, then it turns its back for 5 s. The other zones stay
     friendly; lots of fast clicks make it giggle, then tire of it a little.
   - Each touch nudges the mood, sometimes brings a short local line, and the
-    last one reaches the model's prompt for three minutes.
+    last one reaches the model's prompt for three minutes. With the voice on
+    the line is spoken too, but never over a reply, while waiting for one or
+    while the microphone listens.
   - New animation slots for the reactions, with procedural fallbacks in 3D,
     motion groups or hand-moved parameters in Live2D, and sprite moves in 2D.
   - "Reagisce ai tocchi" in the settings, on by default.

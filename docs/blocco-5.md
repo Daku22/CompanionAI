@@ -67,7 +67,11 @@ Va fatto prima del resto, perché tutti i tocchi passano di qui.
   (circa sei teste); un Live2D largo usa quella del busto;
 - seduto su una finestra il 3D tiene solo carezza, sussulto, rimprovero e
   giro di spalle; il 2D salta il saltello;
-- la voce non dice ancora le battute: solo il fumetto.
+- con la voce accesa la battuta si dice anche, ma solo se la voce e' libera:
+  non interrompe una risposta, e tace mentre si aspetta una risposta o il
+  microfono ascolta (`shouldSayLine`);
+- clip Kimodo delle sette reazioni nella serie privata
+  (`scripts/kimodo-series-touch.json`); `turnaway` non si volta da sola.
 
 **Zone:** `head`, `face`, `chest`, `belly`, `lowerBelly`, `hand`, `legs`.
 **Tipi di tocco:**

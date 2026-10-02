@@ -594,6 +594,7 @@ function syncVoice(cfg) {
 let micAllowed = false   // voice.micEnabled, per i gestori dei permessi
 let micShortcut = null   // l'acceleratore registrato
 let micHold = null       // { started, toggle, poll } mentre la scorciatoia tiene aperto il microfono
+let micBusy = false      // il microfono ascolta o trascrive (mic:state), da chat o da scorciatoia
 const MIC_TAP_MS = 350
 
 function syncMicShortcut(voice) {
@@ -925,6 +926,7 @@ handle('mic:transcribe', async (_e, pcm) => {
 })
 // Mentre ascolta il companion tace e lo dice con un fumetto.
 on('mic:state', (_e, state) => {
+  micBusy = state === 'listening' || state === 'transcribing'
   if (state === 'listening') {
     if (voiceService) voiceService.stop()
     markActivity()
@@ -2100,10 +2102,14 @@ handle('companion:touch', (_e, input) => {
   const r = touchReact.REACTIONS[result.name]
   updateMood(m => Object.entries(r.mood).reduce((acc, [name, delta]) => moodLib.nudge(acc, name, delta), moodLib.decay(m, now)))
   lastTouch = { name: result.name, zone: result.zone, kind: result.kind, at: now }
+  const line = touchReact.pickLine(r.line, r.chance, touchLines)
+  // Con la voce accesa la battuta si dice anche, se la voce e' libera. Che
+  // stia gia' parlando lo sa la pagina (il main manda l'audio, non lo suona).
+  const voiceOn = voiceConfig(loadConfig()).enabled
+  if (touchReact.shouldSayLine(line, { voiceOn, speaking: input.speaking === true, awaitingReply, listening: micBusy || !!micHold })) speakReply(line)
   return {
     name: result.name, step: result.step, zone: result.zone, kind: result.kind,
-    slot: r.slot, expression: r.expression, weight: r.weight, ms: r.ms,
-    line: touchReact.pickLine(r.line, r.chance, touchLines),
+    slot: r.slot, expression: r.expression, weight: r.weight, ms: r.ms, line,
   }
 })
 

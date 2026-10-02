@@ -50,7 +50,8 @@ yourself from source if you prefer (see below).
   belly it giggles, on the legs it hops. Move the mouse back and forth over
   its head, without pressing, to pat it. Clicking its lower belly again and
   again embarrasses it, then it scolds you, then it turns its back for a few
-  seconds. Touches nudge its mood, and the model hears about the last one.
+  seconds. Touches nudge its mood, the model hears about the last one, and
+  with the voice on it sometimes says a short line out loud.
   "Reagisce ai tocchi" in the settings turns this off.
 - In 3D, drag with the right or middle button to turn the camera around it,
   hold Alt while dragging to move the camera instead, and use the wheel to

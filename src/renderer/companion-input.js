@@ -91,7 +91,8 @@
   function touch(zone, kind) {
     const send = (reaction) => window.dispatchEvent(new CustomEvent('companion-touch', { detail: { zone, kind, reaction } }))
     if (!zone || !api || !api.touch) { if (kind === 'poke') send({ off: true }); return }
-    api.touch(zone, kind).then(send, () => { if (kind === 'poke') send({ off: true }) })
+    const speaking = !!(window.CompanionVoice && window.CompanionVoice.isSpeaking())
+    api.touch(zone, kind, speaking).then(send, () => { if (kind === 'poke') send({ off: true }) })
   }
 
   // Carezza: il cursore che va avanti e indietro sulla testa, senza tasti.
