@@ -197,6 +197,12 @@ async function main() {
     fs.writeFileSync(path.join(cacheDir, 'index.json'), '[1,2]')
     assert.deepEqual(k.readIndex(), {}, 'un indice rovinato non blocca niente')
     await k.store(bow, new Uint8Array([1]), 'A person bows.')
+    // I piu' vecchi si riconoscono dalla data di modifica, che su Windows ha
+    // una risoluzione di circa 15 ms: scritti a raffica, molti file hanno la
+    // stessa data. I due che devono uscire si datano nel passato.
+    const past = (s) => new Date(Date.now() - s * 1000)
+    fs.utimesSync(path.join(cacheDir, old), past(120), past(120))
+    fs.utimesSync(path.join(cacheDir, bow), past(60), past(60))
     for (let i = 0; i < 100; i++) await k.store(cacheKey('clip ' + i, 4), new Uint8Array([i]), 'clip ' + i)
     const index = k.readIndex()
     assert.equal(Object.keys(index).length, 100)
