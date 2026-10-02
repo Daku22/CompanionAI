@@ -203,7 +203,8 @@ function mergeVoice(current, incoming) {
 // Avatar Live2D: i gesti e le emozioni che si possono abbinare ai movimenti e
 // alle espressioni di un modello. Gli stessi di src/renderer/live2d-map.js
 // (un test controlla che coincidano).
-const LIVE2D_GESTURES = ['wave', 'happy', 'click', 'dance', 'think', 'stretch', 'yawn', 'search']
+const LIVE2D_GESTURES = ['wave', 'happy', 'click', 'dance', 'think', 'stretch', 'yawn', 'search',
+  'pat', 'flinch', 'giggle', 'hop', 'shy', 'scold', 'turnaway']
 const LIVE2D_EMOTIONS = ['joy', 'affection', 'sadness', 'annoyance', 'curiosity', 'calm']
 const LIVE2D_NAME_RE = /^[^\u0000-\u001f\u007f]{0,64}$/
 const AVATAR_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
@@ -246,6 +247,7 @@ function mergeConfig(current, incoming) {
   // Solo l'interruttore: la cartella di Kimodo (kimodoDir) si scrive a mano.
   if (typeof incoming.kimodo === 'boolean') merged.kimodo = incoming.kimodo
   if (typeof incoming.perch === 'boolean') merged.perch = incoming.perch
+  if (typeof incoming.touchReactions === 'boolean') merged.touchReactions = incoming.touchReactions
   if (typeof incoming.scale === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_SCALES, incoming.scale)) merged.scale = incoming.scale
   // Stanza: la scena scelta (solo il formato: room-scene.js ripiega sulla
   // prima se non esiste), e il meteo vero, spento di base, con la citta'.

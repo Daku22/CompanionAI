@@ -22,13 +22,18 @@ const { writeAtomic } = require('./write-atomic')
 // controlla che coincidano).
 // perch: seduto su una finestra vera. Non ha clip di serie (quella di Kimodo
 // per sit-edge abbassa il bacino), ma se ne puo' importare una con quel nome.
-const ANIMATION_SLOTS = ['idle', 'wave', 'think', 'walk-to', 'run-to', 'sit', 'sit-edge', 'perch', 'smoke', 'happy', 'click', 'dangle', 'search', 'stretch', 'yawn', 'doze', 'dance']
+// pat, flinch, giggle, hop, shy, scold, turnaway: le reazioni ai tocchi
+// (touch-react.js, Blocco 5b).
+const ANIMATION_SLOTS = ['idle', 'wave', 'think', 'walk-to', 'run-to', 'sit', 'sit-edge', 'perch', 'smoke', 'happy', 'click', 'dangle', 'search', 'stretch', 'yawn', 'doze', 'dance',
+  'pat', 'flinch', 'giggle', 'hop', 'shy', 'scold', 'turnaway']
 // Nomi per il menu "Prova", nello stesso ordine di ANIMATION_SLOTS.
 const SLOT_LABELS = {
   idle: 'A riposo', wave: 'Saluto', think: 'Pensa', 'walk-to': 'Camminata', 'run-to': 'Corsa',
   sit: 'Seduto a terra', 'sit-edge': 'Seduto sul bordo', perch: 'Seduto su una finestra', smoke: 'Fuma',
   happy: 'Contento', click: 'Clic', dangle: 'In braccio', search: 'Cerca', stretch: 'Si stiracchia',
   yawn: 'Sbadiglio', doze: 'Sonnecchia', dance: 'Balla',
+  pat: 'Carezza', flinch: 'Sussulto', giggle: 'Risatina', hop: 'Saltello', shy: 'Imbarazzo',
+  scold: 'Rimprovero', turnaway: 'Si gira di spalle',
 }
 const FILE_RE = /^[a-z0-9][a-z0-9._-]{0,80}\.vrma$/i
 const MAX_ANIMATION_BYTES = 30 * 1024 * 1024

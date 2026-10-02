@@ -69,6 +69,25 @@ fase.
 | Balla | ciclo | 6 s | A person dances happily, bouncing to the beat and swinging the arms. | `dance-allegro.bvh` |
 | Balla | ciclo | 6 s | A person does a slow, relaxed sway dance. | `dance-lento.bvh` |
 
+## Reazioni ai tocchi (Blocco 5b)
+
+Gesti brevi, da generare nella serie privata. Senza clip vale il ripiego
+procedurale di `vrm-animation.js`.
+
+| Gesto | Fase | Durata | Prompt | File |
+|---|---|---|---|---|
+| Carezza | gesto | 2 s | A person tilts the head to one side and lowers the shoulders, relaxed, as if enjoying a pat on the head. | `pat.bvh` |
+| Sussulto | gesto | 1 s | A person flinches, pulling the head back quickly, then relaxes. | `flinch.bvh` |
+| Risatina | gesto | 2 s | A person giggles, bending forward slightly with both hands on the belly. | `giggle.bvh` |
+| Saltello | gesto | 1 s | A person does a small hop in place. | `hop.bvh` |
+| Imbarazzo | gesto | 2 s | A person looks away shyly, hands together in front of the body, taking a small step back. | `shy.bvh` |
+| Rimprovero | gesto | 3 s | A person crosses the arms and shakes the head disapprovingly. | `scold.bvh` |
+| Si gira di spalle | gesto | 5 s | A person turns around, stands with the back to the viewer with arms crossed, then turns back. | `turnaway.bvh` |
+
+Nota per `turnaway`: il ripiego procedurale gira tutto il corpo da se'
+(`yaw` della clip). Una clip che si gira gia' da sola si somma a quel giro:
+se la si importa, va controllata.
+
 ## Controllo dopo l'import
 
 - Il gesto parte da solo appena importato: guardare la posa di partenza e

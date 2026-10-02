@@ -302,6 +302,11 @@ window.__companion3DTest = {
   shadow: () => shadow && { visible: shadow.visible, opacity: shadow.material.opacity, x: shadow.position.x, z: shadow.position.z },
   /** Converte in .vrma come l'import dal menu, senza la finestra di scelta. */
   convert: async (ext, data) => convertToVRMA(ext, data),
+  /** Dove cade un osso nella finestra, in px (per i tocchi in audit.mjs). */
+  boneScreen: (name) => {
+    const node = currentVrm && currentVrm.humanoid && currentVrm.humanoid.getRawBoneNode(name);
+    return node ? toWindowPx(node.getWorldPosition(new THREE.Vector3())) : null;
+  },
   /** Direzione nel mondo da un osso all'altro, sulle ossa vere del modello. */
   boneDir: (from, to) => {
     const h = currentVrm && currentVrm.humanoid;
@@ -372,10 +377,42 @@ function reportSeat(vrm) {
   api.setSeatAnchor({ x: feet.x, feet: feet.y, seat: seat.y });
 }
 
-// Un clic sull'avatar: sorride.
-window.addEventListener('companion-poke', () => {
+// ─── Tocchi (Blocco 5b) ─────────────────────────────────────────────────────
+// La zona sotto il cursore viene dalle ossa vere proiettate sullo schermo
+// (touch.js, zoneFromBones): segue la posa, la camera ruotata e l'avatar in
+// braccio, e costa una decina di proiezioni, non un raycast sulla mesh.
+const ZONE_BONES = ['hips', 'neck', 'head', 'leftHand', 'rightHand', 'leftLowerArm', 'rightLowerArm', 'leftUpperArm', 'rightUpperArm'];
+const boneWorld = new THREE.Vector3();
+function zone3D(x, y) {
+  const h = currentVrm && currentVrm.humanoid;
+  if (!h || !camera) return null;
+  const pts = {};
+  for (const name of ZONE_BONES) {
+    const node = h.getRawBoneNode(name);
+    if (node) pts[name] = toWindowPx(node.getWorldPosition(boneWorld));
+  }
+  // Di spalle la sinistra dell'avatar sta a sinistra sullo schermo: il verso
+  // si legge dal prodotto vettoriale fra la colonna e la linea delle spalle.
+  let facingAway = false;
+  const { hips, neck, leftUpperArm: l, rightUpperArm: r } = pts;
+  if (hips && neck && l && r) facingAway = (neck.x - hips.x) * (l.y - r.y) - (neck.y - hips.y) * (l.x - r.x) < 0;
+  return window.CompanionTouch.zoneFromBones({ x, y }, pts, { facingAway });
+}
+
+// Seduto su una finestra i gesti in piedi (saltello, mani sulla pancia)
+// starebbero male: resta il volto, e i gesti che vanno bene anche seduti.
+const SEATED_SLOTS = new Set(['pat', 'flinch', 'scold', 'turnaway']);
+
+// La reazione decisa dal main (touch-react.js): gesto, espressione, battuta.
+window.addEventListener('companion-touch', (e) => {
   if (!window.__threeVisible || dragging || !currentVrm) return;
-  react('happy', 1.0, 1500);
+  const r = e.detail && e.detail.reaction;
+  if (!r) return;
+  if (r.off) { react('happy', 1.0, 1500); return; }
+  clearReactions();
+  if (!perchPhase || SEATED_SLOTS.has(r.slot)) playClip(r.slot);
+  react(r.expression, r.weight, r.ms);
+  if (r.line) showBubble(r.line, 2600);
 });
 
 /** Dove guarda: angoli dalla testa al punto del cursore, e bersaglio degli occhi. */
@@ -735,6 +772,8 @@ const SLOT_LABELS = {
   'sit-edge': 'Seduto sul bordo', perch: 'Seduto su una finestra', dangle: 'In braccio', stretch: 'Si stiracchia', yawn: 'Sbadiglio',
   doze: 'Sonnecchia', dance: 'Balla', 'walk-to': 'Camminata', 'run-to': 'Corsa', search: 'Cerca',
   smoke: 'Fuma', click: 'Clic',
+  pat: 'Carezza', flinch: 'Sussulto', giggle: 'Risatina', hop: 'Saltello', shy: 'Imbarazzo',
+  scold: 'Rimprovero', turnaway: 'Si gira di spalle',
 };
 const SLOT_HINTS = [
   [/(ledge|edge|bordo|dangling legs)/, 'sit-edge'], [/(stretch|stiracch)/, 'stretch'],
@@ -743,6 +782,9 @@ const SLOT_HINTS = [
   [/(walk|cammin)/, 'walk-to'], [/(run|jog|corr)/, 'run-to'], [/(sit|seat|sedu|sied)/, 'sit'],
   [/(hang|dangl|drag|carr|brac)/, 'dangle'], [/(happy|cheer|joy|clap|content)/, 'happy'],
   [/(search|look|cerc)/, 'search'], [/(smok|fum)/, 'smoke'], [/(click|type|typing)/, 'click'],
+  [/(pat|carezz|stroke)/, 'pat'], [/(flinch|startl|sussult)/, 'flinch'], [/(giggl|laugh|tickl|rid|solletic)/, 'giggle'],
+  [/(hop|jump|salt)/, 'hop'], [/(shy|embarrass|imbaraz)/, 'shy'], [/(scold|angry|cross|rimprover)/, 'scold'],
+  [/(turn.?away|sulk|spalle)/, 'turnaway'],
 ];
 const guessSlot = (name) => (SLOT_HINTS.find(([re]) => re.test(name.toLowerCase())) || [null, 'idle'])[1];
 // Fase di una clip per uno slot ciclico (seduto, a riposo, camminata).
@@ -859,6 +901,7 @@ function show2D() {
   if (controls) controls.enabled = roomMode;
   if (body) body.visible = false;
   window.CompanionInput.setProbe(window.hitTest2D);
+  window.CompanionInput.setZoneProbe(window.zone2D);
   document.body.classList.remove('mode-3d');
   if (window.set2DActive) window.set2DActive(true);
   pixi.style.display = 'block';
@@ -873,6 +916,7 @@ function show3D() {
   window.unload2DAvatar();
   if (window.unloadLive2DAvatar) window.unloadLive2DAvatar();
   window.CompanionInput.setProbe(probe3D);
+  window.CompanionInput.setZoneProbe(zone3D);
   ensureThree();
   controls.enabled = true;
   body.visible = true;

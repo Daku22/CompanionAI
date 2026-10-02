@@ -52,6 +52,23 @@ Va fatto prima del resto, perché tutti i tocchi passano di qui.
 
 ## 5b — tocchi con reazioni
 
+**Fatto il 2 ottobre.** Differenze dal piano:
+- la parte del renderer (zone, carezza) sta in `touch.js`; stato dei clic,
+  tabella delle reazioni e battute stanno nel main (`touch-react.js`,
+  `touch-lines.js`), perche' `src/renderer/` e' a moduli ES e il main non
+  puo' caricare `touch.js`. Il main rimanda al renderer la reazione da
+  recitare, e l'interruttore vive li';
+- nel 3D niente raycast sulle mesh: le ossa proiettate sullo schermo
+  (`zoneFromBones`) bastano e costano una decina di proiezioni;
+- un clic sulla testa (non una carezza) da' una carezza breve (`headTap`);
+- la carezza vuole oscillazioni di almeno 12 px, perche' con passi piccoli
+  il tremolio contava;
+- la tabella delle altezze "full" e' misurata sugli sprite di Yanineko
+  (circa sei teste); un Live2D largo usa quella del busto;
+- seduto su una finestra il 3D tiene solo carezza, sussulto, rimprovero e
+  giro di spalle; il 2D salta il saltello;
+- la voce non dice ancora le battute: solo il fumetto.
+
 **Zone:** `head`, `face`, `chest`, `belly`, `lowerBelly`, `hand`, `legs`.
 **Tipi di tocco:**
 - `poke`: un clic;

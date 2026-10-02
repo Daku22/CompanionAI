@@ -401,7 +401,8 @@ I pulsanti 💬 e 🔄 compaiono solo con il mouse sull'avatar.
 tremolio della mano non fa partire il trascinamento; tenuto premuto più di
 350 ms bastano 4 px, e tenuto fermo per 600 ms lo si prende in braccio senza
 spostarlo. Le distanze sono in px di Electron, già al netto della scala di
-Windows. Il clic manda `companion-poke` con il punto premuto. La finestra la sposta il main a 60 Hz, seguendo il cursore,
+Windows. Il clic manda `companion-poke` con il punto premuto e la zona del
+corpo. La finestra la sposta il main a 60 Hz, seguendo il cursore,
 e manda la velocità alla pagina (`drag-motion`):
 - `sway.js` è una molla smorzata (2,6 Hz, smorzamento 0,35, al massimo 25° di
   lato e 12° in avanti) spinta da quella velocità;
@@ -410,6 +411,40 @@ e manda la velocità alla pagina (`drag-motion`):
   passa alla posa `dangle`;
 - capelli e vestiti: alla gravità di ogni spring bone si somma una forza
   contraria al movimento.
+
+**Tocchi e reazioni.** Ogni clic ha una zona: testa, viso, petto, pancia,
+basso ventre, mano, gambe (`touch.js`).
+- Nel 3D la zona viene dalle ossa vere proiettate sullo schermo
+  (`zoneFromBones`), quindi segue la posa, la camera ruotata e l'avatar
+  inclinato. Visto da dietro il basso ventre non c'è.
+- Nel 2D e in Live2D viene dall'altezza del punto nella figura. Un pacchetto 2D
+  può dare le sue righe (`touchZones` in `sprites.json`, per esempio
+  `[["head", 0.13], ["face", 0.24], ...["legs", 1]]`). In Live2D contano
+  prima le aree di tocco del modello, e un modello largo è un busto, senza
+  basso ventre.
+- Il mouse che va avanti e indietro sulla testa, senza tasti, è una carezza:
+  almeno tre cambi di direzione in 1,2 s, ognuno dopo almeno 12 px, così il
+  tremolio non conta.
+
+La reazione la decide il main (`touch-react.js`), così vale uguale per i tre
+renderer: testa → carezza, viso → sussulto, petto e pancia → risatina, mano e
+gambe → saltello. Solo i clic ripetuti sul basso ventre danno fastidio, a
+gradini: imbarazzo, poi rimprovero, poi si gira di spalle per 5 s; ogni 20 s
+senza clic si scende di un gradino, e una carezza lo addolcisce. Tanti clic
+fitti ovunque lo fanno ridere più in fretta e poi lo stufano un poco. Ogni
+tocco sposta un po' l'umore, a volte porta una battuta (`touch-lines.js`,
+locali, senza genere) e l'ultimo entra nel prompt per tre minuti.
+- Nel 3D ogni reazione è uno slot (`pat`, `flinch`, `giggle`, `hop`, `shy`,
+  `scold`, `turnaway`): con una clip importata per quello slot vale la clip,
+  altrimenti un ripiego procedurale in `vrm-animation.js`. Seduto su una
+  finestra restano solo i gesti che stanno bene seduti.
+- In Live2D si cerca un gruppo di movimenti per nome (si può cambiare nella
+  scheda Live2D), altrimenti si muovono testa, corpo, occhi e guance.
+- Nel 2D c'è un'animazione del pacchetto più un movimento dello sprite
+  (saltello, tremolio, scatto, giro).
+
+"Reagisce ai tocchi" nelle Impostazioni spegne tutto: un clic torna a dare
+solo il sorriso.
 
 Posato, l'avatar resta dentro l'area di lavoro dello schermo. Prima lo
 spostava Windows con `-webkit-app-region: drag`: niente velocità, e il tasto

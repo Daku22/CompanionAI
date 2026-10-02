@@ -24,6 +24,15 @@
     stretch: [/stretch/i, /flick.?up/i],
     yawn: [/yawn|sleepy|tired/i, /flick.?down/i],
     search: [/search|look/i],
+    // Reazioni ai tocchi (Blocco 5b). Senza un gruppo adatto restano a null e
+    // companion-live2d.js muove testa, corpo e occhi da se'.
+    pat: [/pat|stroke|nade/i, /tap@head/i],
+    flinch: [/surpris|startl|flinch/i, /tap@face/i],
+    giggle: [/laugh|giggle|tickl/i],
+    hop: [/jump|hop/i],
+    shy: [/shy|blush|embarrass/i],
+    scold: [/angry|anger|scold|mad/i],
+    turnaway: [/turn.?away|sulk|ignore/i],
   }
   const GESTURES = Object.keys(GESTURE_PATTERNS)
   const IDLE_PATTERNS = [/^idle$/i, /idle/i]

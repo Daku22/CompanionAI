@@ -72,8 +72,46 @@ function sittingOnEdge(t) {
   }
 }
 
+// Curve per i gesti brevi. smooth: da 0 a 1 senza scatti; envelope: sale in
+// `edge` secondi, tiene, scende negli ultimi `edge`; jolt: scatto rapido in
+// `attack` secondi, poi si spegne con velocita' `rate`.
+const smooth = (x) => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c) }
+const envelope = (t, duration, edge) => smooth(t / edge) * smooth((duration - t) / edge)
+const jolt = (t, attack, rate) => (t < attack ? t / attack : Math.exp(-(t - attack) * rate))
+
+// Con il braccio lungo il fianco, x sull'omero lo porta avanti (positivo) o
+// indietro, e y sull'avambraccio piega il gomito in avanti (positivo a
+// destra, negativo a sinistra). z sull'avambraccio lo apre di lato: non e'
+// il gomito. y sull'omero lo ruota verso l'interno (positivo a destra,
+// negativo a sinistra) e porta le mani verso il centro. Verificato di
+// fronte e di profilo su Fred (VRM 1.0).
+
+// Mani davanti alla pancia, con peso c; flex piega il gomito (piu' alto =
+// mani piu' in alto).
+function handsInFront(c, flex = 1.35) {
+  return {
+    rightUpperArm: { x: 0.25 * c, z: -0.08 * c, y:  0.75 * c },
+    leftUpperArm:  { x: 0.25 * c, z:  0.08 * c, y: -0.75 * c },
+    rightLowerArm: { y:  flex * c },
+    leftLowerArm:  { y: -flex * c },
+  }
+}
+
+// Braccia incrociate sul petto, con peso c.
+function crossedArms(c) {
+  return {
+    rightUpperArm: { x: 0.4 * c, z:  0.1 * c, y:  1.0 * c },
+    leftUpperArm:  { x: 0.4 * c, z: -0.1 * c, y: -1.0 * c },
+    rightLowerArm: { y:  1.9 * c },
+    leftLowerArm:  { y: -1.9 * c },
+    chest: { x: -0.04 * c },
+  }
+}
+
 // duration 0 = ciclica finche' non arriva un altro trigger.
 // pose(t) restituisce SOLO gli scostamenti dalla posa di riposo.
+// yaw(t), facoltativo: rotazione di tutto il corpo attorno alla verticale
+// (turnaway), sommata al verso della marcia e pesata come la clip.
 export const CLIPS = {
   idle: {
     duration: 0,
@@ -271,6 +309,90 @@ export const CLIPS = {
       chest: { y: Math.sin(t * 1.8) * 0.10 },
     }),
   },
+  // ─── Reazioni ai tocchi (touch-react.js nel main, Blocco 5b) ─────────────
+  // Ripieghi procedurali: le clip Kimodo, se ci sono, li sostituiscono.
+  // Accarezzato: testa inclinata verso la mano, spalle che scendono.
+  pat: {
+    duration: 2.2,
+    pose: (t) => {
+      const c = envelope(t, 2.2, 0.35)
+      return {
+        head:  { z: (0.22 + Math.sin(t * 2.2) * 0.04) * c, x: -0.1 * c },
+        neck:  { z: 0.05 * c },
+        chest: { x: 0.04 * c },
+        rightUpperArm: { z: -0.05 * c },
+        leftUpperArm:  { z:  0.05 * c },
+      }
+    },
+  },
+  // Toccato sul viso: piccolo scatto indietro della testa.
+  flinch: {
+    duration: 1.0,
+    pose: (t) => {
+      const j = jolt(t, 0.1, 4)
+      return {
+        head:  { x: 0.22 * j },
+        chest: { x: -0.08 * j },
+        rightUpperArm: { z:  0.25 * j },
+        leftUpperArm:  { z: -0.25 * j },
+      }
+    },
+  },
+  // Solletico su petto o pancia: si piega e ride a scatti.
+  giggle: {
+    duration: 1.6,
+    pose: (t) => {
+      const c = envelope(t, 1.6, 0.2)
+      const shake = Math.sin(t * 16) * 0.035 * c
+      return {
+        ...handsInFront(c),
+        spine: { x: 0.06 * c },
+        chest: { x: 0.12 * c + shake },
+        head:  { x: -0.06 * c + shake },
+      }
+    },
+  },
+  // Saltello sul posto: si piega, salta, atterra.
+  hop: {
+    duration: 0.8,
+    pose: (t) => {
+      const crouch = t < 0.15 ? t / 0.15 : t < 0.25 ? 1 - (t - 0.15) / 0.1 : t > 0.6 ? Math.max(0, 1 - Math.abs(t - 0.68) / 0.08) : 0
+      const air = t >= 0.2 && t <= 0.6 ? Math.sin(Math.PI * (t - 0.2) / 0.4) : 0
+      return {
+        hips: { y: 0.07 * air - 0.03 * crouch },
+        leftUpperLeg:  { x: 0.3 * crouch },
+        rightUpperLeg: { x: 0.3 * crouch },
+        leftLowerLeg:  { x: -0.55 * crouch },
+        rightLowerLeg: { x: -0.55 * crouch },
+        rightUpperArm: { z:  0.35 * air },
+        leftUpperArm:  { z: -0.35 * air },
+      }
+    },
+  },
+  // Imbarazzo: mani davanti, sguardo di lato e in basso.
+  shy: {
+    duration: 1.8,
+    pose: (t) => {
+      const c = envelope(t, 1.8, 0.25)
+      return {
+        ...handsInFront(c, 1.0),
+        head:  { y: 0.35 * c, x: -0.14 * c },
+        neck:  { y: 0.1 * c },
+        chest: { x: 0.05 * c },
+      }
+    },
+  },
+  // Rimprovero: braccia incrociate, testa che scuote.
+  scold: {
+    duration: 2.4,
+    pose: (t) => ({ ...crossedArms(envelope(t, 2.4, 0.3)), head: { y: Math.sin(t * 9) * 0.18 * Math.max(0, 1 - t / 1.4), x: -0.04 } }),
+  },
+  // Offeso: si gira di spalle per qualche secondo (yaw gira tutto il corpo).
+  turnaway: {
+    duration: 5.0,
+    pose: (t) => ({ ...crossedArms(envelope(t, 5.0, 0.4)), head: { x: -0.1 } }),
+    yaw: (t) => Math.PI * smooth(t / 0.7) * (1 - smooth((t - 4.2) / 0.7)),
+  },
   // Movimento generato da Kimodo su richiesta (kimodo-service.js): la clip
   // vera la mette clip-layer.js; qui solo il respiro sotto, e la durata di
   // ripiego se la clip non arriva.
@@ -295,6 +417,7 @@ export const CLIP_ALIAS = {
   drag: 'dangle', dangle: 'dangle',
   'sit-edge': 'sit-edge', perch: 'perch', stretch: 'stretch', yawn: 'yawn',
   doze: 'doze', sleep: 'doze', dance: 'dance',
+  pat: 'pat', flinch: 'flinch', giggle: 'giggle', hop: 'hop', shy: 'shy', scold: 'scold', turnaway: 'turnaway',
   [GENERATED]: GENERATED,
 }
 
@@ -322,7 +445,7 @@ export const LOOK_LIMITS = {
 }
 // Quanto segue il mouse durante ogni clip: pieno a riposo, per niente mentre
 // cammina, siede o penzola, dove girare la testa sembrerebbe un difetto.
-export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8 }
+export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4 }
 const LOOK_RATE = 7          // inseguimento del bersaglio, 1/s
 const LOOK_WEIGHT_RATE = 3   // entrata e uscita del peso, 1/s
 
@@ -398,6 +521,7 @@ export function createVRMAnimator(getBone) {
   let clipEnding   = false
   let facingYaw    = 0
   let facingTarget = 0
+  let turnYaw      = 0   // giro di tutto il corpo della clip in corso (yaw)
   let lookTarget   = { yaw: 0, pitch: 0 }
   let look         = { yaw: 0, pitch: 0 }
   let lookWeight   = 0
@@ -545,14 +669,15 @@ export function createVRMAnimator(getBone) {
       applyPose(vrm, pose)
 
       facingYaw += (facingTarget - facingYaw) * Math.min(1, delta * 6)
-      if (vrm && vrm.scene) vrm.scene.rotation.y = baseYaw(vrm) + facingYaw
+      const turn = turnYaw = active.yaw && clipName !== 'idle' ? active.yaw(clipElapsed) * clipWeight : 0
+      if (vrm && vrm.scene) vrm.scene.rotation.y = baseYaw(vrm) + facingYaw + turn
 
-      return { clip: clipName, ending: clipEnding, weight: clipWeight, yaw: facingYaw, pose, lookWeight, lookParts }
+      return { clip: clipName, ending: clipEnding, weight: clipWeight, yaw: facingYaw + turn, pose, lookWeight, lookParts }
     },
 
     /** Stato interno, per i test. */
     debug() {
-      return { clipName, restName, clipElapsed, clipWeight, clipEnding, facingYaw, facingTarget, look, lookWeight }
+      return { clipName, restName, clipElapsed, clipWeight, clipEnding, facingYaw, facingTarget, turnYaw, look, lookWeight }
     },
   }
 }

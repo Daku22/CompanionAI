@@ -24,6 +24,7 @@ const XTTS_LICENSE_URL = 'https://huggingface.co/coqui/XTTS-v2/blob/6c2b0d75eae4
 const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
+const touchReact = require('./touch-react')
 const { decideIdle } = require('./idle-life')
 
 let companionWindow = null
@@ -61,11 +62,14 @@ const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 // kimodo: movimenti nuovi generati in locale (kimodo-service.js); kimodoDir
 // si scrive solo a mano in config.json, mai dalla UI.
 // perch: posato sul bordo di una finestra o della taskbar, ci si siede (perch.js).
+// touchReactions: reagisce ai tocchi per zona (touch-react.js); spento, un clic
+// da' solo il sorriso di prima.
 // view: 'desktop' (trasparente, sul desktop) o 'room' (la stanza, room.js);
 // roomBounds: dove era la stanza, la scrive solo il main.
 const DEFAULT_CONFIG = {
   provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true,
   followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, perch: true, view: 'desktop', keys: {},
+  touchReactions: true,
 }
 
 function loadEnvFile() {
@@ -130,6 +134,7 @@ function loadConfig() {
   cfg.alwaysOnTop = cfg.alwaysOnTop !== false
   cfg.kimodo = cfg.kimodo === true
   cfg.perch = cfg.perch !== false
+  cfg.touchReactions = cfg.touchReactions !== false
   cfg.view = cfg.view === 'room' ? 'room' : 'desktop'
   if (typeof cfg.scale !== 'string' || !Object.prototype.hasOwnProperty.call(WINDOW_SCALES, cfg.scale)) cfg.scale = DEFAULT_CONFIG.scale
   if (!PROVIDERS[cfg.provider]) { cfg.provider = DEFAULT_CONFIG.provider; cfg.model = DEFAULT_CONFIG.model }
@@ -303,7 +308,8 @@ async function buildHistoryWithMemory(rendererHistory) {
 // Umore, ora del giorno e tempo dall'ultimo messaggio entrano come messaggio di
 // sistema subito dopo la memoria: prepare() nel router li unisce in ordine.
 function withMoodLine(history) {
-  const line = { role: 'system', content: moodLib.promptLine(mood) }
+  const touched = touchReact.touchPromptText(lastTouch, Date.now())
+  const line = { role: 'system', content: moodLib.promptLine(mood) + (touched ? ' ' + touched : '') }
   const firstDialog = history.findIndex(m => m.role !== 'system')
   if (firstDialog === -1) return [...history, line]
   return [...history.slice(0, firstDialog), line, ...history.slice(firstDialog)]
@@ -1254,6 +1260,8 @@ const IDLE_WALK_MAX_PX = 300
 const DRAG_MOOD_EVERY_MS = 30 * 1000
 
 let idleLifeEnabled = true
+// Reazioni ai tocchi (touch-react.js), dalla config: vedi applyWindowOptions.
+let touchEnabled = true
 let idleTimer = null
 let gestureTimer = null
 let awaitingReply = false
@@ -1879,6 +1887,7 @@ function applyScale(scale) {
 /** Applica le opzioni della config che toccano finestra e comportamento. */
 function applyWindowOptions(cfg) {
   idleLifeEnabled = cfg.idleLife !== false
+  touchEnabled = cfg.touchReactions !== false
   followMouse = cfg.followMouse !== false
   perchEnabled = cfg.perch !== false
   // Spento Kimodo, la memoria video si libera subito.
@@ -2070,6 +2079,34 @@ on('mouse:capture', (_e, capture) => {
   companionWindow.setIgnoreMouseEvents(capture !== true, { forward: true })
 })
 on('companion:menu', () => { showCompanionMenu().catch(e => console.error('[menu]', e.message)) })
+// Tocchi sull'avatar (Blocco 5b): il renderer dice zona e tipo, qui si
+// decide la reazione (touch-react.js), si sposta l'umore e torna cosa
+// recitare. Al massimo un tocco ogni TOUCH_MIN_MS: la pagina non e' fidata,
+// e un ciclo di clic non deve poter far correre l'umore.
+const TOUCH_MIN_MS = 300
+const touchState = touchReact.createTouchState()
+/** @type {Record<string, string>} */
+const touchLines = {}
+let lastTouch = null
+let lastTouchAt = 0
+handle('companion:touch', (_e, input) => {
+  if (!touchEnabled) return { off: true }
+  const touch = touchReact.checkTouch(input)
+  const now = Date.now()
+  if (!touch || now - lastTouchAt < TOUCH_MIN_MS) return null
+  lastTouchAt = now
+  const result = touchState.onTouch(touch.zone, touch.kind, now)
+  if (!result) return null
+  const r = touchReact.REACTIONS[result.name]
+  updateMood(m => Object.entries(r.mood).reduce((acc, [name, delta]) => moodLib.nudge(acc, name, delta), moodLib.decay(m, now)))
+  lastTouch = { name: result.name, zone: result.zone, kind: result.kind, at: now }
+  return {
+    name: result.name, step: result.step, zone: result.zone, kind: result.kind,
+    slot: r.slot, expression: r.expression, weight: r.weight, ms: r.ms,
+    line: touchReact.pickLine(r.line, r.chance, touchLines),
+  }
+})
+
 // Ombra e seduta dentro la finestra, in px: solo numeri, la finestra li limita.
 on('companion:seat-anchor', (_e, anchor) => {
   if (!anchor || ![anchor.x, anchor.feet, anchor.seat].every(Number.isFinite)) return

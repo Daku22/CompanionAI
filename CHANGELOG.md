@@ -9,6 +9,20 @@
 - A click no longer turns into a drag when the hand shakes a little: a press
   becomes a drag only past 10 px, or past 4 px when held for 350 ms. Holding
   still for 600 ms picks the avatar up. The click reaction now fires reliably.
+- Touch reactions: every click lands on a zone (head, face, chest, belly,
+  lower belly, hand, legs) and gets its own reaction. In 3D the zone comes
+  from the real bones projected on screen; in 2D and Live2D from the height
+  in the figure, or from the pack's `touchZones` and the model's hit areas.
+  - Moving the mouse back and forth over the head, without pressing, is a
+    pat.
+  - Only repeated clicks on the lower belly annoy it, in steps: embarrassed,
+    then scolding, then it turns its back for 5 s. The other zones stay
+    friendly; lots of fast clicks make it giggle, then tire of it a little.
+  - Each touch nudges the mood, sometimes brings a short local line, and the
+    last one reaches the model's prompt for three minutes.
+  - New animation slots for the reactions, with procedural fallbacks in 3D,
+    motion groups or hand-moved parameters in Live2D, and sprite moves in 2D.
+  - "Reagisce ai tocchi" in the settings, on by default.
 
 ## 1.0.0 — first public release
 

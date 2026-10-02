@@ -242,7 +242,8 @@ function tick2D(ticker) {
   }
 
   charC.x = State.posX;
-  charC.y = groundY;
+  // Anche charC.y: a terra, piu' il movimento di una reazione ai tocchi.
+  applyTouchFx(groundY);
 
   const bob    = Math.sin(t * 3.2) * 1.8;
   const breath = 1 + Math.sin(t * 2.0) * 0.014;
@@ -389,6 +390,7 @@ function startDrag() {
   if (State.dragging) return;
   State.dragging = true;
   sway.reset();
+  touchFx = null;
   if (animations.idle) {
     setAnim('idle');   // use idle frame while dangling
     charSprite.stop(); // freeze frame
@@ -468,12 +470,103 @@ window.hitTest2D = (x, y) => {
 // Finche' companion-3d.js non sceglie un avatar vale il 2D (anche la sagoma di ripiego).
 window.CompanionInput.setProbe(window.hitTest2D);
 
-// Un clic sull'avatar: una reazione breve.
-window.addEventListener('companion-poke', () => {
+// ── Tocchi (Blocco 5b) ──────────────────────────────────────────────────────
+// La zona viene dall'altezza del punto nel fotogramma: le righe le puo' dare
+// il pacchetto (sprites.json, "touchZones"), altrimenti la tabella "full" di
+// touch.js, misurata su una figura intera di circa sei teste.
+let touchTable = 'full';
+window.zone2D = (x, y) => {
+  if (!charSprite || window.__threeVisible) return null;
+  const tex = charSprite.texture;
+  const local = charSprite.toLocal(new PIXI.Point(x, y));
+  const v = local.y + charSprite.anchor.y * tex.frame.height;
+  return window.CompanionTouch.zoneFromHeight(v / tex.frame.height, touchTable);
+};
+window.CompanionInput.setZoneProbe(window.zone2D);
+
+// Le strip non hanno gesti per ogni reazione: un'animazione del pacchetto
+// (se manca, setAnim ripiega su idle) piu' un movimento del contenitore.
+const TOUCH_2D = {
+  pat:      { anim: 'happy', fx: 'tilt' },
+  flinch:   { anim: null,    fx: 'jolt' },
+  giggle:   { anim: 'happy', fx: 'wobble' },
+  hop:      { anim: 'happy', fx: 'hop' },
+  shy:      { anim: 'think', fx: 'shrink' },
+  scold:    { anim: 'think', fx: 'shake' },
+  turnaway: { anim: 'idle',  fx: 'turn' },
+};
+let touchFx = null;   // { name, start, ms }
+let touchAnimTimer = null;
+
+const ease = (x) => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c); };
+
+/** Il movimento della reazione, sul contenitore: i rami del tick toccano solo lo sprite. */
+function applyTouchFx(groundY) {
+  charC.rotation = 0;
+  charC.pivot.set(0, 0);
+  charC.scale.set(1, 1);
+  charC.alpha = 1;
+  charC.y = groundY;
+  if (!touchFx) return;
+  const ms = performance.now() - touchFx.start;
+  const p = ms / touchFx.ms;
+  if (p >= 1) { touchFx = null; return; }
+  const env = ease(p / 0.15) * ease((1 - p) / 0.2);
+  const tt = ms / 1000;
+  switch (touchFx.name) {
+    case 'tilt': charC.rotation = 0.09 * Math.sin(Math.PI * p) * State.dir; break;
+    case 'jolt': {
+      const j = p < 0.1 ? p / 0.1 : Math.exp(-(p - 0.1) * 5);
+      charC.pivot.x = 8 * j * State.dir;
+      charC.rotation = -0.06 * j * State.dir;
+      break;
+    }
+    case 'wobble':
+      charC.rotation = 0.05 * Math.sin(tt * 28) * env;
+      charC.y = groundY + 2 * Math.abs(Math.sin(tt * 28)) * env;
+      break;
+    case 'hop': charC.y = groundY - 26 * Math.sin(Math.PI * Math.min(1, p / 0.7)) * (p < 0.7 ? 1 : 0); break;
+    case 'shrink':
+      charC.scale.y = 1 - 0.05 * env;
+      charC.rotation = 0.04 * env * State.dir;
+      charC.pivot.x = 5 * env * State.dir;
+      break;
+    case 'shake': charC.pivot.x = 5 * Math.sin(tt * 40) * (1 - p); break;
+    case 'turn': {
+      // Si gira: lo sprite si stringe fino a sparire e torna specchiato, un
+      // po' piu' scuro, come di spalle; alla fine si rigira.
+      const away = ease(p / 0.08) * (1 - ease((p - 0.9) / 0.08));
+      charC.scale.x = Math.cos(Math.PI * away);
+      charC.alpha = 1 - 0.15 * away;
+      break;
+    }
+  }
+}
+
+// La reazione decisa dal main (touch-react.js). Solo da fermo: mentre
+// cammina, fuma o saluta il gesto in corso vince.
+window.addEventListener('companion-touch', (e) => {
   if (window.__threeVisible || State.dragging || !charSprite) return;
-  if (State.name !== 'idle' && State.name !== 'sit') return;
-  setAnim('happy');
-  setTimeout(() => { if (!State.dragging && State.name === 'happy') setAnim('idle'); }, 1500);
+  const r = e.detail && e.detail.reaction;
+  if (!r) return;
+  if (State.name !== 'idle' && State.name !== 'sit' && State.name !== 'happy' && State.name !== 'think') return;
+  if (r.off) {
+    if (State.name === 'sit') return;
+    setAnim('happy');
+    setTimeout(() => { if (!State.dragging && State.name === 'happy') setAnim('idle'); }, 1500);
+    return;
+  }
+  const how = TOUCH_2D[r.slot] || { anim: 'happy', fx: null };
+  // Seduto resta seduto: niente saltello, il resto si', sulla seduta.
+  if (State.perched && how.fx === 'hop') { if (r.line) showBubble(r.line, 2600); return; }
+  if (how.fx) touchFx = { name: how.fx, start: performance.now(), ms: Math.max(600, r.ms) };
+  if (how.anim && !State.perched) {
+    setAnim(how.anim);
+    clearTimeout(touchAnimTimer);
+    const anim = State.name;
+    touchAnimTimer = setTimeout(() => { if (!State.dragging && State.name === anim && anim !== 'idle') setAnim('idle'); }, r.ms);
+  }
+  if (r.line) showBubble(r.line, 2600);
 });
 
 // Mappa animazioni AI (SYSTEM_PROMPT) -> animazioni 2D reali.
@@ -615,6 +708,7 @@ window.load2DAvatar = async (manifest, baseUrl) => {
   names.forEach((name, i) => { stripTextures[name] = bases[i]; });
   for (const name of names) animations[name] = buildAnimation(name, STRIPS[name].fps || 0.1);
   bubbles = packBubbles(manifest);
+  touchTable = window.CompanionTouch.heightTableFrom(manifest.touchZones) || 'full';
   setAnim('wave');
   if (bubbles.hello) showBubble(bubbles.hello, 2500);
   setTimeout(() => { if (State.name === 'wave') setAnim('idle'); }, 2600);

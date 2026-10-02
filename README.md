@@ -46,6 +46,12 @@ yourself from source if you prefer (see below).
   hair follows the motion. A click with a shaky hand stays a click; hold the
   button still for a moment to pick it up without moving it.
 - In 3D it turns its head toward the mouse; in 2D it faces the mouse's side.
+- It reacts to where you touch it: a tap on the face startles it, on the
+  belly it giggles, on the legs it hops. Move the mouse back and forth over
+  its head, without pressing, to pat it. Clicking its lower belly again and
+  again embarrasses it, then it scolds you, then it turns its back for a few
+  seconds. Touches nudge its mood, and the model hears about the last one.
+  "Reagisce ai tocchi" in the settings turns this off.
 - In 3D, drag with the right or middle button to turn the camera around it,
   hold Alt while dragging to move the camera instead, and use the wheel to
   zoom. Double-click the middle button (or "Rimetti la camera" in the menu)

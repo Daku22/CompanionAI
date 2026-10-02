@@ -892,6 +892,41 @@ senza licenza, la tabella delle scelte cambia il movimento al volo.
 Non ancora: modelli Cubism 2 (serve `live2d.min.js`, non piu' distribuito da
 Live2D), suoni dei movimenti, specchiare il modello quando cammina.
 
+## Blocco 5b: tocchi con reazioni (2026-10-02)
+
+**Dove.** La zona la dice il renderer attivo a `companion-input.js`
+(`setZoneProbe`). Nel 3D niente raycast: le ossa vere proiettate sullo
+schermo e `zoneFromBones` in `touch.js` (cerchio della testa sopra la base
+del cranio, linea degli occhi, poi la colonna dal bacino al collo), una
+decina di proiezioni per clic. Seguono la posa, la camera ruotata e l'avatar
+inclinato; di spalle si riconosce dal verso della linea delle spalle e il
+basso ventre diventa gambe. Nel 2D e in Live2D conta l'altezza nella figura:
+la tabella "full" e' misurata sugli sprite di Yanineko (circa sei teste),
+Live2D usa prima le HitAreas e, se il modello e' largo, la tabella del busto.
+
+**Come.** La reazione la decide il main (`touch-react.js`): `src/renderer/` e'
+a moduli ES e il main non puo' fare `require` di `touch.js` (torna un modulo
+vuoto, senza errori). Il renderer manda zona e tipo, il main tiene i gradini
+del basso ventre e i clic fitti, sposta l'umore, sceglie la battuta e
+rimanda cosa recitare. Un tocco ogni 300 ms al massimo, e l'ultimo entra nel
+prompt per tre minuti.
+
+**Pose.** Gli assi delle braccia verificati di profilo su Fred, con pose di
+prova girate di 90 gradi (`preview-clips.mjs` modificato): con il braccio
+lungo il fianco x sull'omero lo porta avanti, y sull'avambraccio piega il
+gomito in avanti (positivo a destra), y sull'omero lo ruota verso l'interno.
+Il primo tentativo usava z sull'avambraccio, che apre il braccio di lato.
+`turnaway` gira tutto il corpo con un `yaw` nuovo nelle clip, sommato al
+verso della marcia.
+
+**Prova.** Audit con `--live2d`: zone dalle ossa, risatina sul petto,
+carezza sulla testa, basso ventre shy > scold > scold > turnaway con il
+fastidio che sale, giro vero di spalle, nessuna reazione mentre e' girato,
+interruttore spento; in Live2D zone per altezza e reazione al clic.
+
+Non ancora: la voce non dice le battute; le clip Kimodo delle reazioni
+(prompt in `docs/kimodo-prompts.md`) sono da generare.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

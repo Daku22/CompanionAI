@@ -7,7 +7,10 @@
 //   finestra seguendo il cursore e manda la velocita' (drag-motion). Quando
 //   un clic diventa una presa lo decide touch.js (pressAction): il tremolio
 //   della mano resta un clic, e tenuto fermo a lungo lo prende in braccio.
-// - Clic: una piccola reazione (companion-poke, con il punto premuto).
+// - Clic: una reazione per la zona toccata (testa, viso, pancia...). La zona
+//   la dice il renderer attivo (setZoneProbe), la reazione la decide il main
+//   (touch-react.js) e torna con l'evento companion-touch. Il mouse avanti e
+//   indietro sulla testa, senza tasti, e' una carezza (createRubDetector).
 //   Doppio clic: la chat. Tasto destro: il menu.
 // - Destro o centrale + trascina ruotano la camera 3D (OrbitControls in
 //   companion-3d.js, sullo stesso strato): il menu si apre solo se il destro
@@ -25,6 +28,9 @@
 
   /** @type {((x: number, y: number) => boolean | null) | null} */
   let probe = null
+  /** @type {((x: number, y: number) => string | null) | null} */
+  let zoneProbe = null
+  const rub = Touch.createRubDetector()
   let overModel = false
   let overUI = false
   let captured = null
@@ -71,8 +77,32 @@
     sync()
   }
 
+  /** La zona sotto un punto della pagina, se il renderer attivo la sa dire. */
+  function zoneAt(x, y) {
+    if (!zoneProbe) return null
+    try { return zoneProbe(x, y) } catch (_) { return null }
+  }
+
+  /**
+   * Un tocco: al main, e la reazione torna ai renderer con companion-touch.
+   * reaction null: nessuna (troppo presto, o e' girato di spalle); { off:
+   * true }: tocchi spenti nelle Impostazioni, vale il sorriso di sempre.
+   */
+  function touch(zone, kind) {
+    const send = (reaction) => window.dispatchEvent(new CustomEvent('companion-touch', { detail: { zone, kind, reaction } }))
+    if (!zone || !api || !api.touch) { if (kind === 'poke') send({ off: true }); return }
+    api.touch(zone, kind).then(send, () => { if (kind === 'poke') send({ off: true }) })
+  }
+
+  // Carezza: il cursore che va avanti e indietro sulla testa, senza tasti.
+  function feedRub(e) {
+    if (press || orbit || e.buttons !== 0 || !overModel) { rub.reset(); return }
+    const zone = zoneAt(e.clientX, e.clientY)
+    if (rub.feed(e.screenX, performance.now(), zone === 'head' || zone === 'face')) touch(zone, 'pat')
+  }
+
   // Con la finestra che ignora il mouse arrivano solo i movimenti (forward).
-  window.addEventListener('mousemove', (e) => check(e.clientX, e.clientY))
+  window.addEventListener('mousemove', (e) => { check(e.clientX, e.clientY); feedRub(e) })
   document.addEventListener('mouseleave', () => { if (!press && !orbit) { overModel = false; overUI = false; sync() } })
   // Il cursore dal main copre il caso in cui esce senza che la pagina lo veda.
   // __companionTest lo imposta audit.mjs: il mouse vero non deve interferire.
@@ -116,8 +146,13 @@
 
   /** Clic sull'avatar: il punto e' quello premuto, dove l'utente mirava. */
   function poke(x, y) {
-    if (window.__companionTest) window.__pokes = (window.__pokes || 0) + 1
-    window.dispatchEvent(new CustomEvent('companion-poke', { detail: { x, y } }))
+    const zone = zoneAt(x, y)
+    if (window.__companionTest) {
+      window.__pokes = (window.__pokes || 0) + 1
+      window.__lastPokeZone = zone
+    }
+    window.dispatchEvent(new CustomEvent('companion-poke', { detail: { x, y, zone } }))
+    touch(zone, 'poke')
   }
 
   // Con __companionTest (audit.mjs) il menu nativo non si apre: si contano
@@ -181,6 +216,10 @@
   window.CompanionInput = {
     /** Il renderer attivo registra come sapere se un punto e' sull'avatar. */
     setProbe(fn) { probe = typeof fn === 'function' ? fn : null; overModel = false; sync() },
+    /** ...e quale zona del corpo c'e' sotto un punto (touch.js, ZONES). */
+    setZoneProbe(fn) { zoneProbe = typeof fn === 'function' ? fn : null; rub.reset() },
+    /** Per audit.mjs: la zona sotto un punto, come la vede un clic. */
+    zoneAt,
     /** Risultato arrivato in ritardo (3D: lettura del pixel al frame dopo). */
     setOverModel(hit) {
       if (press || overModel === hit) return

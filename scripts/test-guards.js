@@ -308,6 +308,9 @@ test('la vita autonoma si spegne e si riaccende solo con un booleano', () => {
   assert.equal(mergeConfig({ ...base, idleLife: false }, { idleLife: true }).idleLife, true)
   assert.equal(mergeConfig(base, { idleLife: 'no' }).idleLife, true)
   assert.equal(mergeConfig(base, { provider: 'openai' }).idleLife, true, 'salvare il provider non la tocca')
+  // Reazioni ai tocchi (Blocco 5b): stesso trattamento, solo booleani.
+  assert.equal(mergeConfig(base, { touchReactions: false }).touchReactions, false)
+  assert.equal(mergeConfig({ ...base, touchReactions: false }, { touchReactions: 'si' }).touchReactions, false)
 })
 
 // ── Mittente dei messaggi IPC ───────────────────────────────────────────────

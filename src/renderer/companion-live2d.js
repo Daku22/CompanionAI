@@ -123,7 +123,7 @@
     } else {
       model.rotation = 0
       model.x = x
-      model.y = ground
+      model.y = ground - touchHop()
       shadow.alpha = 0.35
     }
     // L'ancora per la seduta su finestre e taskbar, come reportSeat2D.
@@ -154,6 +154,7 @@
     if (mouthForm) {
       try { core.addParameterValueById(internal.getIdSafe('ParamMouthForm'), mouthForm) } catch (_) {}
     }
+    applyTouchParams(internal, core)
   }
 
   // ── Test del punto: sui triangoli delle mesh visibili ─────────────────────
@@ -203,8 +204,97 @@
     })
   }
 
-  // Un clic sull'avatar: un tocco.
-  window.addEventListener('companion-poke', () => { if (active && !state.dragging) play('click') || play('happy') })
+  // ── Tocchi (Blocco 5b) ────────────────────────────────────────────────────
+  // La zona: prima le aree di tocco del modello (HitAreas, di solito Head e
+  // Body), poi l'altezza del punto nel modello. Un modello alto e stretto e'
+  // una figura intera, uno piu' largo e' un busto e non ha basso ventre.
+  window.zoneLive2D = (x, y) => {
+    if (!model || !active) return null
+    try {
+      const hits = model.hitTest(x, y) || []
+      if (hits.some(h => /head|face/i.test(h))) {
+        const zone = window.CompanionTouch.zoneFromHeight(heightIn(y), tableFor())
+        return zone === 'face' ? 'face' : 'head'
+      }
+    } catch (_) { /* modello senza HitAreas */ }
+    return window.CompanionTouch.zoneFromHeight(heightIn(y), tableFor())
+  }
+  function heightIn(y) {
+    const b = model.getBounds()
+    const rect = b.rectangle || b
+    return rect.height > 0 ? (y - rect.y) / rect.height : NaN
+  }
+  function tableFor() {
+    const b = model.getBounds()
+    const rect = b.rectangle || b
+    return rect.height >= rect.width * 1.8 ? 'full' : 'bust'
+  }
+
+  // Reazione senza un gruppo di movimenti adatto: testa, corpo, occhi e
+  // guance mossi a mano, come offset sopra il movimento in corso.
+  let touchFx = null   // { slot, start, ms }
+  const easeIn = (v) => { const c = Math.max(0, Math.min(1, v)); return c * c * (3 - 2 * c) }
+  function touchParams(slot, p, tt) {
+    const env = easeIn(p / 0.15) * easeIn((1 - p) / 0.2)
+    const jolt = p < 0.1 ? p / 0.1 : Math.exp(-(p - 0.1) * 5)
+    switch (slot) {
+      case 'pat': return { ParamAngleZ: 12 * env, ParamAngleY: -6 * env, eyesClosed: 0.8 * env, ParamCheek: 0.5 * env }
+      case 'flinch': return { ParamAngleY: 10 * jolt, ParamAngleX: -8 * jolt }
+      case 'giggle': return { ParamAngleZ: 6 * Math.sin(tt * 25) * env, ParamBodyAngleX: 4 * Math.sin(tt * 25) * env, eyesClosed: 0.6 * env }
+      case 'shy': return { ParamAngleX: 20 * env, ParamAngleY: -10 * env, ParamCheek: env }
+      case 'scold': return { ParamAngleX: 15 * Math.sin(tt * 12) * (1 - p), ParamAngleY: -5 * env }
+      case 'turnaway': return { ParamAngleX: 30 * env, ParamBodyAngleX: 10 * env, ParamAngleY: -8 * env }
+      default: return null
+    }
+  }
+  function touchProgress() {
+    if (!touchFx) return null
+    const ms = performance.now() - touchFx.start
+    if (ms >= touchFx.ms) { touchFx = null; return null }
+    return { p: ms / touchFx.ms, tt: ms / 1000 }
+  }
+  function touchHop() {
+    const at = touchFx && touchFx.slot === 'hop' ? touchProgress() : null
+    return at ? 24 * Math.sin(Math.PI * Math.min(1, at.p / 0.7)) * (at.p < 0.7 ? 1 : 0) : 0
+  }
+  function applyTouchParams(internal, core) {
+    const at = touchProgress()
+    if (!at) return
+    const params = touchParams(touchFx.slot, at.p, at.tt)
+    if (!params) return
+    for (const [id, value] of Object.entries(params)) {
+      if (id === 'eyesClosed') continue
+      try { core.addParameterValueById(internal.getIdSafe(id), value) } catch (_) { /* parametro assente */ }
+    }
+    if (params.eyesClosed) {
+      for (const id of ['ParamEyeLOpen', 'ParamEyeROpen']) {
+        try { core.multiplyParameterValueById(internal.getIdSafe(id), 1 - params.eyesClosed) } catch (_) {}
+      }
+    }
+  }
+
+  // Espressione della reazione: le espressioni VRM diventano emozioni
+  // dell'umore, e l'abbinamento del modello dice quale espressione mostrare.
+  const EXPRESSION_EMOTION = { happy: 'joy', surprised: 'curiosity', angry: 'annoyance', relaxed: 'calm' }
+  let expressionTimer = null
+  function showReactionExpression(name, ms) {
+    const expression = info && info.expressionMap[EXPRESSION_EMOTION[name]]
+    if (!expression) return
+    model.expression(expression)
+    clearTimeout(expressionTimer)
+    expressionTimer = setTimeout(applyMood, ms)
+  }
+
+  // La reazione decisa dal main (touch-react.js).
+  window.addEventListener('companion-touch', (e) => {
+    if (!active || state.dragging || !model) return
+    const r = e.detail && e.detail.reaction
+    if (!r) return
+    if (r.off) { play('click') || play('happy'); return }
+    if (!play(r.slot)) touchFx = { slot: r.slot, start: performance.now(), ms: Math.max(600, r.ms) }
+    showReactionExpression(r.expression, r.ms)
+    if (r.line && window.showBubble) window.showBubble(r.line, 2600)
+  })
 
   if (api && api.onWindowDragState) {
     api.onWindowDragState(({ dragging }) => {
@@ -282,6 +372,7 @@
     state.dragging = false
     l2dApp.ticker.start()
     window.CompanionInput.setProbe(window.hitTestLive2D)
+    window.CompanionInput.setZoneProbe(window.zoneLive2D)
     applyMood()
     play('wave')
     // Gruppi ed espressioni alle Impostazioni, per la tabella degli abbinamenti.
@@ -327,5 +418,7 @@
     // disegnato: si legge l'apertura applicata, non il parametro.
     mouth: model ? mouthApplied : null, lipIds: info ? info.lipIds : [],
     motion: model ? (model.internalModel.motionManager.state.currentGroup || model.internalModel.motionManager.state.reservedGroup || null) : null,
+    // Reazione ai tocchi mossa a mano (senza un gruppo adatto), e la tabella delle zone.
+    touch: touchFx ? touchFx.slot : null, table: model ? tableFor() : null,
   })
 })()

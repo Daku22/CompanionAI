@@ -511,6 +511,27 @@ try {
     const lb = l2.bounds
     check(await comp.evaluate(`window.hitTestLive2D(${lb.x + lb.width / 2}, ${lb.y + lb.height * 0.45})`) === true, 'live2d: sul corpo il mouse viene catturato')
     check(await comp.evaluate(`window.hitTestLive2D(3, 3) || window.hitTestLive2D(${lb.x + 2}, ${lb.y + 4})`) === false, 'live2d: sul vuoto, anche dentro il riquadro, i clic passano sotto')
+    // Tocchi (Blocco 5b): in cima la testa, piu' in basso il corpo; un clic
+    // sul corpo da' una reazione (gruppo del modello o movimento a mano).
+    {
+      const [bx, top, mid] = [Math.round(lb.x + lb.width / 2), Math.round(lb.y + lb.height * 0.05), Math.round(lb.y + lb.height * 0.45)]
+      const zl = await comp.evaluate(`[window.CompanionInput.zoneAt(${bx}, ${top}), window.CompanionInput.zoneAt(${bx}, ${mid})]`)
+      check(zl[0] === 'head' && !!zl[1] && zl[1] !== 'head' && zl[1] !== 'face', 'live2d: zone per altezza (' + zl.join(', ') + ', tabella ' + (await comp.evaluate('window.__live2dTest()')).table + ')')
+      const left = (type, buttons) => comp.send('Input.dispatchMouseEvent', { type, x: bx, y: mid, button: 'left', buttons, clickCount: 1 })
+      await comp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: bx, y: mid, button: 'none', buttons: 0 })
+      await sleep(150)
+      await left('mousePressed', 1)
+      await left('mouseReleased', 0)
+      let reacted = null
+      for (let i = 0; i < 10 && !reacted; i++) {
+        await sleep(100)
+        const st = await comp.evaluate('window.__live2dTest()')
+        reacted = st.touch || (st.motion && st.motion !== 'Idle' ? st.motion : null)
+      }
+      check(!!reacted, 'live2d: clic sul corpo, reazione (' + reacted + ')')
+      await shot('3b-live2d-tocco')
+      await sleep(1800)
+    }
     const wanted = l2.motions.happy
     await say('salutami')
     let playing = null
@@ -637,6 +658,72 @@ try {
     await left('mouseReleased', px, py, 0)
     await sleep(800)
     check(c.drags === 2 && c.pokes === 1, 'tenuto fermo 0,8 s: preso in braccio, senza reazione al clic (' + JSON.stringify(c) + ')')
+  }
+
+  // Tocchi (Blocco 5b): la zona dalle ossa vere, la reazione per zona, la
+  // carezza, il basso ventre a gradini e l'interruttore nelle Impostazioni.
+  {
+    const left = (type, x, y, buttons) => comp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons, clickCount: 1 })
+    const move = (x, y) => comp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0 })
+    const bone = (name) => comp.evaluate(`window.__companion3DTest.boneScreen(${JSON.stringify(name)})`)
+    const clip = async () => (await comp.evaluate('window.__companion3DTest.animator()')).clipName
+    const click = async (x, y) => { await move(x, y); await sleep(80); await left('mousePressed', x, y, 1); await left('mouseReleased', x, y, 0) }
+    const [hips, neck, head] = [await bone('hips'), await bone('neck'), await bone('head')]
+    const at = (from, to, f) => ({ x: Math.round(from.x + (to.x - from.x) * f), y: Math.round(from.y + (to.y - from.y) * f) })
+    const points = {
+      head: at(neck, head, 2.6),           // sopra la base del cranio
+      chest: at(hips, neck, 0.8),
+      belly: at(hips, neck, 0.35),
+      lowerBelly: at(hips, neck, -0.05),
+    }
+    const zones = {}
+    for (const [name, p] of Object.entries(points)) zones[name] = await comp.evaluate(`window.CompanionInput.zoneAt(${p.x}, ${p.y})`)
+    check(zones.head === 'head' && zones.chest === 'chest' && zones.belly === 'belly' && zones.lowerBelly === 'lowerBelly',
+      '3D: zone dalle ossa (' + JSON.stringify(zones) + ')')
+
+    await sleep(600)
+    await click(points.chest.x, points.chest.y)
+    await sleep(350)
+    check(await comp.evaluate('window.__lastPokeZone') === 'chest' && await clip() === 'giggle', '3D: clic sul petto, risatina (' + await clip() + ')')
+    await shot('2c-tocco-petto')
+    await sleep(1800)
+
+    // Carezza: avanti e indietro sulla testa, senza tasti.
+    for (let i = 0; i < 10; i++) {
+      await move(points.head.x + (i % 2 ? -14 : 14), points.head.y)
+      await sleep(70)
+    }
+    await sleep(300)
+    check(await clip() === 'pat', '3D: carezza sulla testa (' + await clip() + ')')
+    await shot('2c-carezza')
+    await sleep(2400)
+
+    const mood0 = await comp.evaluate('window.companion.getMood()')
+    const seq = []
+    for (let i = 0; i < 4; i++) {
+      await click(points.lowerBelly.x, points.lowerBelly.y)
+      await sleep(450)
+      seq.push(await clip())
+    }
+    const mood1 = await comp.evaluate('window.companion.getMood()')
+    const annoyed = (mood1.emotions.annoyance || 0) > (mood0.emotions.annoyance || 0) + 0.2
+    check(seq[0] === 'shy' && seq[1] === 'scold' && seq[3] === 'turnaway' && annoyed,
+      '3D: basso ventre a gradini, poi di spalle (' + seq.join(' > ') + ', fastidio ' + (mood1.emotions.annoyance || 0).toFixed(2) + ')')
+    await sleep(600)
+    const turned = await comp.evaluate('window.__companion3DTest.animator()')
+    await shot('2c-di-spalle')
+    await click(points.chest.x, points.chest.y)
+    await sleep(350)
+    check(turned.turnYaw > 2.8, '3D: si gira davvero di spalle (giro ' + (turned.turnYaw || 0).toFixed(2) + ' rad)')
+    check(await clip() === 'turnaway', '3D: di spalle non si lascia toccare (' + await clip() + ')')
+    await sleep(5200)
+
+    const settings = await comp.evaluate('window.companion.setConfig({ touchReactions: false }).then(c => c.touchReactions)')
+    await click(points.belly.x, points.belly.y)
+    await sleep(350)
+    check(settings === false && await clip() === 'idle', '3D: tocchi spenti, il clic non fa gesti (' + await clip() + ')')
+    await comp.evaluate('window.companion.setConfig({ touchReactions: true }); true')
+    await sleep(300)
   }
 
   // 4c. Camera: destro + trascina gira senza aprire il menu, destro fermo apre

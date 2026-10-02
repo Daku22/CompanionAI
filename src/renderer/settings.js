@@ -90,10 +90,12 @@
   const loginRow = $('login-row')
   const loginItem = $('login-item')
   const idleLife = $('idle-life')
+  const touchReactions = $('touch-reactions')
   const weatherOn = $('weather-on')
   const weatherCity = $('weather-city')
   function showGeneral(cfg) {
     idleLife.checked = cfg.idleLife !== false
+    touchReactions.checked = cfg.touchReactions !== false
     weatherOn.checked = cfg.weather === true
     $('weather-section').classList.toggle('hidden', !weatherOn.checked)
     if (document.activeElement !== weatherCity) weatherCity.value = cfg.weatherCity || ''
@@ -114,6 +116,7 @@
     try { loginItem.checked = !!(await api.setLoginItem(loginItem.checked)).enabled } catch (_) {}
   })
   idleLife.addEventListener('change', () => saveGeneral({ idleLife: idleLife.checked }))
+  touchReactions.addEventListener('change', () => saveGeneral({ touchReactions: touchReactions.checked }))
   weatherOn.addEventListener('change', () => saveGeneral({ weather: weatherOn.checked, weatherCity: weatherCity.value }))
   weatherCity.addEventListener('change', () => saveGeneral({ weatherCity: weatherCity.value }))
   weatherCity.addEventListener('keydown', (e) => { if (e.key === 'Enter') weatherCity.blur() })
@@ -494,7 +497,10 @@
   // Movimenti ed espressioni del modello in vista: per ogni gesto e ogni
   // emozione "Automatico" (la proposta dai nomi, live2d-map.js), un gruppo
   // o un'espressione del modello, o "Nessuno".
-  const GESTURE_LABELS = { wave: 'Saluto', happy: 'Felice', click: 'Clic sull\'avatar', dance: 'Ballo', think: 'Pensa', stretch: 'Si stiracchia', yawn: 'Sbadiglio', search: 'Cerca' }
+  const GESTURE_LABELS = {
+    wave: 'Saluto', happy: 'Felice', click: 'Clic sull\'avatar', dance: 'Ballo', think: 'Pensa', stretch: 'Si stiracchia', yawn: 'Sbadiglio', search: 'Cerca',
+    pat: 'Carezza', flinch: 'Sussulto', giggle: 'Risatina', hop: 'Saltello', shy: 'Imbarazzo', scold: 'Rimprovero', turnaway: 'Si gira di spalle',
+  }
   const EMOTION_LABELS = { joy: 'Allegria', affection: 'Affetto', sadness: 'Malinconia', annoyance: 'Fastidio', curiosity: 'Curiosità', calm: 'Calma' }
   let l2dModel = null   // { model: { id, name, groups, expressions }, choices: { motions, expressions } }
   function choiceRows(host, labels, proposed, names, chosen, kind) {

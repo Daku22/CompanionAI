@@ -29,6 +29,8 @@ t('Hiyori: ogni gesto con movimento trova un gruppo, mai il riposo', () => {
   assert.deepEqual(map, {
     wave: 'Tap', happy: 'FlickUp', click: 'Tap@Body', dance: 'Flick@Body',
     think: 'FlickDown', stretch: 'FlickUp', yawn: 'FlickDown', search: null,
+    // Reazioni ai tocchi: Hiyori non ha gruppi adatti, si muove da se'.
+    pat: null, flinch: null, giggle: null, hop: null, shy: null, scold: null, turnaway: null,
   })
   assert.ok(!Object.values(map).includes('Idle'))
   assert.equal(idleGroup(HIYORI), 'Idle')
@@ -40,6 +42,17 @@ t('nomi espliciti vincono su quelli generici', () => {
   assert.equal(map.happy, 'Happy')
   assert.equal(map.dance, 'Dance')
   assert.equal(idleGroup(['idle_loop', 'tap_head']), 'idle_loop')
+})
+
+t('reazioni ai tocchi: gruppi con nomi espliciti', () => {
+  const map = proposeMotionMap(['Idle', 'Tap@Head', 'Laugh', 'Jump', 'Shy', 'Angry', 'TurnAway', 'Surprised'])
+  assert.equal(map.pat, 'Tap@Head')
+  assert.equal(map.giggle, 'Laugh')
+  assert.equal(map.hop, 'Jump')
+  assert.equal(map.shy, 'Shy')
+  assert.equal(map.scold, 'Angry')
+  assert.equal(map.turnaway, 'TurnAway')
+  assert.equal(map.flinch, 'Surprised')
 })
 
 t('senza gruppi: tutto al riposo', () => {
