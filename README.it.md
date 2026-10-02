@@ -310,7 +310,8 @@ camera è fissa.
 
 **Clip .vrma.** Sopra le pose procedurali possono girare clip vere, in un solo
 formato: `.vrma`, lo standard VRM per le animazioni umanoidi.
-- **Dove stanno.** `modelli-3d/animations` (integrate, pubblicabili),
+- **Dove stanno.** `modelli-3d/animations` (integrate e pubblicate: le 27
+  clip Kimodo delle due serie, licenze in `ASSETS-LICENSE.md`),
   `private-assets/animations` (solo nella copia privata) e
   `<userData>/animations` (importate). Il protocollo `motion://` le serve.
 - **Il nome del file dice il gesto:** `wave.vrma`, `idle-2.vrma`,

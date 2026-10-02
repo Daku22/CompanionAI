@@ -5,7 +5,7 @@
 comando, in circa 5 minuti, già in .vrma e con i nomi giusti:
 
 ```
-npm run kimodo -- --series scripts/kimodo-series.json --out private-assets/animations --keep-raw
+npm run kimodo -- --series scripts/kimodo-series.json --out modelli-3d/animations --keep-raw
 ```
 
 I prompt stanno in `scripts/kimodo-series.json`; la tabella qui sotto li
@@ -71,14 +71,13 @@ fase.
 
 ## Reazioni ai tocchi (Blocco 5b)
 
-Gesti brevi, nella serie privata (`scripts/kimodo-series-touch.json`):
+Gesti brevi, nella serie `scripts/kimodo-series-touch.json`:
 
 ```
-npm run kimodo -- --series scripts/kimodo-series-touch.json --out private-assets/animations --keep-raw
+npm run kimodo -- --series scripts/kimodo-series-touch.json --out modelli-3d/animations --keep-raw
 ```
 
-Senza clip vale il ripiego procedurale di `vrm-animation.js`, che e' quello
-del repo pubblico.
+Senza clip vale il ripiego procedurale di `vrm-animation.js`.
 
 | Gesto | Fase | Durata | Prompt | File |
 |---|---|---|---|---|
@@ -103,6 +102,10 @@ in `vrm-animation.js`), e una clip che si gira da sola lo raddoppierebbe.
   quella finale.
 - Una clip in ciclo che "salta" alla ripartenza va rigenerata, o importata
   come gesto singolo.
+- Le due serie sono pubblicate dal 2 ottobre 2026 in `modelli-3d/animations/`
+  (termini verificati, vedi `ASSETS-LICENSE.md`). `--keep-raw` scrive i dati
+  grezzi in `raw/` dentro la cartella d'uscita: non vanno pubblicati, si
+  spostano in `private-assets/animations/raw/`.
 - Le clip che si vogliono pubblicare vanno copiate in `modelli-3d/animations/`
   (le integrate), con il credito a NVIDIA in `ASSETS-LICENSE.md`. Prima di
   pubblicare si confermano i termini sulle uscite di Kimodo.

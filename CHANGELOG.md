@@ -25,6 +25,10 @@
   - New animation slots for the reactions, with procedural fallbacks in 3D,
     motion groups or hand-moved parameters in Live2D, and sprite moves in 2D.
   - "Reagisce ai tocchi" in the settings, on by default.
+- 27 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
+  sitting, walking, running, dancing, being carried, the touch reactions),
+  now in the repository and the installer under CC0. Credits and the model
+  licenses are in `ASSETS-LICENSE.md`.
 
 ## 1.0.0 — first public release
 

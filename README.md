@@ -147,8 +147,9 @@ that publish an app with Live2D also need Live2D's Cubism SDK Release License.
 **Animations.** Right-click the avatar → "Animazioni" → "Importa animazione" to
 add a clip for a gesture (idle, greeting, sitting, being carried…). It accepts
 `.vrma` and converts `.glb`/`.gltf`, `.fbx` and `.bvh` clips to `.vrma`, so the
-same clip plays on every 3D avatar. Where there is no clip, the built-in
-procedural poses are used.
+same clip plays on every 3D avatar. The app ships 27 clips made with NVIDIA
+Kimodo (see [ASSETS-LICENSE.md](ASSETS-LICENSE.md)); where a gesture has no
+clip, procedural poses are used.
 
 **New movements with Kimodo (optional, 3D avatars).** Ask in chat for a
 movement the avatar does not know ("do a bow", "hop on one foot") and it is

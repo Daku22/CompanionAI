@@ -927,8 +927,15 @@ interruttore spento; in Live2D zone per altezza e reazione al clic.
 **Dopo.** Con la voce accesa la battuta si dice anche, solo con la voce
 libera: che stia gia' parlando lo sa la pagina (il main manda l'audio ma non
 lo suona), e il microfono conta da `mic:state` oltre che dalla scorciatoia.
-Le sette clip Kimodo delle reazioni stanno nella serie privata
-(`kimodo-series-touch.json`).
+Le sette clip Kimodo delle reazioni stanno in `kimodo-series-touch.json`.
+
+**Clip pubblicate.** Le 27 clip Kimodo (prima serie e reazioni) passano da
+`private-assets/animations` a `modelli-3d/animations`, quindi nel repo
+pubblico e nell'installer. Termini letti il 2 ottobre: la NVIDIA Open Model
+License (24-10-2025) non rivendica gli output e non ne limita la
+distribuzione; la licenza di Llama 3 (encoder del testo) vieta solo di usare
+gli output per migliorare altri modelli linguistici. Crediti in
+`ASSETS-LICENSE.md`, clip in CC0. I dati grezzi (`raw/`) restano privati.
 
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del

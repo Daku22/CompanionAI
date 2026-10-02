@@ -1,7 +1,8 @@
 // AnimationLibrary.js — le clip .vrma che l'avatar sa riprodurre.
 //
 // Tre cartelle, nello stesso formato:
-// - modelli-3d/animations: clip integrate, pubblicabili (licenza verificata);
+// - modelli-3d/animations: clip integrate, pubblicabili (licenza verificata):
+//   le serie Kimodo, vedi ASSETS-LICENSE.md;
 // - private-assets/animations: solo nella copia privata (vedi builtin-avatars.js);
 // - <userData>/animations: quelle importate dal menu.
 //

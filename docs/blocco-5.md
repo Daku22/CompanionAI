@@ -70,8 +70,9 @@ Va fatto prima del resto, perché tutti i tocchi passano di qui.
 - con la voce accesa la battuta si dice anche, ma solo se la voce e' libera:
   non interrompe una risposta, e tace mentre si aspetta una risposta o il
   microfono ascolta (`shouldSayLine`);
-- clip Kimodo delle sette reazioni nella serie privata
-  (`scripts/kimodo-series-touch.json`); `turnaway` non si volta da sola.
+- clip Kimodo delle sette reazioni (`scripts/kimodo-series-touch.json`),
+  pubblicate in `modelli-3d/animations` con la prima serie; `turnaway` non si
+  volta da sola.
 
 **Zone:** `head`, `face`, `chest`, `belly`, `lowerBelly`, `hand`, `legs`.
 **Tipi di tocco:**
@@ -264,5 +265,6 @@ attorno alla posa `offer` (circa 15 cm), con un inseguimento morbido. Fade di
 - Soglie clic/presa: vanno provate con il mouse vero e con il touchpad.
 - Le spring bones con le ossa in scala (chibi) possono esplodere. Si
   ricalcolano i raggi o, al limite, le si spegne in chibi.
-- Le clip Kimodo delle reazioni restano solo nel privato finché non si
+- (Superato il 2 ottobre: termini verificati, clip pubblicate.) Le clip
+  Kimodo delle reazioni restano solo nel privato finché non si
   confermano i termini. Il pubblico usa i ripieghi procedurali.
