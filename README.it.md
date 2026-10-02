@@ -396,8 +396,12 @@ cursore è su un pixel pieno dell'avatar o su un pulsante:
 
 I pulsanti 💬 e 🔄 compaiono solo con il mouse sull'avatar.
 
-**Prenderlo in braccio.** Premendo sull'avatar e muovendo di almeno 4 px parte
-il trascinamento. La finestra la sposta il main a 60 Hz, seguendo il cursore,
+**Prenderlo in braccio.** Quando un clic diventa una presa lo decide
+`touch.js` (`pressAction`): sotto 10 px di spostamento è ancora un clic, così il
+tremolio della mano non fa partire il trascinamento; tenuto premuto più di
+350 ms bastano 4 px, e tenuto fermo per 600 ms lo si prende in braccio senza
+spostarlo. Le distanze sono in px di Electron, già al netto della scala di
+Windows. Il clic manda `companion-poke` con il punto premuto. La finestra la sposta il main a 60 Hz, seguendo il cursore,
 e manda la velocità alla pagina (`drag-motion`):
 - `sway.js` è una molla smorzata (2,6 Hz, smorzamento 0,35, al massimo 25° di
   lato e 12° in avanti) spinta da quella velocità;

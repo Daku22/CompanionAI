@@ -609,6 +609,36 @@ try {
   await sleep(800)
   check((await comp.evaluate('window.__companion3DTest.animator()')).clipName === 'idle', '3D: posato torna a riposo')
 
+  // Clic o presa (touch.js): il tremolio resta un clic, oltre 10 px o
+  // tenuto fermo parte la presa.
+  {
+    const left = (type, x, y, buttons) => comp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons, clickCount: 1 })
+    const [px, py] = [Math.round(w3 / 2), Math.round(h3 * 0.45)]
+    const counts = () => comp.evaluate('({ pokes: window.__pokes || 0, drags: window.__dragStarts || 0 })')
+    await comp.evaluate('window.__pokes = 0; window.__dragStarts = 0; true')
+    await left('mousePressed', px, py, 1)
+    await left('mouseMoved', px + 4, py + 3, 1)
+    await left('mouseMoved', px + 6, py + 4, 1)
+    await left('mouseReleased', px + 6, py + 4, 0)
+    await sleep(400)
+    let c = await counts()
+    check(c.pokes === 1 && c.drags === 0, 'clic con 7 px di tremolio: reazione, nessuna presa (' + JSON.stringify(c) + ')')
+    check((await comp.evaluate('window.__companion3DTest.animator()')).clipName !== 'dangle', '3D: il clic non lo prende in braccio')
+    await sleep(500)
+    await left('mousePressed', px, py, 1)
+    for (let i = 1; i <= 4; i++) { await left('mouseMoved', px + i * 8, py, 1); await sleep(20) }
+    c = await counts()
+    await left('mouseReleased', px + 32, py, 0)
+    await sleep(800)
+    check(c.drags === 1 && c.pokes === 1, 'trascinato oltre 10 px: parte la presa (' + JSON.stringify(c) + ')')
+    await left('mousePressed', px, py, 1)
+    await sleep(800)
+    c = await counts()
+    await left('mouseReleased', px, py, 0)
+    await sleep(800)
+    check(c.drags === 2 && c.pokes === 1, 'tenuto fermo 0,8 s: preso in braccio, senza reazione al clic (' + JSON.stringify(c) + ')')
+  }
+
   // 4c. Camera: destro + trascina gira senza aprire il menu, destro fermo apre
   // il menu, la rotella zooma, doppio clic centrale rimette la camera.
   const mouse = (type, x, y, button = 'none', buttons = 0) => comp.send('Input.dispatchMouseEvent', { type, x, y, button, buttons, clickCount: 1 })

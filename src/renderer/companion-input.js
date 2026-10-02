@@ -4,8 +4,11 @@
 //   parte con setIgnoreMouseEvents(true, { forward: true }) e qui si chiede di
 //   catturare il mouse solo quando il cursore sta sull'avatar o su un pulsante.
 // - Premere sull'avatar e muovere lo prende in braccio: il main sposta la
-//   finestra seguendo il cursore e manda la velocita' (drag-motion).
-// - Clic: una piccola reazione. Doppio clic: la chat. Tasto destro: il menu.
+//   finestra seguendo il cursore e manda la velocita' (drag-motion). Quando
+//   un clic diventa una presa lo decide touch.js (pressAction): il tremolio
+//   della mano resta un clic, e tenuto fermo a lungo lo prende in braccio.
+// - Clic: una piccola reazione (companion-poke, con il punto premuto).
+//   Doppio clic: la chat. Tasto destro: il menu.
 // - Destro o centrale + trascina ruotano la camera 3D (OrbitControls in
 //   companion-3d.js, sullo stesso strato): il menu si apre solo se il destro
 //   e' stato rilasciato senza muoversi. Doppio clic centrale: camera a posto.
@@ -18,18 +21,20 @@
   const api = window.companion
   const layer = document.getElementById('drag-zone')
   const UI_SELECTOR = '#click-zone, #switch-zone, #model-menu'
-  const DRAG_THRESHOLD_PX = 4
+  const Touch = window.CompanionTouch
 
   /** @type {((x: number, y: number) => boolean | null) | null} */
   let probe = null
   let overModel = false
   let overUI = false
   let captured = null
-  /** @type {{ sx: number, sy: number, dragging: boolean } | null} */
+  // Sinistro premuto: s* in px dello schermo per la distanza, c* nella pagina
+  // per il punto del clic, t per il tempo, timer per la presa da fermo.
+  /** @type {{ sx: number, sy: number, cx: number, cy: number, t: number, dragging: boolean, timer: any } | null} */
   let press = null
   // Destro o centrale premuto: la camera ruota. menu: il contextmenu e'
   // arrivato a tasto ancora giu' (su Windows arriva dopo il rilascio).
-  /** @type {{ sx: number, sy: number, button: number, moved: boolean, menu: boolean } | null} */
+  /** @type {{ sx: number, sy: number, cx: number, cy: number, button: number, moved: boolean, menu: boolean } | null} */
   let orbit = null
   let skipMenuUntil = 0
   let lastMiddleUp = 0
@@ -80,24 +85,40 @@
     if (e.button === 1 || e.button === 2 || (room && e.button === 0)) {
       // Il centrale non deve avviare lo scorrimento automatico.
       if (e.button === 1) e.preventDefault()
-      orbit = { sx: e.screenX, sy: e.screenY, button: e.button, moved: false, menu: false }
+      orbit = { sx: e.screenX, sy: e.screenY, cx: e.clientX, cy: e.clientY, button: e.button, moved: false, menu: false }
       try { layer.setPointerCapture(e.pointerId) } catch (_) {}
       sync()
       return
     }
     if (e.button !== 0) return
-    press = { sx: e.screenX, sy: e.screenY, dragging: false }
+    const p = { sx: e.screenX, sy: e.screenY, cx: e.clientX, cy: e.clientY, t: performance.now(), dragging: false, timer: null }
+    // Tenuto fermo: nessun pointermove arriva, quindi lo decide un timer.
+    p.timer = setTimeout(() => { if (press === p && Touch.pressAction(performance.now() - p.t, 0) === 'drag') startDragging(p) }, Touch.PRESS.PICKUP_MS)
+    press = p
     try { layer.setPointerCapture(e.pointerId) } catch (_) {}
     sync()
   })
 
-  layer.addEventListener('pointermove', (e) => {
-    if (orbit && !orbit.moved && Math.hypot(e.screenX - orbit.sx, e.screenY - orbit.sy) >= DRAG_THRESHOLD_PX) orbit.moved = true
-    if (!press || press.dragging) return
-    if (Math.hypot(e.screenX - press.sx, e.screenY - press.sy) < DRAG_THRESHOLD_PX) return
-    press.dragging = true
+  function startDragging(p) {
+    if (p.dragging) return
+    p.dragging = true
+    clearTimeout(p.timer)
+    if (window.__companionTest) window.__dragStarts = (window.__dragStarts || 0) + 1
     if (api && api.startDrag) api.startDrag()
+  }
+
+  layer.addEventListener('pointermove', (e) => {
+    if (orbit && !orbit.moved && Touch.movedBeyondClick(Math.hypot(e.screenX - orbit.sx, e.screenY - orbit.sy))) orbit.moved = true
+    if (!press || press.dragging) return
+    const distance = Math.hypot(e.screenX - press.sx, e.screenY - press.sy)
+    if (Touch.pressAction(performance.now() - press.t, distance) === 'drag') startDragging(press)
   })
+
+  /** Clic sull'avatar: il punto e' quello premuto, dove l'utente mirava. */
+  function poke(x, y) {
+    if (window.__companionTest) window.__pokes = (window.__pokes || 0) + 1
+    window.dispatchEvent(new CustomEvent('companion-poke', { detail: { x, y } }))
+  }
 
   // Con __companionTest (audit.mjs) il menu nativo non si apre: si contano
   // le aperture, che l'audit controlla.
@@ -115,7 +136,7 @@
         if (o.menu) { if (!o.moved) openMenu() }
         else if (o.moved) skipMenuUntil = Date.now() + 500
       } else if (o.button === 0) {
-        if (!o.moved && overModel) window.dispatchEvent(new CustomEvent('companion-poke'))
+        if (!o.moved && overModel) poke(o.cx, o.cy)
       } else if (!o.moved) {
         const now = Date.now()
         if (now - lastMiddleUp < DOUBLE_CLICK_MS) {
@@ -131,10 +152,11 @@
   function release(e) {
     if (orbit && (!e || e.type !== 'pointerup' || e.button === orbit.button)) { releaseOrbit(e); return }
     if (!press) return
-    const wasDragging = press.dragging
+    const p = press
     press = null
-    if (wasDragging) { if (api && api.endDrag) api.endDrag() }
-    else if (e && e.type === 'pointerup') window.dispatchEvent(new CustomEvent('companion-poke'))
+    clearTimeout(p.timer)
+    if (p.dragging) { if (api && api.endDrag) api.endDrag() }
+    else if (e && e.type === 'pointerup') poke(p.cx, p.cy)
     if (e && 'clientX' in e) check(e.clientX, e.clientY)
     else sync()
   }
@@ -169,6 +191,12 @@
     /** Destro o centrale premuto: la camera sta ruotando. */
     isOrbiting() { return !!orbit },
     /** Stanza accesa o spenta (companion-3d.js, dalla modalita' del main). */
-    setRoom(on) { room = on === true; orbit = null; press = null; sync() },
+    setRoom(on) {
+      room = on === true
+      orbit = null
+      if (press) clearTimeout(press.timer)
+      press = null
+      sync()
+    },
   }
 })()

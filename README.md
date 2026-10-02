@@ -43,7 +43,8 @@ yourself from source if you prefer (see below).
 **Using the mouse on the avatar:**
 - Clicks on the empty parts of its window go through to whatever is below.
 - Grab the avatar to carry it around: it sways as you move it, and in 3D its
-  hair follows the motion.
+  hair follows the motion. A click with a shaky hand stays a click; hold the
+  button still for a moment to pick it up without moving it.
 - In 3D it turns its head toward the mouse; in 2D it faces the mouse's side.
 - In 3D, drag with the right or middle button to turn the camera around it,
   hold Alt while dragging to move the camera instead, and use the wheel to
