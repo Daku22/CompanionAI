@@ -108,12 +108,14 @@ try {
 
   for (let i = 0; i < avatars.length; i++) {
     await comp.evaluate(`document.querySelectorAll('#avatar-list .menu-item')[${i}].click()`)
-    await sleep(avatars[i].kind === 'vrm' ? 9000 : 4000)
-    const state = await comp.evaluate(`({ threeVisible: window.__threeVisible, sprites: Object.keys(stripTextures).length })`)
+    await sleep(avatars[i].kind === 'vrm' || avatars[i].kind === 'live2d' ? 9000 : 4000)
+    const state = await comp.evaluate(`({ threeVisible: window.__threeVisible, sprites: Object.keys(stripTextures).length, live2d: !!(window.__live2dTest && window.__live2dTest().active && window.__live2dTest().loaded) })`)
     const shot = await comp.send('Page.captureScreenshot', { format: 'png' })
     const file = path.join(OUT, `${i + 1}-${avatars[i].name.replace(/[^\w-]/g, '_')}.png`)
     fs.writeFileSync(file, Buffer.from(shot.result.data, 'base64'))
-    const ok = avatars[i].kind === 'vrm' || avatars[i].kind === 'gltf' ? state.threeVisible : state.sprites > 0
+    // Live2D (Blocco 4) non ha sprite: conta il modello caricato e attivo.
+    const kind = avatars[i].kind
+    const ok = kind === 'vrm' || kind === 'gltf' ? state.threeVisible : kind === 'live2d' ? state.live2d : state.sprites > 0
     if (!ok) failed = true
     console.log(`${ok ? 'ok ' : 'NO '} ${avatars[i].name}: ${JSON.stringify(state)} -> ${file}`)
   }
