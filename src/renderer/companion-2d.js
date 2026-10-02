@@ -342,7 +342,8 @@ function tick2D(ticker) {
   }
 
   // ── DEFAULT IDLE ──────────────────────────────────────────────────────
-  faceCursor(app.ticker.deltaMS);
+  // Sbirciando dal bordo resta girato verso lo schermo.
+  if (!peek2D) faceCursor(app.ticker.deltaMS);
   charSprite.x = 0;
   charSprite.y = bob;
   charSprite.rotation = Math.sin(t * 1.6) * 0.02;
@@ -507,7 +508,7 @@ function applyTouchFx(groundY) {
   charC.scale.set(1, 1);
   charC.alpha = 1;
   charC.y = groundY;
-  if (!touchFx) { applyDanceFx(groundY); keepPeeking2D(); return; }
+  if (!touchFx) { applyDanceFx(groundY); return; }
   const ms = performance.now() - touchFx.start;
   const p = ms / touchFx.ms;
   if (p >= 1) { touchFx = null; return; }
@@ -563,10 +564,11 @@ function applyDanceFx(groundY) {
 }
 
 // ── Sbircia dal bordo (Blocco 5d) ───────────────────────────────────────────
-// Oltre il bordo dello schermo (companion-peek.js) saluta con l'animazione
-// "wave" del pacchetto, girato verso lo schermo; finito un gesto torna a
-// salutare. Il bordo cade sul centro della testa, che sta nella parte alta
-// del fotogramma (testa e viso della tabella dei tocchi).
+// Oltre il bordo dello schermo (companion-peek.js) resta a riposo, girato
+// verso lo schermo e senza voltarsi verso il cursore. Uno sprite non ha una
+// posa per sbirciare, e inclinarlo scoprirebbe il corpo: il bordo cade sul
+// centro della testa, che sta nella parte alta del fotogramma (testa e viso
+// della tabella dei tocchi), e se ne vede meta'.
 const PEEK_CUT_2D = 0;     // il bordo sul centro della testa: figure strette, se ne vede meta'
 let peek2D = null;
 window.addEventListener('companion-peek', (e) => {
@@ -576,15 +578,12 @@ window.addEventListener('companion-peek', (e) => {
   if (peek2D) {
     // Fuori a destra guarda verso sinistra, dentro lo schermo.
     State.dir = peek2D === 'right' ? -1 : 1;
-    setAnim('wave');
+    setAnim('idle');
   } else if (d.reason === 'cursor' || d.reason === 'dblclick') {
     setAnim('happy');
     setTimeout(() => { if (!State.dragging && !peek2D && State.name === 'happy') setAnim('idle'); }, 1500);
-  } else if (State.name === 'wave') setAnim('idle');
+  }
 });
-function keepPeeking2D() {
-  if (peek2D && State.name === 'idle' && !touchFx && !State.dragging) setAnim('wave');
-}
 
 /** Dove tagliare e dove sta la testa, in px della finestra. */
 window.peekMeasure2D = (side) => {

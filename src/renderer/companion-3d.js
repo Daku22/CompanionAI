@@ -325,6 +325,8 @@ window.__companion3DTest = {
     const e = node.matrixWorld.elements;
     return { scale: Math.hypot(e[0], e[1], e[2]), y: node.getWorldPosition(new THREE.Vector3()).y };
   },
+  /** Sbircia: dove tagliare e dove sta la testa con la posa di adesso (px della finestra). */
+  peekMeasure: (side) => peekMeasure3D(side),
   /** Rotazione (x, y, z) di un osso normalizzato, dove scrivono pose e clip. */
   boneRotation: (name) => {
     const node = currentVrm && currentVrm.humanoid && currentVrm.humanoid.getNormalizedBoneNode(name);
@@ -374,13 +376,14 @@ function restClip() {
 }
 
 // ─── Sbircia dal bordo (Blocco 5d) ─────────────────────────────────────────
-// Il main lo manda oltre il bordo (companion-peek.js): busto fermo, la mano
-// dal lato dello schermo saluta. Il bordo dello schermo cade poco oltre il
-// centro della testa, dal lato del corpo: si vedono il viso, la mano che
-// saluta e meta' corpo.
+// Il main lo manda oltre il bordo (companion-peek.js): si sporge da dietro
+// il bordo con la testa inclinata e la mano del lato del monitor aggrappata
+// al bordo (posa peek in vrm-animation.js). Il bordo dello schermo cade appena
+// oltre la testa e la mano: il resto del corpo e' fuori.
 const PEEK_HEAD_CENTER = 0.2;   // centro della testa sopra l'osso head, in H
 const PEEK_HEAD_RADIUS = 0.2;   // raggio visibile della testa, in H
-const PEEK_CUT = 0.3;           // il bordo oltre il centro, in raggi
+const PEEK_HEAD_SHOWN = 0.85;   // quanta testa si vede oltre il centro, in raggi
+const PEEK_HAND_SHOWN = 0.35;   // quanta mano oltre il polso, in raggi
 // Uscendo: un gesto contento se l'ha chiamato l'utente; un messaggio porta
 // gia' il suo.
 const PEEK_EXIT_GESTURE = { cursor: 'happy', dblclick: 'happy' };
@@ -398,18 +401,33 @@ window.addEventListener('companion-peek', (e) => {
   else playClip(restClip());
 });
 
-/** Dove tagliare e dove sta la testa, in px della finestra, con la posa di adesso. */
+/**
+ * Dove tagliare e dove sta la testa, in px della finestra, con la posa di
+ * adesso. Il centro della testa segue l'asse della testa (inclinata verso
+ * il bordo), non la direzione del collo; il taglio lascia vedere la testa e
+ * la mano aggrappata al bordo.
+ */
+const peekUp = new THREE.Vector3();
+const peekQuat = new THREE.Quaternion();
 function peekMeasure3D(side) {
   const h = currentVrm && currentVrm.humanoid;
   if (!h || !camera) return null;
   const at = (name) => { const node = h.getRawBoneNode(name); return node ? toWindowPx(node.getWorldPosition(boneWorld)) : null; };
-  const [hips, neck, head] = [at('hips'), at('neck'), at('head')];
-  if (!hips || !neck || !head) return null;
+  const [hips, head, hand] = [at('hips'), at('head'), at(side === 'right' ? 'rightHand' : 'leftHand')];
+  const headNode = h.getRawBoneNode('head');
+  const axisNode = h.getNormalizedBoneNode('head');
+  if (!hips || !head || !headNode || !axisNode) return null;
+  // L'asse della testa sullo schermo: dall'osso head verso l'alto della testa.
+  peekUp.set(0, 0.1, 0).applyQuaternion(axisNode.getWorldQuaternion(peekQuat)).add(headNode.getWorldPosition(boneWorld));
+  const top = toWindowPx(peekUp);
+  const up = Math.hypot(top.x - head.x, top.y - head.y) || 1;
   const chibi = chibiOf(currentVrm);
   const H = Math.hypot(head.x - hips.x, head.y - hips.y) * (chibi ? chibi.headRatio : 1);
-  const up = Math.hypot(head.x - neck.x, head.y - neck.y) || 1;
-  const center = { x: head.x + (head.x - neck.x) / up * PEEK_HEAD_CENTER * H, y: head.y + (head.y - neck.y) / up * PEEK_HEAD_CENTER * H };
-  const cut = center.x + (side === 'right' ? 1 : -1) * PEEK_CUT * PEEK_HEAD_RADIUS * H;
+  const center = { x: head.x + (top.x - head.x) / up * PEEK_HEAD_CENTER * H, y: head.y + (top.y - head.y) / up * PEEK_HEAD_CENTER * H };
+  const r = PEEK_HEAD_RADIUS * H;
+  const dir = side === 'right' ? 1 : -1;
+  let cut = center.x + dir * PEEK_HEAD_SHOWN * r;
+  if (hand) cut = dir > 0 ? Math.max(cut, hand.x + PEEK_HAND_SHOWN * r) : Math.min(cut, hand.x - PEEK_HAND_SHOWN * r);
   return { cut: Math.round(cut), head: { x: Math.round(center.x), y: Math.round(center.y) } };
 }
 window.addEventListener('companion-dance', (e) => {

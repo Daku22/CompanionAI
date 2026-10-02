@@ -64,7 +64,8 @@ yourself from source if you prefer (see below).
   stands there, then sits with its legs dangling and follows the window. It
   can sit on the bottom taskbar too.
 - Leave it more than halfway past the left or right edge of the screen and
-  it stays there, peeking: half hidden, waving its hand from the edge. It
+  it stays there, peeking: only its head, a bit of shoulder and the hand
+  holding the edge show, like someone peeking around a wall. It
   comes out when the mouse gets close, when a reply arrives, or with a
   double-click. Over a full-screen app it comes back inside instead.
 - Right-click (without dragging) for a menu with the chat, "Stanza" (the

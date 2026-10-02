@@ -38,11 +38,14 @@
   ground, poses and clips keep working, hair collisions grow with the head.
   Greyed out, with the reason, for Live2D, 2D and models without a skeleton.
 - Peeking from the screen edge: left more than halfway past the left or
-  right edge of a screen, the avatar stays there half hidden and waves from
-  the edge (3D: torso still, the hand waving like the greeting clip; 2D: the
-  pack's "wave"; Live2D: the "wave" group with the head turned toward the
-  screen). It comes out when the mouse gets close, when a reply arrives or
-  with a double-click. Over a full-screen app it comes back inside.
+  right edge of a screen, the avatar stays there, peeking like someone
+  behind a wall: in 3D it leans out with the head tilted toward the edge and
+  the hand on the monitor's side (right hand on the right edge) holding the
+  edge by its chin, so only the head, the hand and a bit of shoulder show;
+  in 2D half the sprite, facing the screen; in Live2D the body leans out and
+  the head tilts toward the edge. It comes out when the mouse gets close,
+  when a reply arrives or with a double-click. Over a full-screen app it
+  comes back inside.
 - 27 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions),
   now in the repository and the installer under CC0. Credits and the model

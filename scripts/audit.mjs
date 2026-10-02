@@ -542,7 +542,7 @@ try {
     await sleep(400)
     check((await comp.evaluate('window.__companion2DTest.state()')).name === 'idle', '2D: finita la musica torna a riposo')
   }
-  await peekCheck('2D', 'window.__companion2DTest.state()', (st) => st.name === 'wave' && st.dir === -1, 'dblclick')
+  await peekCheck('2D', 'window.__companion2DTest.state()', (st) => st.name === 'idle' && st.dir === -1, 'dblclick')
   const sizes = []
   for (const scale of ['l', 'm']) {
     await chat.evaluate(`window.companion.setConfig({ scale: '${scale}' })`)

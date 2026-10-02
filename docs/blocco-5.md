@@ -201,9 +201,13 @@ dello sprite, più una trasformazione (saltello, tremolio, scatto indietro).
   terra senza ricalcolarli e pose e clip spostano il bacino in proporzione;
 - spring bone: non si spengono, si scalano i raggi di collisione con il loro
   osso (three-vrm legge la lunghezza dei giunti dal mondo, i raggi no);
-- sbirciare: su indicazione dell'utente il busto resta fermo e la mano
-  saluta come nella clip `wave`, a destra e a sinistra piegando solo il
-  gomito. Con il busto fermo si vede meta' corpo, non solo testa e mano;
+- sbirciare: posa scelta dall'utente fra varianti in schermata, su
+  un'immagine di riferimento (una figura che spunta da dietro un muro): il
+  busto si sporge, la testa si inclina verso il bordo, la mano del lato del
+  monitor (destra sul bordo destro) passa davanti al mento e si aggrappa al
+  bordo, il bacino ruota dall'altra parte per tenere dietro fianco e gambe.
+  Si vedono testa, mano e un po' di spalla. Nel 2D (sprite senza una posa
+  adatta) se ne vede meta', a riposo e girato verso lo schermo;
 - niente clip Kimodo per `peek`: una clip si sporge da un lato solo, la posa
   procedurale ha il lato come parametro; `peek` non e' uno slot
   riassegnabile;

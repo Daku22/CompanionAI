@@ -283,29 +283,23 @@
   })
 
   // ── Sbircia dal bordo (Blocco 5d) ─────────────────────────────────────────
-  // Oltre il bordo dello schermo (companion-peek.js): il gruppo "wave" del
-  // modello ogni tanto, e la testa girata e inclinata verso lo schermo. Il
-  // bordo cade sul centro della testa, in alto nel modello.
+  // Oltre il bordo dello schermo (companion-peek.js): come una figura che
+  // spunta da dietro un muro, il corpo si sporge verso lo schermo, la testa
+  // si inclina verso il bordo e guarda dentro. Il bordo cade sul centro della
+  // testa, in alto nel modello.
   const PEEK_CUT_L2D = 0       // il bordo sul centro della testa: se ne vede meta'
-  const PEEK_WAVE_MS = 6000
   let peekSide = null
-  let peekWaveTimer = null
   window.addEventListener('companion-peek', (e) => {
     const d = e.detail || {}
     peekSide = d.side || null
-    clearInterval(peekWaveTimer)
-    peekWaveTimer = null
     if (!active || !model || state.dragging) return
-    if (peekSide) {
-      play('wave')
-      peekWaveTimer = setInterval(() => { if (peekSide && !state.dragging) play('wave') }, PEEK_WAVE_MS)
-    } else if (d.reason === 'cursor' || d.reason === 'dblclick') play('happy')
+    if (!peekSide && (d.reason === 'cursor' || d.reason === 'dblclick')) play('happy')
   })
   function applyPeekParams(internal, core) {
     if (!peekSide || state.dragging) return
-    // Fuori a destra guarda verso sinistra, dentro lo schermo.
+    // s: verso lo schermo (-1 se e' fuori a destra).
     const s = peekSide === 'right' ? -1 : 1
-    const params = { ParamAngleX: 18 * s, ParamAngleZ: 10 * s, ParamBodyAngleX: 4 * s }
+    const params = { ParamAngleX: 14 * s, ParamAngleZ: -14 * s, ParamBodyAngleZ: 8 * s, ParamBodyAngleX: 4 * s }
     for (const [id, value] of Object.entries(params)) {
       try { core.addParameterValueById(internal.getIdSafe(id), value) } catch (_) { /* parametro assente */ }
     }

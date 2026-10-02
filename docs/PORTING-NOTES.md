@@ -994,8 +994,8 @@ Fred (VRM 1.0) e Neko (VRM 0.x): capelli fermi, nessuna esplosione.
 
 **Sbirciare.** `edge-peek.js` (puro): il bordo e' esterno se il centro
 dell'avatar e' oltre l'area di lavoro e non sta in un altro schermo. Il
-renderer misura il taglio sulla posa (nel 3D il centro della testa piu' 0,3
-raggi dal lato del corpo, nel 2D e in Live2D il centro della testa: le
+renderer misura il taglio sulla posa (nel 3D appena oltre la testa e la
+mano aggrappata al bordo, nel 2D e in Live2D il centro della testa: le
 figure sono strette) e la finestra scivola li'. Nel 2D il centro orizzontale
 e' quello dello sprite, non del suo riquadro: i fotogrammi hanno larghezze
 diverse. Trappola: con la taskbar nascosta
@@ -1003,13 +1003,21 @@ un browser massimizzato copre tutto lo schermo e sembrava un'app a schermo
 intero; ora le massimizzate non contano. Per l'audit c'e' un canale di prova
 del main (`test:peek`) che esiste solo con `COMPANION_TEST_HOOKS=1`.
 
-**Posa.** Le prime prove sporgevano il busto verso lo schermo con la mano sul
-bordo; l'utente ha chiesto il busto fermo e solo l'avambraccio. Dalla clip
-Kimodo `wave`: omero alzato in avanti (x 1,0, z 1,07 dalla posa di riposo),
-gomito piegato di 1,9 rad, e la mano va a destra e a sinistra con la
-flessione del gomito (y), non con z o x, che la portano avanti e indietro.
-Con la testa grande del chibi il braccio si apre di piu' e il gomito si
-piega meno, o la mano passa davanti al viso.
+**Posa.** Scelta dall'utente fra varianti in schermata (con la parte fuori
+dallo schermo scurita), su un'immagine di riferimento. Le posizioni della
+mano si sono trovate con una griglia sulle rotazioni del braccio, leggendo
+dove cade il polso rispetto al centro della testa. Busto sporto (spine
+-0,22, chest -0,28), testa inclinata verso il bordo (neck 0,1, head 0,5),
+bacino ruotato dall'altra parte (-0,15), mano del lato del monitor davanti
+al mento (omero x 0,6, y 0,6; gomito 2,3), yaw 0,3. In chibi le braccia sono
+corte: omero x 0,9 e bacino -0,55 (con il busto meno sporto).
+
+Trappola: con la testa inclinata il centro della testa non sta lungo la
+direzione collo-testa (che segue il busto); si prende dall'asse della testa
+normalizzata proiettato sullo schermo, o il bordo tagliava a meta' del viso.
+
+Il saluto con il solo avambraccio provato in un primo momento era
+un'indicazione per il 5e: numeri nella memoria del progetto.
 
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del

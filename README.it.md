@@ -516,18 +516,23 @@ tasto destro.
 
 **Sbirciare dal bordo.** Lasciato con il centro oltre il bordo sinistro o
 destro dello schermo (di là nessun altro schermo), non torna dentro: resta
-mezzo fuori e sbircia, salutando con la mano dal lato dello schermo.
+quasi tutto fuori e sbircia, come una figura che spunta da dietro un muro.
 - Le regole stanno in `src/main/edge-peek.js`, funzioni pure con test: quale
   bordo, dove mettere la finestra, quando il cursore è vicino, se sopra le
   altre c'è un'app a schermo intero (allora torna dentro; una finestra
   massimizzata non conta).
 - Il renderer mette la posa e misura dove deve cadere il bordo dello schermo
-  (`companion-peek.js`): sul centro della testa (nel 3D poco oltre, dal lato
-  del corpo). Poi la finestra scivola lì.
-- Nel 3D il busto resta fermo e la mano saluta come nella clip `wave`, a
-  destra e a sinistra piegando solo il gomito; nel 2D l'animazione "wave" del
-  pacchetto, girato verso lo schermo; in Live2D il gruppo "wave" e la testa
-  verso lo schermo.
+  (`companion-peek.js`). Poi la finestra scivola lì.
+- Nel 3D si sporge con il busto, la testa si inclina verso il bordo e la mano
+  del lato del monitor (la destra sul bordo destro, la sinistra sul sinistro)
+  passa davanti al mento e si aggrappa al bordo; il bacino ruota dall'altra
+  parte, così fianco e gambe restano dietro. Si vedono la testa, la mano e un
+  po' di spalla: il bordo cade appena oltre la testa (centro preso sull'asse
+  della testa, non del collo) e la mano. In chibi la mano arriva sotto il
+  mento e il bacino ruota di più.
+- Nel 2D uno sprite non ha una posa per sbirciare: resta a riposo, girato
+  verso lo schermo, e il bordo cade sul centro della testa. In Live2D il
+  corpo si sporge e la testa si inclina verso il bordo e guarda dentro.
 - Esce quando il cursore si avvicina alla testa (dopo essersi prima
   allontanato: al rilascio è proprio lì), quando arriva una risposta o con un
   doppio clic. Ripreso in braccio smette e basta. Mentre sbircia la vita

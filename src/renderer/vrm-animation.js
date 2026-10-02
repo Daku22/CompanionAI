@@ -422,25 +422,30 @@ export const CLIPS = {
     pose: (t) => ({ ...crossedArms(envelope(t, 5.0, 0.4)), head: { x: -0.1 } }),
     yaw: (t) => Math.PI * smooth(t / 0.7) * (1 - smooth((t - 4.2) / 0.7)),
   },
-  // Sbircia dal bordo: il busto resta fermo, la mano dal lato dello schermo
-  // saluta come nella clip wave (braccio alzato davanti, palmo aperto) e va
-  // a destra e a sinistra piegando solo il gomito. Ciclica: e' il riposo
-  // finche' sbircia.
+  // Sbircia dal bordo, come una figura che spunta da dietro un muro: il busto
+  // si sporge verso lo schermo, la testa si inclina verso il bordo, e la mano
+  // del lato del monitor (la destra sul bordo destro) passa davanti al mento
+  // e si aggrappa al bordo. Il bacino ruota dall'altra parte, cosi' fianco e
+  // gambe restano dietro il bordo. Ciclica: e' il riposo finche' sbircia.
   peek: {
     duration: 0,
     pose: (t) => {
       const s = peek.side
-      // Fuori a destra si vede la sua mano destra (a sinistra sullo schermo).
-      const arm = s > 0 ? 'right' : 'left'
-      // Con la testa grande (chibi) il braccio si apre di piu' e il gomito si
-      // piega meno, o la mano passerebbe davanti al viso.
+      const hand = s > 0 ? 'right' : 'left'
+      // Con la testa grande (chibi) le braccia sono corte: la mano sale un
+      // po', e il bacino ruota di piu' perche' il busto si sporge meno.
       const k = Math.max(0, Math.min(1, (peek.headRatio - 1) / 1.4))
       return {
-        head: { z: 0.12 * s, x: 0.04 },
-        [arm + 'UpperArm']: { x: 1.0, y: 0.15 * s, z: (1.07 + 0.28 * k) * s },
-        [arm + 'LowerArm']: { x: 0.16, y: (1.9 - 0.5 * k + Math.sin(t * 5.0) * 0.35) * s, z: -0.16 * s },
+        hips:  { z: (-0.15 - 0.4 * k) * s },
+        spine: { z: (-0.22 + 0.4 * k) * s, x: 0.1 },
+        chest: { z: -0.28 * s + Math.sin(t * 1.6) * 0.015, x: 0.05 },
+        neck:  { z: 0.1 * s },
+        head:  { z: 0.5 * s, x: 0.05 + Math.sin(t * 1.1) * 0.02 },
+        [hand + 'UpperArm']: { x: 0.6 + 0.3 * k, y: 0.6 * s },
+        [hand + 'LowerArm']: { y: 2.3 * s },
       }
     },
+    yaw: () => 0.3 * peek.side,
   },
   // Movimento generato da Kimodo su richiesta (kimodo-service.js): la clip
   // vera la mette clip-layer.js; qui solo il respiro sotto, e la durata di
