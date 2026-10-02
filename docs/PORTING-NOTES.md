@@ -937,6 +937,49 @@ distribuzione; la licenza di Llama 3 (encoder del testo) vieta solo di usare
 gli output per migliorare altri modelli linguistici. Crediti in
 `ASSETS-LICENSE.md`, clip in CC0. I dati grezzi (`raw/`) restano privati.
 
+## Blocco 5c: ballo con la musica (2026-10-02)
+
+**Chi suona.** `win-audio.js` legge le sessioni audio di Windows con koffi:
+CoCreateInstance(MMDeviceEnumerator), dispositivo di uscita predefinito,
+IAudioSessionManager2, e per ogni sessione IAudioSessionControl2 (processo,
+stato, suoni di sistema) e IAudioMeterInformation (picco). Le interfacce si
+chiamano dalla vtable (`koffi.decode` del puntatore, `koffi.call` con il
+prototipo), ogni oggetto si rilascia. Funziona anche nel thread principale
+di Electron, dove COM e' gia' STA. 4 ms a lettura; nessuna perdita su 12 000
+letture dopo il riscaldamento. L'idea dell'elenco di app ammesse viene da
+Mate Engine (solo l'idea).
+
+**La cattura.** Trappola: `getDisplayMedia` non chiede il permesso
+`display-capture` ma `media` con `mediaTypes` vuoto, e la regola del
+microfono lo negava ("Permission denied" senza che il gestore della cattura
+venisse chiamato). Ora `media` senza tipi vale come cattura: solo la pagina
+del companion, solo con il ballo acceso. Non serve un gesto dell'utente.
+La traccia video si ferma appena arriva.
+
+**Il ritmo.** `beat.js` su un livello dei bassi a 43 fotogrammi al secondo
+(passa-basso a 150 Hz e `beat-worklet.js`): attacchi dal logaritmo del
+livello, autocorrelazione su 6 s con una preferenza morbida per 120 BPM.
+A 140 BPM la battuta cade fra due fotogrammi e vinceva la meta' del tempo:
+gli attacchi si ammorbidiscono su tre fotogrammi prima del confronto.
+
+**Il ballo.** Nel 3D la clip `dance` a velocita' BPM/120 (`clips.setSpeed`)
+e il ripiego a tempo (`setDanceBeat`); a riposo, ballando, resta il ballo,
+cosi' un gesto torna li'. Seduto su una finestra: testa e gambe a tempo.
+Live2D: parametri a tempo e il gruppo "dance". 2D: "dance" o "happy" e un
+saltello sulla battuta. La vita autonoma aspetta mentre balla.
+
+**Prova.** Audit: cassa simulata dallo stesso percorso del suono vero, nel
+3D, nel 2D e in Live2D; con `--dance-audio` la catena intera (PowerShell
+suona una cassa a 120 BPM, il mixer la vede, la cattura in loopback ne trova
+il tempo, poi si chiude).
+
+**Costo** (12 core, Fred, dati finti): a riposo con il ballo acceso e il
+mixer letto ogni 0,7 s, 0,92% della CPU totale; mentre balla (cattura,
+ritmo, ballo) 1,26%. Il ballo aggiunge circa lo 0,3%, il 4% di un core.
+
+Non ancora: la fase della clip Kimodo non si aggancia alla battuta (la clip
+non dice il suo tempo); varianti `dance-2`, `dance-3` da generare.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

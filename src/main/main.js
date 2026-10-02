@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, protocol, net, dialog, safeStorage, session, powerMonitor, utilityProcess, globalShortcut } = require('electron')
+const { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, protocol, net, dialog, safeStorage, session, powerMonitor, utilityProcess, globalShortcut, desktopCapturer } = require('electron')
 const path  = require('path')
 const { spawn } = require('child_process')
 const fs    = require('fs')
@@ -14,7 +14,8 @@ const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated
 const { builtinAvatars } = require('./builtin-avatars')
 const room = require('./room')
 const { WeatherService } = require('./weather')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS, checkLive2DChoices } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS, checkLive2DChoices, allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT } = require('./guards')
+const winAudio = require('./win-audio')
 const { VoiceService } = require('./voice')
 const { XttsEngine } = require('./xtts-engine')
 const xttsSetup = require('./xtts-setup')
@@ -64,12 +65,14 @@ const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 // perch: posato sul bordo di una finestra o della taskbar, ci si siede (perch.js).
 // touchReactions: reagisce ai tocchi per zona (touch-react.js); spento, un clic
 // da' solo il sorriso di prima.
+// danceMusic: balla con la musica (Blocco 5c), spento di base; danceApps: le
+// app il cui suono conta (win-audio.js).
 // view: 'desktop' (trasparente, sul desktop) o 'room' (la stanza, room.js);
 // roomBounds: dove era la stanza, la scrive solo il main.
 const DEFAULT_CONFIG = {
   provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true,
   followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, perch: true, view: 'desktop', keys: {},
-  touchReactions: true,
+  touchReactions: true, danceMusic: false, danceApps: DANCE_APPS_DEFAULT,
 }
 
 function loadEnvFile() {
@@ -135,6 +138,8 @@ function loadConfig() {
   cfg.kimodo = cfg.kimodo === true
   cfg.perch = cfg.perch !== false
   cfg.touchReactions = cfg.touchReactions !== false
+  cfg.danceMusic = cfg.danceMusic === true
+  cfg.danceApps = danceApps(cfg.danceApps) || DANCE_APPS_DEFAULT
   cfg.view = cfg.view === 'room' ? 'room' : 'desktop'
   if (typeof cfg.scale !== 'string' || !Object.prototype.hasOwnProperty.call(WINDOW_SCALES, cfg.scale)) cfg.scale = DEFAULT_CONFIG.scale
   if (!PROVIDERS[cfg.provider]) { cfg.provider = DEFAULT_CONFIG.provider; cfg.model = DEFAULT_CONFIG.model }
@@ -1290,7 +1295,7 @@ function onDragged() {
 
 function idleTick() {
   // Seduto su una finestra resta seduto: i gesti a riposo sono pose in piedi.
-  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || perch || Date.now() < requestedPoseUntil) return
+  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || perch || dancingNow || Date.now() < requestedPoseUntil) return
   if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
   // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
   if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused()) { markActivity(); return }
@@ -1336,6 +1341,49 @@ let drag = null
 let cursorTimer = null
 let lastCursorKey = ''
 let followMouse = true
+
+// ─── Ballo con la musica (Blocco 5c) ─────────────────────────────────────────
+// Con l'interruttore acceso, ogni MUSIC_POLL_MS si guarda nel mixer di
+// Windows (win-audio.js) se un'app ammessa sta suonando, e lo si dice alla
+// pagina: e' lei che apre la cattura del suono e ne trova il ritmo. Spento,
+// niente sorveglianza e niente cattura.
+const MUSIC_POLL_MS = 700
+let danceEnabled = false
+let danceAppList = DANCE_APPS_DEFAULT
+let musicTimer = null
+let musicState = { playing: false, app: null }
+let dancingNow = false
+let musicWarned = false
+
+function musicTick() {
+  let next
+  if (winAudio.available()) {
+    const app = winAudio.musicApp(winAudio.sessions(), danceAppList)
+    next = { playing: !!app, app }
+  } else {
+    // Senza il mixer non si sa chi suona: decide solo il ritmo.
+    if (!musicWarned) { console.warn('[ballo] mixer non leggibile: ' + winAudio.unavailableReason()); musicWarned = true }
+    next = { playing: true, app: null }
+  }
+  if (next.playing === musicState.playing && next.app === musicState.app) return
+  musicState = next
+  sendCompanion('music-state', { ...musicState, enabled: danceEnabled })
+}
+
+function applyDance(cfg) {
+  danceEnabled = cfg.danceMusic === true
+  danceAppList = Array.isArray(cfg.danceApps) ? cfg.danceApps : DANCE_APPS_DEFAULT
+  if (danceEnabled && !musicTimer) {
+    musicTimer = setInterval(musicTick, MUSIC_POLL_MS)
+    musicTick()
+  } else if (!danceEnabled && musicTimer) {
+    clearInterval(musicTimer)
+    musicTimer = null
+    musicState = { playing: false, app: null }
+    dancingNow = false
+    sendCompanion('music-state', { ...musicState, enabled: false })
+  }
+}
 
 function sendCompanion(channel, data) {
   if (!companionWindow || companionWindow.isDestroyed()) return
@@ -1890,6 +1938,7 @@ function applyScale(scale) {
 function applyWindowOptions(cfg) {
   idleLifeEnabled = cfg.idleLife !== false
   touchEnabled = cfg.touchReactions !== false
+  applyDance(cfg)
   followMouse = cfg.followMouse !== false
   perchEnabled = cfg.perch !== false
   // Spento Kimodo, la memoria video si libera subito.
@@ -2081,6 +2130,11 @@ on('mouse:capture', (_e, capture) => {
   companionWindow.setIgnoreMouseEvents(capture !== true, { forward: true })
 })
 on('companion:menu', () => { showCompanionMenu().catch(e => console.error('[menu]', e.message)) })
+// Ballo: lo stato della musica alla pagina appena carica, e dalla pagina se
+// sta ballando (la vita autonoma aspetta).
+handle('music:state', () => ({ ...musicState, enabled: danceEnabled }))
+on('companion:dancing', (_e, on) => { dancingNow = danceEnabled && on === true })
+
 // Tocchi sull'avatar (Blocco 5b): il renderer dice zona e tipo, qui si
 // decide la reazione (touch-react.js), si sposta l'umore e torna cosa
 // recitare. Al massimo un tocco ogni TOUCH_MIN_MS: la pagina non e' fidata,
@@ -2261,9 +2315,19 @@ app.whenReady().then(() => {
   // con il microfono acceso (allowPermission in guards.js). Fotocamera,
   // notifiche, posizione e il resto: no.
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) =>
-    callback(allowPermission(permission, details, RENDERER_DIR_URL, micAllowed)))
+    callback(allowPermission(permission, details, RENDERER_DIR_URL, micAllowed, danceEnabled)))
   session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) =>
-    allowPermission(permission, details, RENDERER_DIR_URL, micAllowed))
+    allowPermission(permission, details, RENDERER_DIR_URL, micAllowed, danceEnabled))
+  // Il suono del PC per il ballo: getDisplayMedia vuole anche un video, si da'
+  // lo schermo e la pagina ferma subito la traccia video senza leggerla.
+  // Solo alla pagina del companion e solo con il ballo acceso.
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const url = request.frame && request.frame.url
+    if (!request.audioRequested || !allowDisplayCapture(url, RENDERER_DIR_URL, danceEnabled)) { callback({}); return }
+    desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
+      .then(sources => callback(sources[0] ? { video: sources[0], audio: 'loopback' } : {}))
+      .catch(() => callback({}))
+  })
 
   avatarLibrary = new AvatarLibrary(path.join(app.getPath('userData'), 'avatars'), builtinAvatars(path.join(__dirname, '..', '..')))
   sceneLibrary = new SceneLibrary(path.join(app.getPath('userData'), 'scenes'))

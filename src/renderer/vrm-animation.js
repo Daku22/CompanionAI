@@ -52,13 +52,29 @@ export const REST_POSE = {
 // Slot dei movimenti generati: non ha file suoi nella libreria delle clip.
 export const GENERATED = 'generated'
 
+// La battuta della musica (Blocco 5c), da companion-dance.js: phase 0..1
+// dentro la battuta, count le battute contate, amp l'ampiezza. null: niente
+// musica, le pose vanno a tempo loro.
+let danceBeat = null
+export function setDanceBeat(beat) {
+  danceBeat = beat && Number.isFinite(beat.phase) && Number.isFinite(beat.count) ? beat : null
+}
+// Un ciclo ogni due battute (destra, sinistra): da -1 a 1.
+const beatSway = (b) => Math.sin(Math.PI * (b.count + b.phase))
+// Il colpo sulla battuta: 1 sulla battuta, 0 a meta'.
+const beatBounce = (b) => Math.abs(Math.cos(Math.PI * b.phase))
+
 // Seduto su un bordo: cosce in avanti, gambe che dondolano, bacino fermo, mani
 // appoggiate sul bordo accanto ai fianchi. Per un arto che pende, x positivo
 // lo porta in avanti (vedi applyPose): prima le cosce avevano -1.45 e andavano
 // indietro, con il ginocchio piegato al contrario.
 function sittingOnEdge(t) {
-  const swing = Math.sin(t * 1.7) * 0.22
+  // Con la musica le gambe dondolano a tempo e la testa annuisce sulla battuta.
+  const b = danceBeat
+  const swing = b ? beatSway(b) * 0.3 * b.amp : Math.sin(t * 1.7) * 0.22
+  const nod = b ? -0.1 * beatBounce(b) * b.amp : 0
   return {
+    head: { x: nod },
     leftUpperLeg:  { x: 1.45 },
     rightUpperLeg: { x: 1.45 },
     leftLowerLeg:  { x: -1.25 + swing },
@@ -270,16 +286,21 @@ export const CLIPS = {
       chest: { x: Math.sin(t * 1.1) * 0.02 },
     }),
   },
+  // Con la musica (danceBeat) va a tempo: sobbalzo sulla battuta, busto e
+  // braccia da una parte all'altra ogni due battute. Senza, a tempo suo.
   dance: {
     duration: 0,
     pose: (t) => {
-      const s = Math.sin(t * 4.0)
+      const b = danceBeat
+      const s = b ? beatSway(b) : Math.sin(t * 4.0)
+      const bounce = b ? beatBounce(b) : Math.abs(s)
+      const a = b ? b.amp : 1
       return {
-        hips:  { y: Math.abs(s) * 0.04 },
-        chest: { y: s * 0.15 },
-        rightUpperArm: { z: 0.5 + 0.4 * s },
-        leftUpperArm:  { z: -(0.5 - 0.4 * s) },
-        head:  { z: s * 0.08 },
+        hips:  { y: bounce * 0.04 * a },
+        chest: { y: s * 0.15 * a },
+        rightUpperArm: { z: 0.5 + 0.4 * s * a },
+        leftUpperArm:  { z: -(0.5 - 0.4 * s * a) },
+        head:  { z: s * 0.08 * a, x: -0.05 * bounce * a },
       }
     },
   },
@@ -445,7 +466,7 @@ export const LOOK_LIMITS = {
 }
 // Quanto segue il mouse durante ogni clip: pieno a riposo, per niente mentre
 // cammina, siede o penzola, dove girare la testa sembrerebbe un difetto.
-export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4 }
+export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4, dance: 0.3 }
 const LOOK_RATE = 7          // inseguimento del bersaglio, 1/s
 const LOOK_WEIGHT_RATE = 3   // entrata e uscita del peso, 1/s
 

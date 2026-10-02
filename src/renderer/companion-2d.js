@@ -507,7 +507,7 @@ function applyTouchFx(groundY) {
   charC.scale.set(1, 1);
   charC.alpha = 1;
   charC.y = groundY;
-  if (!touchFx) return;
+  if (!touchFx) { applyDanceFx(groundY); return; }
   const ms = performance.now() - touchFx.start;
   const p = ms / touchFx.ms;
   if (p >= 1) { touchFx = null; return; }
@@ -542,6 +542,34 @@ function applyTouchFx(groundY) {
     }
   }
 }
+
+// ── Ballo con la musica (Blocco 5c) ─────────────────────────────────────────
+// L'animazione "dance" del pacchetto se c'e', altrimenti "happy", e un
+// saltello sulla battuta con il busto che va da una parte all'altra ogni due
+// battute (companion-dance.js). Seduto su una finestra: solo il dondolio.
+const danceAnim2D = () => (animations.dance ? 'dance' : 'happy');
+function danceOn2D() {
+  const d = window.CompanionDance && window.CompanionDance.state();
+  return !!(d && d.dancing) && !window.__threeVisible && !State.dragging;
+}
+function applyDanceFx(groundY) {
+  if (!danceOn2D()) return;
+  const d = window.CompanionDance.state();
+  const sway = Math.sin(Math.PI * (d.count + d.phase));
+  charC.rotation = 0.05 * sway * d.amp;
+  if (!State.perched) charC.y = groundY - 10 * Math.abs(Math.cos(Math.PI * d.phase)) * d.amp;
+  // Fermo a riposo durante il ballo (finito un gesto): si torna a ballare.
+  if (State.name === 'idle' && !State.perched && !touchFx) setAnim(danceAnim2D());
+}
+// Per audit.mjs: animazione e movimento del contenitore.
+window.__companion2DTest = { state: () => ({ name: State.name, y: charC.y, rotation: charC.rotation }) };
+
+window.addEventListener('companion-dance', (e) => {
+  if (window.__threeVisible || !charSprite) return;
+  const on = !!(e.detail && e.detail.on);
+  if (on && State.name === 'idle' && !State.perched && !State.dragging) setAnim(danceAnim2D());
+  if (!on && State.name === danceAnim2D()) setAnim('idle');
+});
 
 // La reazione decisa dal main (touch-react.js). Solo da fermo: mentre
 // cammina, fuma o saluta il gesto in corso vince.

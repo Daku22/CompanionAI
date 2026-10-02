@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanoid } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import {
-  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS, GENERATED,
+  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS, GENERATED, setDanceBeat,
 } from './vrm-animation.js';
 import { createClipLayer, applyLook, isLoopSlot } from './clip-layer.js';
 import { prepareHumanoid, retargetClip, writeVRMA } from './motion-retarget.js';
@@ -194,8 +194,15 @@ const playClip = (name) => animator.play(name, { duration: clips.prepare(animato
 const applyVRMIdlePose = (vrm) => animator.reset(vrm);
 const setFacing = (dir) => animator.setFacing(dir);
 
+// Ballo (Blocco 5c): la battuta va alle pose procedurali, e la clip di ballo
+// gira alla velocita' della musica (DANCE_CLIP_BPM e' il tempo che si
+// suppone per le clip di Kimodo, che non lo dicono).
+const DANCE_CLIP_BPM = 120;
 function updateAnimation(vrm, delta) {
+  const beat = window.CompanionDance && window.CompanionDance.state();
+  setDanceBeat(beat && beat.dancing ? beat : null);
   const info = animator.update(vrm, delta, { applyLook: false });
+  clips.setSpeed(beat && beat.dancing && info.clip === 'dance' && beat.bpm > 0 ? Math.max(0.75, Math.min(1.35, beat.bpm / DANCE_CLIP_BPM)) : 1);
   clips.update(delta, info.clip);
   // Lo sguardo va sopra la posa finale, clip compresa.
   applyLook(vrm, info.lookParts, isVRM0(vrm) ? 1 : -1);
@@ -333,11 +340,24 @@ if (api && api.onWindowDragState) {
 if (api && api.onPerchState) {
   api.onPerchState((data) => {
     perchPhase = data && data.perched ? (data.phase === 'sit' ? 'sit' : 'stand') : null;
-    const sitting = perchPhase === 'sit';
-    animator.setRest(sitting ? 'perch' : 'idle');
-    if (window.__threeVisible && !dragging) playClip(sitting ? 'perch' : 'idle');
+    animator.setRest(restClip());
+    if (window.__threeVisible && !dragging) playClip(restClip());
   });
 }
+
+// A riposo: seduto sulla finestra, ballando, o in piedi. Ballando, ogni gesto
+// (una reazione, un saluto) torna al ballo; posato su una finestra annuisce
+// e dondola le gambe a tempo (sittingOnEdge), senza alzarsi.
+let dancingNow = false;
+function restClip() {
+  if (perchPhase === 'sit') return 'perch';
+  return dancingNow && !perchPhase ? 'dance' : 'idle';
+}
+window.addEventListener('companion-dance', (e) => {
+  dancingNow = !!(e.detail && e.detail.on);
+  animator.setRest(restClip());
+  if (window.__threeVisible && !dragging && currentVrm) playClip(restClip());
+});
 
 // Ancora per il main, in px della finestra: l'ombra (feet, il pavimento sotto
 // il bacino) e la seduta (seat, il bacino qualche centimetro piu' in basso,

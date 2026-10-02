@@ -123,7 +123,7 @@
     } else {
       model.rotation = 0
       model.x = x
-      model.y = ground - touchHop()
+      model.y = ground - touchHop() - danceBounce()
       shadow.alpha = 0.35
     }
     // L'ancora per la seduta su finestre e taskbar, come reportSeat2D.
@@ -257,9 +257,34 @@
     const at = touchFx && touchFx.slot === 'hop' ? touchProgress() : null
     return at ? 24 * Math.sin(Math.PI * Math.min(1, at.p / 0.7)) * (at.p < 0.7 ? 1 : 0) : 0
   }
+  // ── Ballo con la musica (Blocco 5c) ───────────────────────────────────────
+  // Sempre i parametri a tempo (testa e corpo da una parte all'altra ogni due
+  // battute, un saltello sulla battuta); il gruppo "dance" del modello, se
+  // c'e', parte all'inizio del ballo.
+  function danceNow() {
+    const d = window.CompanionDance && window.CompanionDance.state()
+    return d && d.dancing && !state.dragging ? d : null
+  }
+  function danceBounce() {
+    const d = danceNow()
+    return d && !state.perched ? 8 * Math.abs(Math.cos(Math.PI * d.phase)) * d.amp : 0
+  }
+  function applyDanceParams(internal, core) {
+    const d = danceNow()
+    if (!d) return
+    const sway = Math.sin(Math.PI * (d.count + d.phase))
+    const params = { ParamAngleZ: 8 * sway * d.amp, ParamAngleX: 6 * sway * d.amp, ParamBodyAngleX: 6 * sway * d.amp, ParamAngleY: -4 * Math.abs(Math.cos(Math.PI * d.phase)) * d.amp }
+    for (const [id, value] of Object.entries(params)) {
+      try { core.addParameterValueById(internal.getIdSafe(id), value) } catch (_) { /* parametro assente */ }
+    }
+  }
+  window.addEventListener('companion-dance', (e) => {
+    if (active && model && e.detail && e.detail.on && !state.dragging) play('dance')
+  })
+
   function applyTouchParams(internal, core) {
     const at = touchProgress()
-    if (!at) return
+    if (!at) { applyDanceParams(internal, core); return }
     const params = touchParams(touchFx.slot, at.p, at.tt)
     if (!params) return
     for (const [id, value] of Object.entries(params)) {
@@ -420,5 +445,6 @@
     motion: model ? (model.internalModel.motionManager.state.currentGroup || model.internalModel.motionManager.state.reservedGroup || null) : null,
     // Reazione ai tocchi mossa a mano (senza un gruppo adatto), e la tabella delle zone.
     touch: touchFx ? touchFx.slot : null, table: model ? tableFor() : null,
+    dancing: !!danceNow(), y: model ? model.y : null,
   })
 })()

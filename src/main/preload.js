@@ -15,6 +15,14 @@ contextBridge.exposeInMainWorld('companion', {
   startDrag:        ()       => ipcRenderer.send('drag:start'),
   endDrag:          ()       => ipcRenderer.send('drag:end'),
   showMenu:         ()       => ipcRenderer.send('companion:menu'),
+  // Ballo con la musica (Blocco 5c): chi sta suonando, e se sta ballando.
+  getMusicState:    ()       => ipcRenderer.invoke('music:state'),
+  setDancing:       (on)     => ipcRenderer.send('companion:dancing', on === true),
+  onMusicState: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('music-state', handler)
+    return () => ipcRenderer.removeListener('music-state', handler)
+  },
   // Un tocco sull'avatar: zona e tipo ('poke', 'pat'), e se la voce sta gia'
   // parlando (allora la battuta resta nel fumetto). Torna la reazione da
   // recitare, { off: true } se i tocchi sono spenti, o null.

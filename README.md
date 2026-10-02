@@ -52,6 +52,9 @@ yourself from source if you prefer (see below).
   again embarrasses it, then it scolds you, then it turns its back for a few
   seconds. Touches nudge its mood, the model hears about the last one, and
   with the voice on it sometimes says a short line out loud.
+- "Balla con la musica" in the settings (off by default): when a music app
+  from your list plays (Spotify, a browser, VLC…), it listens to the beat on
+  your computer and dances in time. Nothing is recorded or sent.
   "Reagisce ai tocchi" in the settings turns this off.
 - In 3D, drag with the right or middle button to turn the camera around it,
   hold Alt while dragging to move the camera instead, and use the wheel to

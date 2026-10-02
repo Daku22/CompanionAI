@@ -11,6 +11,7 @@ const path = require('path')
 const {
   isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES,
   voiceConfig, VOICE_DEFAULTS, allowPermission, MIC_SHORTCUTS, checkLive2DChoices, LIVE2D_GESTURES, LIVE2D_EMOTIONS,
+  allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -308,6 +309,11 @@ test('la vita autonoma si spegne e si riaccende solo con un booleano', () => {
   assert.equal(mergeConfig({ ...base, idleLife: false }, { idleLife: true }).idleLife, true)
   assert.equal(mergeConfig(base, { idleLife: 'no' }).idleLife, true)
   assert.equal(mergeConfig(base, { provider: 'openai' }).idleLife, true, 'salvare il provider non la tocca')
+  // Ballo con la musica (Blocco 5c): spento di base, si accende solo con un booleano.
+  assert.equal(mergeConfig(base, { danceMusic: true }).danceMusic, true)
+  assert.equal(mergeConfig(base, { danceMusic: 'si' }).danceMusic, undefined)
+  assert.deepEqual(mergeConfig(base, { danceApps: ['Spotify', ' vlc.exe ', 'vlc'] }).danceApps, ['spotify.exe', 'vlc.exe'])
+  assert.equal(mergeConfig(base, { danceApps: 'spotify.exe' }).danceApps, undefined, 'solo un elenco')
   // Reazioni ai tocchi (Blocco 5b): stesso trattamento, solo booleani.
   assert.equal(mergeConfig(base, { touchReactions: false }).touchReactions, false)
   assert.equal(mergeConfig({ ...base, touchReactions: false }, { touchReactions: 'si' }).touchReactions, false)
@@ -333,5 +339,28 @@ test('pagine esterne o fuori da src/renderer no', () => {
 })
 
 fs.rmSync(tmp, { recursive: true, force: true })
+test('ballo: la cattura del suono solo al companion e solo col ballo acceso', () => {
+  const dir = 'file:///C:/app/src/renderer/'
+  assert.equal(allowDisplayCapture(dir + 'companion.html', dir, true), true)
+  assert.equal(allowDisplayCapture(dir + 'companion.html', dir, false), false)
+  assert.equal(allowDisplayCapture(dir + 'chat.html', dir, true), false)
+  assert.equal(allowDisplayCapture(dir + 'settings.html', dir, true), false)
+  assert.equal(allowDisplayCapture('https://example.com/companion.html', dir, true), false)
+  assert.equal(allowPermission('display-capture', { requestingUrl: dir + 'companion.html' }, dir, false, true), true)
+  assert.equal(allowPermission('display-capture', { requestingUrl: dir + 'companion.html' }, dir, true, false), false)
+  assert.equal(allowPermission('display-capture', { requestingUrl: dir + 'chat.html' }, dir, true, true), false)
+  // Come arriva davvero da getDisplayMedia: 'media' senza tipi.
+  assert.equal(allowPermission('media', { requestingUrl: dir + 'companion.html', mediaTypes: [] }, dir, false, true), true)
+  assert.equal(allowPermission('media', { requestingUrl: dir + 'companion.html', mediaTypes: [] }, dir, true, false), false, 'il microfono acceso non basta')
+  assert.equal(allowPermission('media', { requestingUrl: dir + 'chat.html', mediaTypes: [] }, dir, true, true), false)
+})
+
+test('ballo: elenco delle app ripulito', () => {
+  assert.deepEqual(danceApps(['Spotify', 'VLC.exe', '../evil.exe', 'C:/x/a.exe', '', 3, 'spotify.exe']), ['spotify.exe', 'vlc.exe'])
+  assert.equal(danceApps('spotify.exe'), null)
+  assert.equal(danceApps(Array.from({ length: 50 }, (_, i) => 'app' + i)).length, 30)
+  assert.ok(DANCE_APPS_DEFAULT.includes('spotify.exe') && DANCE_APPS_DEFAULT.every(a => a.endsWith('.exe')))
+})
+
 console.log('\n=== ' + passed + ' test superati ===')
 if (process.exitCode) console.error('=== ALCUNI TEST SONO FALLITI ===')

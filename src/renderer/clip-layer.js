@@ -57,6 +57,7 @@ export function createClipLayer() {
   let crossfade = 1         // 0..1 da previous a playing
   let prepared = null
   let weight = 0            // peso delle clip sopra la posa procedurale
+  let speed = 1             // velocita' delle clip (il ballo la porta sul tempo della musica)
   const touched = new Set()
   const identity = new THREE.Quaternion()
   const tmpQ = new THREE.Quaternion()
@@ -210,11 +211,11 @@ export function createClipLayer() {
         return 0
       }
 
-      const now = sample(playing, advance(playing, delta), new Map())
+      const now = sample(playing, advance(playing, delta * speed), new Map())
       let pose = now
       if (previous && crossfade < 1) {
         crossfade = Math.min(1, crossfade + step)
-        const before = sample(previous, advance(previous, delta), new Map())
+        const before = sample(previous, advance(previous, delta * speed), new Map())
         pose = new Map()
         for (const key of new Set([...before.keys(), ...now.keys()])) {
           const { node, value } = now.get(key) || before.get(key)
@@ -234,9 +235,14 @@ export function createClipLayer() {
       return weight
     },
 
+    /** Velocita' delle clip: 1 normale, limitata fra 0,5 e 2. */
+    setSpeed(value) {
+      speed = Number.isFinite(value) ? Math.max(0.5, Math.min(2, value)) : 1
+    },
+
     /** Stato, per i test e l'audit. */
     debug() {
-      return { slot: currentSlot, clip: playing && !playing.fading ? playing.entry.name : null, kind: playing ? playing.kind : null, weight }
+      return { slot: currentSlot, clip: playing && !playing.fading ? playing.entry.name : null, kind: playing ? playing.kind : null, weight, speed }
     },
   }
 }

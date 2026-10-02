@@ -91,11 +91,16 @@
   const loginItem = $('login-item')
   const idleLife = $('idle-life')
   const touchReactions = $('touch-reactions')
+  const danceMusic = $('dance-music')
+  const danceApps = $('dance-apps')
   const weatherOn = $('weather-on')
   const weatherCity = $('weather-city')
   function showGeneral(cfg) {
     idleLife.checked = cfg.idleLife !== false
     touchReactions.checked = cfg.touchReactions !== false
+    danceMusic.checked = cfg.danceMusic === true
+    $('dance-section').classList.toggle('hidden', !danceMusic.checked)
+    if (document.activeElement !== danceApps) danceApps.value = (cfg.danceApps || []).join(', ')
     weatherOn.checked = cfg.weather === true
     $('weather-section').classList.toggle('hidden', !weatherOn.checked)
     if (document.activeElement !== weatherCity) weatherCity.value = cfg.weatherCity || ''
@@ -117,6 +122,9 @@
   })
   idleLife.addEventListener('change', () => saveGeneral({ idleLife: idleLife.checked }))
   touchReactions.addEventListener('change', () => saveGeneral({ touchReactions: touchReactions.checked }))
+  danceMusic.addEventListener('change', () => saveGeneral({ danceMusic: danceMusic.checked }))
+  danceApps.addEventListener('change', () => saveGeneral({ danceApps: danceApps.value.split(/[,;\n]+/) }))
+  danceApps.addEventListener('keydown', (e) => { if (e.key === 'Enter') danceApps.blur() })
   weatherOn.addEventListener('change', () => saveGeneral({ weather: weatherOn.checked, weatherCity: weatherCity.value }))
   weatherCity.addEventListener('change', () => saveGeneral({ weatherCity: weatherCity.value }))
   weatherCity.addEventListener('keydown', (e) => { if (e.key === 'Enter') weatherCity.blur() })

@@ -27,6 +27,14 @@ a message you type. The log records how long a recording was, never what you
 said. The voice service listens only on `127.0.0.1` and answers only to the
 app (a random token, new at every start).
 
+Dancing to music ("Balla con la musica", off by default) reads Windows'
+volume mixer to see which program is playing, and only while one of the
+programs you listed plays, it captures your computer's sound (Electron's
+screen-and-sound capture: the video part is stopped at once and never read).
+The sound goes through a low-pass filter and becomes one number per 23 ms,
+the bass level, which is all the app keeps, for a few seconds, to find the
+beat. Nothing is recorded, saved or sent anywhere.
+
 Movements generated with Kimodo ("Movimenti nuovi con Kimodo", off by
 default) never leave your computer: the model runs on your own graphics card,
 and it receives only the short English description of the movement.

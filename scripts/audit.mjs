@@ -23,6 +23,10 @@
 //                                    anche gli avatar Live2D: <dir> e' la cartella
 //                                    con il Cubism Core installato (%APPDATA%\CompanionAI\live2d);
 //                                    il modello e' quello di private-assets/ o quello indicato
+//   npm run audit -- --dance-audio   anche il ballo con il suono vero: una cassa a
+//                                    120 BPM suonata da PowerShell (si sente dalle
+//                                    casse per circa 20 s), letta dal mixer e
+//                                    catturata in loopback
 //   npm run audit -- --xtts <dir> --mic [--mic-wav <file>]
 //                                    anche il microfono (installato con XTTS): il
 //                                    microfono finto di Chromium dice una frase
@@ -67,6 +71,7 @@ const LIVE2D = opt('--live2d') ? path.resolve(opt('--live2d')) : null
 const LIVE2D_MODEL = opt('--live2d-model') ? path.resolve(opt('--live2d-model')) : null
 // Il microfono vive nell'ambiente di XTTS: serve --xtts.
 const MIC = argv.includes('--mic')
+const DANCE_AUDIO = argv.includes('--dance-audio')
 if (MIC && !XTTS) { console.error('--mic richiede --xtts <cartella voice>'); process.exit(2) }
 const OUT = path.resolve(opt('--out') || path.join(os.tmpdir(), 'companion-audit'))
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-audit-'))
@@ -219,6 +224,25 @@ if (LIVE2D_MODEL) {
 // Il microfono finto: una frase italiana, poi 3 s di silenzio (Chromium
 // ripete il file finche' il microfono e' aperto).
 const MIC_PHRASE = 'Ciao, come stai oggi? Raccontami qualcosa di bello sul mare.'
+/** Una cassa a `bpm` battiti al minuto, `seconds` secondi: WAV mono a 16 bit. */
+function kickWav(file, bpm, seconds) {
+  const rate = 44100
+  const n = Math.round(rate * seconds)
+  const data = Buffer.alloc(n * 2)
+  const period = rate * 60 / bpm
+  for (let i = 0; i < n; i++) {
+    const t = (i % period) / rate
+    const v = 0.5 * Math.sin(2 * Math.PI * 60 * t) * Math.exp(-t / 0.12)
+    data.writeInt16LE(Math.round(v * 32767), i * 2)
+  }
+  const h = Buffer.alloc(44)
+  h.write('RIFF', 0); h.writeUInt32LE(36 + data.length, 4); h.write('WAVE', 8)
+  h.write('fmt ', 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22)
+  h.writeUInt32LE(rate, 24); h.writeUInt32LE(rate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34)
+  h.write('data', 36); h.writeUInt32LE(data.length, 40)
+  fs.writeFileSync(file, Buffer.concat([h, data]))
+}
+
 function micWav() {
   const wav = path.join(WORK, 'microfono.wav')
   if (opt('--mic-wav')) fs.copyFileSync(path.resolve(opt('--mic-wav')), wav)
@@ -403,6 +427,20 @@ const hover = async (x, y) => {
   return comp.evaluate(`document.body.classList.contains('hover-avatar')`)
 }
 const size = () => comp.evaluate('[window.innerWidth, window.innerHeight]')
+  // Ballo (Blocco 5c) con una cassa finta: si balla, e il corpo si muove.
+  async function danceCheck(label, read) {
+    await comp.evaluate('window.companion.setConfig({ danceMusic: true }).then(c => c.danceMusic)')
+    await comp.evaluate('window.CompanionDance.simulate(120); true')
+    let on = false
+    for (let i = 0; i < 40 && !on; i++) { await sleep(250); on = (await comp.evaluate('window.CompanionDance.debug()')).dancing }
+    const samples = []
+    for (let i = 0; i < 8; i++) { samples.push(await comp.evaluate(read)); await sleep(90) }
+    await comp.evaluate('window.CompanionDance.simulate(null); true')
+    await comp.evaluate('window.companion.setConfig({ danceMusic: false }).then(c => c.danceMusic)')
+    await sleep(600)
+    return { on, samples }
+  }
+
 async function pickAvatar(prefix) {
   await comp.evaluate(`document.getElementById('switch-zone').click(); true`)
   await sleep(300)
@@ -465,6 +503,15 @@ try {
   check(await bubble() !== '', '2D: preso in braccio reagisce (' + await bubble() + ')')
   await comp.evaluate('window.companion.endDrag(); true')
   await sleep(600)
+  {
+    const { on, samples } = await danceCheck('2D', 'window.__companion2DTest.state()')
+    const ys = samples.map(s => s.y)
+    const moving = Math.max(...ys) - Math.min(...ys) > 2
+    check(on && samples.every(s => s.name === 'dance' || s.name === 'happy') && moving,
+      '2D: balla a tempo (' + samples[0].name + ', saltello ' + (Math.max(...ys) - Math.min(...ys)).toFixed(1) + ' px)')
+    await sleep(400)
+    check((await comp.evaluate('window.__companion2DTest.state()')).name === 'idle', '2D: finita la musica torna a riposo')
+  }
   const sizes = []
   for (const scale of ['l', 'm']) {
     await chat.evaluate(`window.companion.setConfig({ scale: '${scale}' })`)
@@ -531,6 +578,10 @@ try {
       check(!!reacted, 'live2d: clic sul corpo, reazione (' + reacted + ')')
       await shot('3b-live2d-tocco')
       await sleep(1800)
+      const { on, samples } = await danceCheck('live2d', 'window.__live2dTest()')
+      const ys = samples.map(s => s.y)
+      check(on && samples.every(s => s.dancing) && Math.max(...ys) - Math.min(...ys) > 2,
+        'live2d: balla a tempo (saltello ' + (Math.max(...ys) - Math.min(...ys)).toFixed(1) + ' px)')
     }
     const wanted = l2.motions.happy
     await say('salutami')
@@ -735,6 +786,47 @@ try {
     await sleep(350)
     check(settings === false && await clip() === 'idle', '3D: tocchi spenti, il clic non fa gesti (' + await clip() + ')')
     await comp.evaluate('window.companion.setConfig({ touchReactions: true }); true')
+    await sleep(300)
+  }
+
+  // Ballo con la musica (Blocco 5c): spento di base. Acceso, una cassa finta
+  // passa dallo stesso percorso del suono catturato (da onLevel in poi): il
+  // tempo si aggancia, il 3D balla, e smette quando la musica finisce.
+  {
+    const dance = () => comp.evaluate('window.CompanionDance.debug()')
+    const animClip = async () => (await comp.evaluate('window.__companion3DTest.animator()')).clipName
+    check((await dance()).music.enabled !== true && !(await dance()).capturing, 'ballo: spento di base, nessuna cattura')
+    await comp.evaluate('window.companion.setConfig({ danceMusic: true }).then(c => c.danceMusic)')
+    await comp.evaluate('window.CompanionDance.simulate(120); true')
+    let d = null
+    for (let i = 0; i < 40 && !(d && d.dancing); i++) { await sleep(250); d = await dance() }
+    check(!!d && d.dancing && Math.abs(d.tracker.bpm - 120) <= 4, 'ballo: cassa a 120 BPM, balla (stimati ' + (d && d.tracker.bpm) + ' BPM' + (d && d.capturing ? ', con ' + d.music.app + ' che suona davvero' : '') + ')')
+    await sleep(1200)
+    const a = await comp.evaluate('window.__companion3DTest.animator()')
+    check(a.clipName === 'dance' && a.restName === 'dance', '3D: balla, e il riposo e\' il ballo (' + a.clipName + ' / ' + a.restName + ')')
+    await shot('2e-ballo')
+    await comp.evaluate('window.CompanionDance.simulate(null); true')
+    await sleep(1000)
+    check(!(await dance()).dancing && await animClip() === 'idle', '3D: musica finita, smette (' + await animClip() + ')')
+
+    // La catena vera: PowerShell suona una cassa, il mixer lo vede, la
+    // pagina cattura il suono in loopback e ne trova il tempo.
+    if (DANCE_AUDIO) {
+      const wav = path.join(WORK, 'cassa-120.wav')
+      kickWav(wav, 120, 20)
+      await comp.evaluate(`window.companion.setConfig({ danceApps: ['powershell.exe'] }).then(c => c.danceApps)`)
+      const player = spawn('powershell', ['-NoProfile', '-Command', `(New-Object Media.SoundPlayer '${wav}').PlaySync()`], { stdio: 'ignore' })
+      let real = null
+      for (let i = 0; i < 60 && !(real && real.dancing); i++) { await sleep(250); real = await dance() }
+      check(!!real && real.music.app === 'powershell.exe' && real.capturing && real.dancing && Math.abs(real.tracker.bpm - 120) <= 5,
+        'ballo dal suono vero: mixer ' + (real && real.music.app) + ', cattura ' + (real && real.capturing) + ', ' + (real && real.tracker.bpm) + ' BPM')
+      await shot('2e-ballo-suono-vero')
+      try { player.kill() } catch (_) {}
+      let stopped = null
+      for (let i = 0; i < 40; i++) { await sleep(250); stopped = await dance(); if (!stopped.capturing) break }
+      check(!!stopped && !stopped.capturing && !stopped.dancing, 'ballo: musica ferma, la cattura si chiude')
+    }
+    await comp.evaluate('window.companion.setConfig({ danceMusic: false }).then(c => c.danceMusic)')
     await sleep(300)
   }
 

@@ -25,6 +25,13 @@
   - New animation slots for the reactions, with procedural fallbacks in 3D,
     motion groups or hand-moved parameters in Live2D, and sprite moves in 2D.
   - "Reagisce ai tocchi" in the settings, on by default.
+- Dancing to music ("Balla con la musica", off by default): when an app from
+  an editable list plays (Spotify, browsers, VLC…), read from Windows' volume
+  mixer, the app captures the computer's sound locally, finds the tempo and
+  beat from the bass, and dances in time: the dance clip at the music's
+  speed in 3D, head and feet when sitting on a window, parameters in time in
+  Live2D, a bounce on the beat in 2D. Not while carried, speaking, asleep or
+  just offended. Nothing is recorded or sent.
 - 27 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions),
   now in the repository and the installer under CC0. Credits and the model

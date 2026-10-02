@@ -449,6 +449,29 @@ interrompe una risposta e tace mentre il microfono ascolta.
 "Reagisce ai tocchi" nelle Impostazioni spegne tutto: un clic torna a dare
 solo il sorriso.
 
+**Ballo con la musica** (spento di base, "Balla con la musica" nelle
+Impostazioni).
+- **Chi suona:** il main legge il mixer di Windows ogni 0,7 s (`win-audio.js`:
+  sessioni audio WASAPI chiamate con koffi attraverso la vtable COM) e dice
+  alla pagina se suona un'app dell'elenco (Spotify, browser, VLC...,
+  modificabile). La voce del companion non conta.
+- **Il ritmo:** solo allora la pagina cattura il suono del PC
+  (`getDisplayMedia` con audio in loopback; il main la concede solo alla
+  pagina del companion e solo con il ballo acceso, e la traccia video si
+  ferma subito). Un passa-basso a 150 Hz e `beat-worklet.js` danno il livello
+  dei bassi 43 volte al secondo; `beat.js` ne ricava tempo (autocorrelazione
+  degli attacchi su 6 s, 70–180 BPM), fase, energia. Si balla dopo 3 s di
+  ritmo sicuro, si smette dopo 3 s di silenzio, e la cattura si chiude 4 s
+  dopo che la musica si ferma.
+- **Il ballo:** nel 3D la clip `dance` alla velocità della musica (si
+  suppone che le clip siano a 120 BPM) o il ripiego procedurale a tempo, e a
+  riposo resta il ballo; seduto su una finestra annuisce e dondola le gambe a
+  tempo. In Live2D il gruppo "dance" e testa e corpo a tempo; nel 2D
+  l'animazione "dance" (o "happy") e un saltello sulla battuta.
+- **Non balla** in braccio, mentre parla (il loopback sentirebbe la sua
+  voce), mentre dorme o appena offeso; la malinconia abbassa l'ampiezza.
+  Mentre balla la vita autonoma aspetta.
+
 Posato, l'avatar resta dentro l'area di lavoro dello schermo. Prima lo
 spostava Windows con `-webkit-app-region: drag`: niente velocità, e il tasto
 destro apriva il menu di sistema. La finestra si muove con `setBounds` a

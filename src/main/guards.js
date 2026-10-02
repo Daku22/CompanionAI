@@ -234,6 +234,34 @@ function checkLive2DChoices(id, input, model) {
   }
 }
 
+/**
+ * La cattura del suono del PC (getDisplayMedia con audio loopback) si
+ * concede solo alla pagina del companion e solo con "Balla con la musica"
+ * acceso.
+ */
+function allowDisplayCapture(url, rendererDirUrl, danceEnabled) {
+  if (!danceEnabled || !isTrustedSender(url, rendererDirUrl)) return false
+  return /\/companion\.html([?#].*)?$/.test(String(url))
+}
+
+// App il cui suono fa ballare: nomi di eseguibili, come li dice Windows.
+const DANCE_APPS_DEFAULT = ['spotify.exe', 'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vlc.exe', 'foobar2000.exe', 'musicbee.exe', 'applemusic.exe', 'tidal.exe', 'deezer.exe']
+const DANCE_APP_RE = /^[a-z0-9][a-z0-9 ._()-]{0,60}\.exe$/
+
+/** Elenco delle app per il ballo, ripulito: minuscolo, .exe, senza doppioni, al massimo 30. */
+function danceApps(input) {
+  if (!Array.isArray(input)) return null
+  const out = []
+  for (const item of input) {
+    if (typeof item !== 'string') continue
+    let name = item.trim().toLowerCase()
+    if (name && !name.endsWith('.exe')) name += '.exe'
+    if (DANCE_APP_RE.test(name) && !out.includes(name)) out.push(name)
+    if (out.length >= 30) break
+  }
+  return out
+}
+
 function mergeConfig(current, incoming) {
   const merged = { ...current, keys: { ...(current.keys || {}) } }
   if (!incoming || typeof incoming !== 'object') return merged
@@ -248,6 +276,8 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.kimodo === 'boolean') merged.kimodo = incoming.kimodo
   if (typeof incoming.perch === 'boolean') merged.perch = incoming.perch
   if (typeof incoming.touchReactions === 'boolean') merged.touchReactions = incoming.touchReactions
+  if (typeof incoming.danceMusic === 'boolean') merged.danceMusic = incoming.danceMusic
+  if (incoming.danceApps !== undefined) { const apps = danceApps(incoming.danceApps); if (apps) merged.danceApps = apps }
   if (typeof incoming.scale === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_SCALES, incoming.scale)) merged.scale = incoming.scale
   // Stanza: la scena scelta (solo il formato: room-scene.js ripiega sulla
   // prima se non esiste), e il meteo vero, spento di base, con la citta'.
@@ -334,7 +364,15 @@ function isTrustedSender(senderUrl, rendererDirUrl) {
  * @param {string} rendererDirUrl come per isTrustedSender
  * @param {boolean} micEnabled
  */
-function allowPermission(permission, details, rendererDirUrl, micEnabled) {
+function allowPermission(permission, details, rendererDirUrl, micEnabled, danceEnabled = false) {
+  // Il suono del PC per il ballo (Blocco 5c): solo con l'interruttore acceso
+  // e solo dalla pagina del companion.
+  if (permission === 'display-capture') return !!danceEnabled && !!details && allowDisplayCapture(details.requestingUrl, rendererDirUrl, true)
+  // getDisplayMedia arriva come 'media' senza tipi (verificato con Electron
+  // 44): non e' il microfono, vale la regola della cattura.
+  if (permission === 'media' && details && Array.isArray(details.mediaTypes) && details.mediaTypes.length === 0) {
+    return !!danceEnabled && allowDisplayCapture(details.requestingUrl, rendererDirUrl, true)
+  }
   if (permission !== 'media' || !micEnabled || !details) return false
   if (!isTrustedSender(details.requestingUrl, rendererDirUrl)) return false
   if (Array.isArray(details.mediaTypes)) return details.mediaTypes.length > 0 && details.mediaTypes.every(t => t === 'audio')
@@ -346,6 +384,7 @@ module.exports = {
   allowPermission,
   checkLive2DChoices,
   LIVE2D_GESTURES,
+  allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT,
   LIVE2D_EMOTIONS,
   MIC_SHORTCUTS,
   SAFE_COMMANDS,

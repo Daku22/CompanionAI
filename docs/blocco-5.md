@@ -138,6 +138,24 @@ dello sprite, più una trasformazione (saltello, tremolio, scatto indietro).
 
 ## 5c — ballo con la musica (spento di base)
 
+**Fatto il 2 ottobre.** Differenze dal piano:
+- il prototipo di `win-audio.js` e' passato al primo colpo (sessioni,
+  processi, picco; 4 ms a lettura, nessuna perdita di memoria su 12 000
+  letture), quindi niente ripiego su "app ammessa aperta": resta solo se
+  koffi non si carica, e allora decide il ritmo da solo;
+- l'analisi e' un AudioWorklet con passa-basso a 150 Hz davanti: un livello
+  per blocco, fotogrammi regolari; lo spectral flux e' sul logaritmo del
+  livello dei bassi;
+- gli attacchi si ammorbidiscono su tre fotogrammi prima
+  dell'autocorrelazione: a 140 BPM la battuta cade fra due fotogrammi e
+  vinceva la meta' del tempo;
+- nel 3D la fase non si aggancia alla clip Kimodo (non dice il suo tempo):
+  la clip va a velocita' BPM/120, la fase vale per il ripiego procedurale e
+  per seduto; a riposo, ballando, resta il ballo;
+- l'audit simula una cassa dallo stesso percorso del suono vero; con
+  `--dance-audio` prova la catena intera (PowerShell suona una cassa a 120
+  BPM, il mixer la vede, la cattura in loopback ne trova il tempo).
+
 - **Interruttore:** Impostazioni → "Balla con la musica", spento. Testo:
   "l'audio si analizza sul tuo PC, non si registra e non si invia".
   `allowPermission` ammette la cattura solo con l'interruttore acceso e
