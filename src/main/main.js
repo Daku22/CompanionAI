@@ -663,10 +663,20 @@ function createTray() {
   // L'icona la genera scripts/make-icon.js (npm run icon), lanciato dagli hook
   // prestart/prebuild. Il vecchio fallback silenzioso a createEmpty() lasciava
   // un quadratino invisibile nella barra di sistema senza dire perche'.
+  // tray.png e' il logo a 16 px; tray-2x.png (32 px) serve agli schermi con
+  // scala 200%.
   let icon = nativeImage.createEmpty()
   try {
-    const iconPath = path.join(__dirname, '..', 'renderer', 'assets', 'icon.png')
-    if (fs.existsSync(iconPath)) {
+    const assets = path.join(__dirname, '..', 'renderer', 'assets')
+    const trayPath = path.join(assets, 'tray.png')
+    const tray2xPath = path.join(assets, 'tray-2x.png')
+    const iconPath = path.join(assets, 'icon.png')
+    if (fs.existsSync(trayPath)) {
+      icon = nativeImage.createFromPath(trayPath)
+      if (fs.existsSync(tray2xPath)) {
+        icon.addRepresentation({ scaleFactor: 2, buffer: fs.readFileSync(tray2xPath) })
+      }
+    } else if (fs.existsSync(iconPath)) {
       icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
     } else {
       console.warn('[tray] icona assente: esegui "npm run icon" per generarla')

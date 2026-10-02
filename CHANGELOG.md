@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0
+
+- New app icon: the cat with a ring. The tray and the windows use hand-tuned
+  16 and 32 px versions; the executable uses the full logo at 256 px. The
+  sources are in `build/icon-src/`, and `npm run icon` copies them instead of
+  drawing the old placeholder.
+- A click no longer turns into a drag when the hand shakes a little: a press
+  becomes a drag only past 10 px, or past 4 px when held for 350 ms. Holding
+  still for 600 ms picks the avatar up. The click reaction now fires reliably.
+
 ## 1.0.0 — first public release
 
 ### Avatars

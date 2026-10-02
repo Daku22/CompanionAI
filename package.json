@@ -1,7 +1,7 @@
 {
   "name": "companion-ai",
   "productName": "CompanionAI",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A desktop companion that lives on top of your windows: an animated 2D or VRM 3D avatar, persistent local memory and a router for seven AI providers.",
   "main": "src/main/main.js",
   "scripts": {

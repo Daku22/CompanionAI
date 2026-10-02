@@ -12,7 +12,9 @@ research/
 
 # ── Output di build ───────────────────────────────────────────────────────────
 dist/
-build/
+# build/ e' output, tranne le icone sorgente (scripts/make-icon.js)
+build/*
+!build/icon-src/
 out/
 release/
 *.asar
@@ -38,6 +40,8 @@ src/renderer/vendor/
 # Icone generate da scripts/make-icon.js
 build/icon.png
 src/renderer/assets/icon.png
+src/renderer/assets/tray.png
+src/renderer/assets/tray-2x.png
 
 # ── Asset privati ─────────────────────────────────────────────────────────────
 # Avatar che non si possono ridistribuire (Yanineko, Dust, Neko) e le loro

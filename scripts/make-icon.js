@@ -5,9 +5,15 @@
 // di Electron e la tray ripiegava su nativeImage.createEmpty(), cioe' su un
 // quadratino invisibile nella barra di sistema.
 //
-// L'icona e' disegnata via codice (zlib e' gia' in Node, nessuna dipendenza):
-// una sagoma con orecchie da gatto, che richiama il personaggio senza provare a
-// ridisegnare il personaggio a 32 pixel.
+// Se esiste build/icon-src/ usa le icone li' dentro (logo gatto con anello):
+//   icon-256.png               eseguibile, ridimensionata da full-master.png
+//   icon-32.png                finestre
+//   tray-16.png, tray-32.png   tray (normale e schermi al 200%)
+// Le versioni a 16 e 32 px sono ritoccate a mano, non ridimensionate: se
+// cambi il logo vanno rifatte.
+//
+// Senza quella cartella l'icona e' disegnata via codice (zlib e' gia' in Node,
+// nessuna dipendenza): una sagoma con orecchie da gatto.
 //
 // Uso: npm run icon
 
@@ -141,16 +147,23 @@ function drawIcon(size) {
   return encodePNG(size, size, px)
 }
 
-function write(target, size) {
+const SRC = path.join(ROOT, 'build', 'icon-src')
+
+function write(target, size, srcName) {
   const file = path.join(ROOT, target)
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  const buf = drawIcon(size)
+  const src = path.join(SRC, srcName)
+  const buf = fs.existsSync(src) ? fs.readFileSync(src) : drawIcon(size)
   fs.writeFileSync(file, buf)
   console.log('  ' + target.padEnd(40) + size + 'x' + size + '  ' + (buf.length / 1024).toFixed(1) + ' KB')
 }
 
 // 256 per electron-builder (la dimensione minima che accetta su Windows),
-// 32 per la tray su schermi ad alta densita'.
-write('build/icon.png', 256)
-write('src/renderer/assets/icon.png', 32)
-console.log('[icon] generate')
+// 32 per le finestre; la tray ha 16 e 32 (schermi ad alta densita').
+// Il nome "tray-2x" evita "@2x", che nativeImage interpreta come fattore di
+// scala (vedi docs/PORTING-NOTES.md).
+write('build/icon.png', 256, 'icon-256.png')
+write('src/renderer/assets/icon.png', 32, 'icon-32.png')
+write('src/renderer/assets/tray.png', 16, 'tray-16.png')
+write('src/renderer/assets/tray-2x.png', 32, 'tray-32.png')
+console.log(fs.existsSync(SRC) ? '[icon] copiate da build/icon-src' : '[icon] generate')
