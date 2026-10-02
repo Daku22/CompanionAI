@@ -10,7 +10,8 @@
 //
 // Si balla quando beat.js dice active, ma non:
 // - in braccio, mentre parla (il loopback sentirebbe la sua voce: i livelli
-//   in quei momenti non entrano), mentre dorme, appena offeso (turnaway).
+//   in quei momenti non entrano), mentre dorme, appena offeso (turnaway),
+//   mentre sbircia dal bordo.
 // La malinconia abbassa l'ampiezza.
 //
 // I renderer leggono window.CompanionDance.state() a ogni frame e ascoltano
@@ -39,8 +40,10 @@
 
   const speaking = () => !!(window.CompanionVoice && window.CompanionVoice.isSpeaking())
 
+  const peeking = () => !!(window.CompanionPeek && window.CompanionPeek.side())
+
   function blocked() {
-    return dragging || dozing || speaking() || performance.now() < blockedUntil
+    return dragging || dozing || speaking() || peeking() || performance.now() < blockedUntil
   }
 
   function setDancing(on) {

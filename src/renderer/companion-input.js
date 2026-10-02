@@ -204,6 +204,8 @@
   layer.addEventListener('dblclick', () => {
     // Nella stanza il doppio clic conta solo sull'avatar: il resto e' scena.
     if (room && !overModel) return
+    // Mentre sbircia dal bordo il doppio clic lo fa uscire (companion-peek.js).
+    if (window.CompanionPeek && window.CompanionPeek.side()) { window.CompanionPeek.out(); return }
     if (api && api.toggleChat) api.toggleChat()
   })
 

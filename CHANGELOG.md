@@ -32,6 +32,17 @@
   speed in 3D, head and feet when sitting on a window, parameters in time in
   Live2D, a bounce on the beat in 2D. Not while carried, speaking, asleep or
   just offended. Nothing is recorded or sent.
+- Chibi, for 3D avatars with a human skeleton (VRM, and glTF/FBX whose
+  skeleton is recognised): big head, small body (head x1.7, body x0.7), from
+  the avatar menu or the settings, saved per avatar. The feet stay on the
+  ground, poses and clips keep working, hair collisions grow with the head.
+  Greyed out, with the reason, for Live2D, 2D and models without a skeleton.
+- Peeking from the screen edge: left more than halfway past the left or
+  right edge of a screen, the avatar stays there half hidden and waves from
+  the edge (3D: torso still, the hand waving like the greeting clip; 2D: the
+  pack's "wave"; Live2D: the "wave" group with the head turned toward the
+  screen). It comes out when the mouse gets close, when a reply arrives or
+  with a double-click. Over a full-screen app it comes back inside.
 - 27 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions),
   now in the repository and the installer under CC0. Credits and the model

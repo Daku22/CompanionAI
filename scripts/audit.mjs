@@ -277,7 +277,7 @@ const occlusionArgs = ['--disable-backgrounding-occluded-windows', '--disable-re
 
 const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA, ...occlusionArgs, ...micArgs], {
   cwd: ROOT, stdio: 'ignore',
-  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, COMPANION_ONLY_USER_CLIPS: "1" },
+  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, COMPANION_ONLY_USER_CLIPS: "1", COMPANION_TEST_HOOKS: '1' },
 })
 
 // ── Protocollo DevTools ──────────────────────────────────────────────────────
@@ -441,6 +441,36 @@ const size = () => comp.evaluate('[window.innerWidth, window.innerHeight]')
     return { on, samples }
   }
 
+  // Sbircia dal bordo (Blocco 5d): la finestra oltre il bordo destro e il
+  // rilascio come dopo una presa (canale di prova del main); il bordo dello
+  // schermo deve cadere sul taglio misurato dal renderer, con la posa giusta.
+  // Poi esce con il cursore (finto) vicino alla testa o con il doppio clic,
+  // e torna tutto dentro lo schermo.
+  async function peekCheck(label, read, posed, exit) {
+    const s0 = await comp.evaluate('window.companion.testPeek({})')
+    const x = s0.workArea.x + s0.workArea.width - Math.round(s0.bounds.width * 0.35)
+    await comp.evaluate(`window.companion.testPeek({ place: { x: ${x}, y: ${s0.bounds.y} }, release: true, cursor: { x: 0, y: 0 } })`)
+    let s = null
+    for (let i = 0; i < 30 && !(s && s.peek && s.peek.placed); i++) { await sleep(150); s = await comp.evaluate('window.companion.testPeek({})') }
+    await sleep(700)
+    s = await comp.evaluate('window.companion.testPeek({})')
+    // Il taglio usato dal main e' quello misurato dalla pagina (non il ripiego).
+    const g = (await comp.evaluate('window.CompanionPeek.debug()')).geometry
+    const state = await comp.evaluate(read)
+    const onEdge = !!(s.peek && g && s.bounds.x + s.peek.cut === s.peek.edgeX && Math.abs(s.peek.cut - g.cut) <= 0.1 * s.bounds.width)
+    check(onEdge && s.peek.side === 'right' && s.peek.armed && posed(state),
+      label + ': oltre il bordo destro sbircia, il bordo sul taglio (finestra a ' + s.bounds.x + ', taglio ' + (s.peek && s.peek.cut) + ', misura ' + (g && g.cut) + ', ' + JSON.stringify(state) + ')')
+    await shot('5-sbircia-' + label.toLowerCase())
+    if (exit === 'cursor') {
+      await comp.evaluate(`window.companion.testPeek({ cursor: { x: ${s.bounds.x + s.peek.head.x - 30}, y: ${s.bounds.y + s.peek.head.y + 10} } })`)
+    } else await comp.evaluate('window.CompanionPeek.out(); true')
+    await sleep(900)
+    const out = await comp.evaluate('window.companion.testPeek({ cursor: null })')
+    const inside = out.bounds.x >= out.workArea.x && out.bounds.x + out.bounds.width <= out.workArea.x + out.workArea.width
+    check(!out.peek && inside && !(await comp.evaluate('window.CompanionPeek.side()')),
+      label + ': ' + (exit === 'cursor' ? 'il cursore vicino' : 'il doppio clic') + ' lo fa uscire, tutto dentro (' + out.bounds.x + ')')
+  }
+
 async function pickAvatar(prefix) {
   await comp.evaluate(`document.getElementById('switch-zone').click(); true`)
   await sleep(300)
@@ -512,6 +542,7 @@ try {
     await sleep(400)
     check((await comp.evaluate('window.__companion2DTest.state()')).name === 'idle', '2D: finita la musica torna a riposo')
   }
+  await peekCheck('2D', 'window.__companion2DTest.state()', (st) => st.name === 'wave' && st.dir === -1, 'dblclick')
   const sizes = []
   for (const scale of ['l', 'm']) {
     await chat.evaluate(`window.companion.setConfig({ scale: '${scale}' })`)
@@ -582,6 +613,7 @@ try {
       const ys = samples.map(s => s.y)
       check(on && samples.every(s => s.dancing) && Math.max(...ys) - Math.min(...ys) > 2,
         'live2d: balla a tempo (saltello ' + (Math.max(...ys) - Math.min(...ys)).toFixed(1) + ' px)')
+      await peekCheck('Live2D', '(({ peek, motion }) => ({ peek, motion }))(window.__live2dTest())', (st) => st.peek === 'right', 'cursor')
     }
     const wanted = l2.motions.happy
     await say('salutami')
@@ -866,6 +898,8 @@ try {
     const head2 = await bw('head')
     check(!(await comp.evaluate('window.__companion3DTest.chibi()')) && ratio(head0, head2) === '1.00', '3D: chibi spento, misura piena')
   }
+  await peekCheck('3D', '(({ clipName, restName }) => ({ clipName, restName }))(window.__companion3DTest.animator())', (st) => st.clipName === 'peek' && st.restName === 'peek', 'cursor')
+  check((await comp.evaluate('window.__companion3DTest.animator()')).restName === 'idle', '3D: uscito dal bordo, il riposo torna in piedi')
 
   // 4c. Camera: destro + trascina gira senza aprire il menu, destro fermo apre
   // il menu, la rotella zooma, doppio clic centrale rimette la camera.

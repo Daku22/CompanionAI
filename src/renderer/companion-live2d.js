@@ -282,7 +282,49 @@
     if (active && model && e.detail && e.detail.on && !state.dragging) play('dance')
   })
 
+  // ── Sbircia dal bordo (Blocco 5d) ─────────────────────────────────────────
+  // Oltre il bordo dello schermo (companion-peek.js): il gruppo "wave" del
+  // modello ogni tanto, e la testa girata e inclinata verso lo schermo. Il
+  // bordo cade sul centro della testa, in alto nel modello.
+  const PEEK_CUT_L2D = 0       // il bordo sul centro della testa: se ne vede meta'
+  const PEEK_WAVE_MS = 6000
+  let peekSide = null
+  let peekWaveTimer = null
+  window.addEventListener('companion-peek', (e) => {
+    const d = e.detail || {}
+    peekSide = d.side || null
+    clearInterval(peekWaveTimer)
+    peekWaveTimer = null
+    if (!active || !model || state.dragging) return
+    if (peekSide) {
+      play('wave')
+      peekWaveTimer = setInterval(() => { if (peekSide && !state.dragging) play('wave') }, PEEK_WAVE_MS)
+    } else if (d.reason === 'cursor' || d.reason === 'dblclick') play('happy')
+  })
+  function applyPeekParams(internal, core) {
+    if (!peekSide || state.dragging) return
+    // Fuori a destra guarda verso sinistra, dentro lo schermo.
+    const s = peekSide === 'right' ? -1 : 1
+    const params = { ParamAngleX: 18 * s, ParamAngleZ: 10 * s, ParamBodyAngleX: 4 * s }
+    for (const [id, value] of Object.entries(params)) {
+      try { core.addParameterValueById(internal.getIdSafe(id), value) } catch (_) { /* parametro assente */ }
+    }
+  }
+
+  /** Dove tagliare e dove sta la testa, in px della finestra. */
+  window.peekMeasureLive2D = (side) => {
+    if (!model || !active) return null
+    const b = model.getBounds()
+    const rect = b.rectangle || b
+    const rows = window.CompanionTouch.HEIGHT_TABLES[tableFor()]
+    const face = (rows.find(([zone]) => zone === 'face') || [null, 0.24])[1]
+    const r = face / 2 * rect.height
+    const head = { x: rect.x + rect.width / 2, y: rect.y + r }
+    return { cut: Math.round(head.x + (side === 'right' ? 1 : -1) * PEEK_CUT_L2D * r), head: { x: Math.round(head.x), y: Math.round(head.y) } }
+  }
+
   function applyTouchParams(internal, core) {
+    applyPeekParams(internal, core)
     const at = touchProgress()
     if (!at) { applyDanceParams(internal, core); return }
     const params = touchParams(touchFx.slot, at.p, at.tt)
@@ -398,6 +440,7 @@
     l2dApp.ticker.start()
     window.CompanionInput.setProbe(window.hitTestLive2D)
     window.CompanionInput.setZoneProbe(window.zoneLive2D)
+    if (window.CompanionPeek) window.CompanionPeek.setMeasure(window.peekMeasureLive2D)
     applyMood()
     play('wave')
     // Gruppi ed espressioni alle Impostazioni, per la tabella degli abbinamenti.
@@ -445,6 +488,6 @@
     motion: model ? (model.internalModel.motionManager.state.currentGroup || model.internalModel.motionManager.state.reservedGroup || null) : null,
     // Reazione ai tocchi mossa a mano (senza un gruppo adatto), e la tabella delle zone.
     touch: touchFx ? touchFx.slot : null, table: model ? tableFor() : null,
-    dancing: !!danceNow(), y: model ? model.y : null,
+    dancing: !!danceNow(), y: model ? model.y : null, peek: peekSide,
   })
 })()

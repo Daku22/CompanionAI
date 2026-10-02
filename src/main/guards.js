@@ -285,7 +285,7 @@ function chibiAvatars(input) {
 function chibiUnavailable(info) {
   if (!info || typeof info.kind !== 'string') return 'nessun avatar in vista'
   if (info.kind === 'live2d') return 'gli avatar Live2D non hanno ossa da scalare'
-  if (info.kind === 'sprite-pack' || info.kind === 'sprite') return 'gli avatar 2D sono disegni: per la misura c\'è Dimensione'
+  if (info.kind === 'sprite-pack' || info.kind === 'sprite') return 'gli avatar 2D sono disegni senza ossa (la misura si cambia da Dimensione)'
   if (!info.humanoid) return 'questo modello non ha uno scheletro umano riconosciuto'
   return null
 }

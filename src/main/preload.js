@@ -85,6 +85,12 @@ contextBridge.exposeInMainWorld('companion', {
   // Chibi per l'avatar in vista: { available, reason, on }
   chibiState:       ()       => ipcRenderer.invoke('avatar:chibi-state'),
   setChibi:         (on)     => ipcRenderer.invoke('avatar:set-chibi', on === true),
+  // Sbircia dal bordo: dove tagliare e dove sta la testa (px della finestra), e il doppio clic che lo fa uscire
+  peekGeometry:     (g)      => ipcRenderer.send('companion:peek-geometry', g && typeof g === 'object'
+    ? { side: g.side, cut: g.cut, headX: g.headX, headY: g.headY } : null),
+  peekOut:          ()       => ipcRenderer.send('companion:peek-out'),
+  // Solo per audit.mjs: il main risponde solo con COMPANION_TEST_HOOKS=1
+  testPeek:         (cmd)    => ipcRenderer.invoke('test:peek', cmd),
   live2dSetChoices: (id, choices) => ipcRenderer.invoke('live2d:set-choices', id, choices),
   voiceXttsCancel:  ()       => ipcRenderer.send('voice:xtts-cancel'),
   voiceXttsRemove:  ()       => ipcRenderer.invoke('voice:xtts-remove'),
@@ -239,6 +245,12 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('avatar-chibi', handler)
     return () => ipcRenderer.removeListener('avatar-chibi', handler)
+  },
+  // Sbircia dal bordo ({ side: 'left' | 'right' }) o esce ({ side: null, reason })
+  onEdgePeek: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('edge-peek', handler)
+    return () => ipcRenderer.removeListener('edge-peek', handler)
   },
   // Chibi per l'avatar in vista ({ available, reason, on }), alle Impostazioni
   onChibiState: (cb) => {

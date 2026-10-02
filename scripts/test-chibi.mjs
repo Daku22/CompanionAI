@@ -127,4 +127,4 @@ t('senza umanoide non fa niente', () => {
   assert.equal(chibiOf(null), null)
 })
 
-console.log(`\n${passed} test superati`)
+console.log(`\n=== ${passed} test superati ===`)

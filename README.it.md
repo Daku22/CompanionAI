@@ -116,6 +116,22 @@ Un avatar che non si può pubblicare, come un personaggio di un'opera altrui,
 diventa un pacchetto di sprite con `npm run strips -- --masters <cartella>
 --pack` e si importa dall'app: resta sul proprio PC, fuori dal repository.
 
+**Chibi** (solo 3D). Dal menu sull'avatar, o in Impostazioni → Generale,
+un avatar 3D con scheletro umano (VRM 0.x e 1.0, glTF e FBX riconosciuti da
+`humanoid-map.js`) diventa chibi: testa ×1,7 e corpo ×0,7. La scelta si salva
+per avatar (`chibiAvatars`). Con Live2D, un 2D o un modello senza scheletro la
+voce è grigia e dice perché.
+- `chibi.js` scala le ossa vere: il bacino rimpicciolisce tutto il corpo,
+  gambe comprese, e la testa si ingrandisce con la scala compensata lungo la
+  catena (dentro un corpo a 0,7 la testa a 1,7 vuole 1,7 / 0,7 in locale).
+  `chibiScales` è una funzione pura con test.
+- Pose e clip girano sullo scheletro normalizzato, la cui radice prende la
+  scala del corpo: il bacino scende quanto si accorciano le gambe, i piedi
+  restano a terra, e sedersi o saltellare lo spostano in proporzione.
+- I raggi di collisione dei capelli (spring bone) crescono con il loro osso,
+  poi le catene ripartono da ferme. Le zone dei tocchi seguono la testa
+  grande; seduto su una finestra la seduta scala con il corpo.
+
 In alternativa, nella propria copia del progetto, lo si mette in
 `private-assets/`, che `.gitignore` esclude e `npm run check:publish` rifiuta.
 I pacchetti di sprite (`sprites.json`), i modelli Live2D (`.model3.json`) e i
@@ -498,8 +514,27 @@ Le finestre degli altri programmi le legge `src/main/win-windows.js` con koffi
 funzione resta spenta e il menu lo dice. Si accende e spegne dal menu col
 tasto destro.
 
+**Sbirciare dal bordo.** Lasciato con il centro oltre il bordo sinistro o
+destro dello schermo (di là nessun altro schermo), non torna dentro: resta
+mezzo fuori e sbircia, salutando con la mano dal lato dello schermo.
+- Le regole stanno in `src/main/edge-peek.js`, funzioni pure con test: quale
+  bordo, dove mettere la finestra, quando il cursore è vicino, se sopra le
+  altre c'è un'app a schermo intero (allora torna dentro; una finestra
+  massimizzata non conta).
+- Il renderer mette la posa e misura dove deve cadere il bordo dello schermo
+  (`companion-peek.js`): sul centro della testa (nel 3D poco oltre, dal lato
+  del corpo). Poi la finestra scivola lì.
+- Nel 3D il busto resta fermo e la mano saluta come nella clip `wave`, a
+  destra e a sinistra piegando solo il gomito; nel 2D l'animazione "wave" del
+  pacchetto, girato verso lo schermo; in Live2D il gruppo "wave" e la testa
+  verso lo schermo.
+- Esce quando il cursore si avvicina alla testa (dopo essersi prima
+  allontanato: al rilascio è proprio lì), quando arriva una risposta o con un
+  doppio clic. Ripreso in braccio smette e basta. Mentre sbircia la vita
+  autonoma aspetta e non balla.
+
 **Clic e doppio clic.** Un clic fa sorridere l'avatar, il doppio clic apre la
-chat.
+chat (mentre sbircia dal bordo lo fa uscire).
 
 **Camera (3D).** Destro o centrale + trascina girano la camera intorno
 all'avatar, con Alt premuto la spostano, la rotella zooma (OrbitControls,
@@ -529,6 +564,7 @@ finestra a 30 Hz, anche quando è fuori.
 - dimensione: piccola, media, grande, molto grande. Sostituisce il
   ridimensionamento dai bordi, che con i clic che passano non si potrebbero
   afferrare;
+- "Chibi", per l'avatar in vista (grigio se non è un 3D con scheletro umano);
 - interruttori: "Segue il mouse", "Vita autonoma", "Sempre in primo piano";
 - nascondi (torna dall'icona nella barra) ed esci.
 

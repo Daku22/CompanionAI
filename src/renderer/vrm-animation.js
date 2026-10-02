@@ -59,6 +59,14 @@ let danceBeat = null
 export function setDanceBeat(beat) {
   danceBeat = beat && Number.isFinite(beat.phase) && Number.isFinite(beat.count) ? beat : null
 }
+// Sbircia dal bordo dello schermo (Blocco 5d): side 1 fuori dal bordo destro,
+// -1 fuori dal sinistro; headRatio la testa rispetto al corpo (chibi).
+const peek = { side: 1, headRatio: 1 }
+export function setPeekSide(side, headRatio = 1) {
+  peek.side = side === 'left' ? -1 : 1
+  peek.headRatio = Number.isFinite(headRatio) && headRatio > 0 ? headRatio : 1
+}
+
 // Un ciclo ogni due battute (destra, sinistra): da -1 a 1.
 const beatSway = (b) => Math.sin(Math.PI * (b.count + b.phase))
 // Il colpo sulla battuta: 1 sulla battuta, 0 a meta'.
@@ -414,6 +422,26 @@ export const CLIPS = {
     pose: (t) => ({ ...crossedArms(envelope(t, 5.0, 0.4)), head: { x: -0.1 } }),
     yaw: (t) => Math.PI * smooth(t / 0.7) * (1 - smooth((t - 4.2) / 0.7)),
   },
+  // Sbircia dal bordo: il busto resta fermo, la mano dal lato dello schermo
+  // saluta come nella clip wave (braccio alzato davanti, palmo aperto) e va
+  // a destra e a sinistra piegando solo il gomito. Ciclica: e' il riposo
+  // finche' sbircia.
+  peek: {
+    duration: 0,
+    pose: (t) => {
+      const s = peek.side
+      // Fuori a destra si vede la sua mano destra (a sinistra sullo schermo).
+      const arm = s > 0 ? 'right' : 'left'
+      // Con la testa grande (chibi) il braccio si apre di piu' e il gomito si
+      // piega meno, o la mano passerebbe davanti al viso.
+      const k = Math.max(0, Math.min(1, (peek.headRatio - 1) / 1.4))
+      return {
+        head: { z: 0.12 * s, x: 0.04 },
+        [arm + 'UpperArm']: { x: 1.0, y: 0.15 * s, z: (1.07 + 0.28 * k) * s },
+        [arm + 'LowerArm']: { x: 0.16, y: (1.9 - 0.5 * k + Math.sin(t * 5.0) * 0.35) * s, z: -0.16 * s },
+      }
+    },
+  },
   // Movimento generato da Kimodo su richiesta (kimodo-service.js): la clip
   // vera la mette clip-layer.js; qui solo il respiro sotto, e la durata di
   // ripiego se la clip non arriva.
@@ -437,7 +465,7 @@ export const CLIP_ALIAS = {
   search: 'search', scroll: 'search', 'open-file': 'search',
   drag: 'dangle', dangle: 'dangle',
   'sit-edge': 'sit-edge', perch: 'perch', stretch: 'stretch', yawn: 'yawn',
-  doze: 'doze', sleep: 'doze', dance: 'dance',
+  doze: 'doze', sleep: 'doze', dance: 'dance', peek: 'peek',
   pat: 'pat', flinch: 'flinch', giggle: 'giggle', hop: 'hop', shy: 'shy', scold: 'scold', turnaway: 'turnaway',
   [GENERATED]: GENERATED,
 }
@@ -466,7 +494,7 @@ export const LOOK_LIMITS = {
 }
 // Quanto segue il mouse durante ogni clip: pieno a riposo, per niente mentre
 // cammina, siede o penzola, dove girare la testa sembrerebbe un difetto.
-export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4, dance: 0.3 }
+export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4, dance: 0.3, peek: 0.7 }
 const LOOK_RATE = 7          // inseguimento del bersaglio, 1/s
 const LOOK_WEIGHT_RATE = 3   // entrata e uscita del peso, 1/s
 

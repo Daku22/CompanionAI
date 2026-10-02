@@ -193,6 +193,26 @@ dello sprite, più una trasformazione (saltello, tremolio, scatto indietro).
 
 ## 5d — chibi e bordi
 
+**Fatto il 2 ottobre.** Differenze dal piano:
+- chibi a testa ×1,7 e corpo ×0,7, non ×1,5 e ×0,8: alla misura della
+  finestra 1,5/0,8 sembrava solo un avatar un po' piu' giovane. Si scala il
+  bacino (corpo e gambe insieme) e la testa compensata; la radice dello
+  scheletro normalizzato prende la scala del corpo, cosi' i piedi restano a
+  terra senza ricalcolarli e pose e clip spostano il bacino in proporzione;
+- spring bone: non si spengono, si scalano i raggi di collisione con il loro
+  osso (three-vrm legge la lunghezza dei giunti dal mondo, i raggi no);
+- sbirciare: su indicazione dell'utente il busto resta fermo e la mano
+  saluta come nella clip `wave`, a destra e a sinistra piegando solo il
+  gomito. Con il busto fermo si vede meta' corpo, non solo testa e mano;
+- niente clip Kimodo per `peek`: una clip si sporge da un lato solo, la posa
+  procedurale ha il lato come parametro; `peek` non e' uno slot
+  riassegnabile;
+- `edgeState` e le altre regole stanno in `src/main/edge-peek.js`; il taglio
+  lo misura il renderer sulla posa (`companion-peek.js`);
+- schermo intero: conta la prima finestra dall'alto sullo schermo, non quella
+  attiva (al rilascio e' il companion); una finestra massimizzata non conta,
+  perche' con la taskbar nascosta copre tutto lo schermo.
+
 - **Chibi (solo 3D umanoidi, deciso il 2 ottobre):**
   - Vale per VRM 0.x e 1.0, e per glTF/FBX se `humanoid-map.js` riconosce lo
     scheletro.

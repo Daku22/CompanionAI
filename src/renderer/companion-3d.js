@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanoid } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import {
-  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS, GENERATED, setDanceBeat,
+  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS, GENERATED, setDanceBeat, setPeekSide,
 } from './vrm-animation.js';
 import { createClipLayer, applyLook, isLoopSlot } from './clip-layer.js';
 import { prepareHumanoid, retargetClip, writeVRMA } from './motion-retarget.js';
@@ -325,6 +325,11 @@ window.__companion3DTest = {
     const e = node.matrixWorld.elements;
     return { scale: Math.hypot(e[0], e[1], e[2]), y: node.getWorldPosition(new THREE.Vector3()).y };
   },
+  /** Rotazione (x, y, z) di un osso normalizzato, dove scrivono pose e clip. */
+  boneRotation: (name) => {
+    const node = currentVrm && currentVrm.humanoid && currentVrm.humanoid.getNormalizedBoneNode(name);
+    return node ? [node.rotation.x, node.rotation.y, node.rotation.z] : null;
+  },
   /** Direzione nel mondo da un osso all'altro, sulle ossa vere del modello. */
   boneDir: (from, to) => {
     const h = currentVrm && currentVrm.humanoid;
@@ -356,13 +361,56 @@ if (api && api.onPerchState) {
   });
 }
 
-// A riposo: seduto sulla finestra, ballando, o in piedi. Ballando, ogni gesto
-// (una reazione, un saluto) torna al ballo; posato su una finestra annuisce
-// e dondola le gambe a tempo (sittingOnEdge), senza alzarsi.
+// A riposo: seduto sulla finestra, sbirciando dal bordo, ballando, o in
+// piedi. Ballando, ogni gesto (una reazione, un saluto) torna al ballo;
+// posato su una finestra annuisce e dondola le gambe a tempo
+// (sittingOnEdge), senza alzarsi.
 let dancingNow = false;
+let peekingSide = null;
 function restClip() {
   if (perchPhase === 'sit') return 'perch';
+  if (peekingSide) return 'peek';
   return dancingNow && !perchPhase ? 'dance' : 'idle';
+}
+
+// ─── Sbircia dal bordo (Blocco 5d) ─────────────────────────────────────────
+// Il main lo manda oltre il bordo (companion-peek.js): busto fermo, la mano
+// dal lato dello schermo saluta. Il bordo dello schermo cade poco oltre il
+// centro della testa, dal lato del corpo: si vedono il viso, la mano che
+// saluta e meta' corpo.
+const PEEK_HEAD_CENTER = 0.2;   // centro della testa sopra l'osso head, in H
+const PEEK_HEAD_RADIUS = 0.2;   // raggio visibile della testa, in H
+const PEEK_CUT = 0.3;           // il bordo oltre il centro, in raggi
+// Uscendo: un gesto contento se l'ha chiamato l'utente; un messaggio porta
+// gia' il suo.
+const PEEK_EXIT_GESTURE = { cursor: 'happy', dblclick: 'happy' };
+window.addEventListener('companion-peek', (e) => {
+  const d = e.detail || {};
+  peekingSide = d.side || null;
+  if (peekingSide) {
+    const chibi = chibiOf(currentVrm);
+    setPeekSide(peekingSide, chibi ? chibi.headRatio : 1);
+  }
+  animator.setRest(restClip());
+  if (!window.__threeVisible || dragging || !currentVrm) return;
+  const exit = !peekingSide && PEEK_EXIT_GESTURE[d.reason];
+  if (exit) { playClip(exit); react('happy', 0.8, 1500); }
+  else playClip(restClip());
+});
+
+/** Dove tagliare e dove sta la testa, in px della finestra, con la posa di adesso. */
+function peekMeasure3D(side) {
+  const h = currentVrm && currentVrm.humanoid;
+  if (!h || !camera) return null;
+  const at = (name) => { const node = h.getRawBoneNode(name); return node ? toWindowPx(node.getWorldPosition(boneWorld)) : null; };
+  const [hips, neck, head] = [at('hips'), at('neck'), at('head')];
+  if (!hips || !neck || !head) return null;
+  const chibi = chibiOf(currentVrm);
+  const H = Math.hypot(head.x - hips.x, head.y - hips.y) * (chibi ? chibi.headRatio : 1);
+  const up = Math.hypot(head.x - neck.x, head.y - neck.y) || 1;
+  const center = { x: head.x + (head.x - neck.x) / up * PEEK_HEAD_CENTER * H, y: head.y + (head.y - neck.y) / up * PEEK_HEAD_CENTER * H };
+  const cut = center.x + (side === 'right' ? 1 : -1) * PEEK_CUT * PEEK_HEAD_RADIUS * H;
+  return { cut: Math.round(cut), head: { x: Math.round(center.x), y: Math.round(center.y) } };
 }
 window.addEventListener('companion-dance', (e) => {
   dancingNow = !!(e.detail && e.detail.on);
@@ -434,7 +482,9 @@ function zone3D(x, y) {
 
 // Seduto su una finestra i gesti in piedi (saltello, mani sulla pancia)
 // starebbero male: resta il volto, e i gesti che vanno bene anche seduti.
+// Sbirciando dal bordo meta' corpo e' fuori: solo i gesti della testa.
 const SEATED_SLOTS = new Set(['pat', 'flinch', 'scold', 'turnaway']);
+const PEEK_SLOTS = new Set(['pat', 'flinch']);
 
 // La reazione decisa dal main (touch-react.js): gesto, espressione, battuta.
 window.addEventListener('companion-touch', (e) => {
@@ -443,7 +493,7 @@ window.addEventListener('companion-touch', (e) => {
   if (!r) return;
   if (r.off) { react('happy', 1.0, 1500); return; }
   clearReactions();
-  if (!perchPhase || SEATED_SLOTS.has(r.slot)) playClip(r.slot);
+  if (peekingSide ? PEEK_SLOTS.has(r.slot) : !perchPhase || SEATED_SLOTS.has(r.slot)) playClip(r.slot);
   react(r.expression, r.weight, r.ms);
   if (r.line) showBubble(r.line, 2600);
 });
@@ -963,6 +1013,7 @@ function show2D() {
   if (body) body.visible = false;
   window.CompanionInput.setProbe(window.hitTest2D);
   window.CompanionInput.setZoneProbe(window.zone2D);
+  if (window.CompanionPeek) window.CompanionPeek.setMeasure(window.peekMeasure2D);
   document.body.classList.remove('mode-3d');
   if (window.set2DActive) window.set2DActive(true);
   pixi.style.display = 'block';
@@ -978,6 +1029,7 @@ function show3D() {
   if (window.unloadLive2DAvatar) window.unloadLive2DAvatar();
   window.CompanionInput.setProbe(probe3D);
   window.CompanionInput.setZoneProbe(zone3D);
+  if (window.CompanionPeek) window.CompanionPeek.setMeasure(peekMeasure3D);
   ensureThree();
   controls.enabled = true;
   body.visible = true;

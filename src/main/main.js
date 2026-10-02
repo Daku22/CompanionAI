@@ -11,6 +11,7 @@ const { AnimationLibrary, ANIMATION_SLOTS, SLOT_LABELS, isGlb } = require('./Ani
 const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
 const winWindows = require('./win-windows')
 const { findWindowSeat, findTaskbarSeat, taskbarEdge, perchPosition, staysSeated } = require('./perch')
+const edgePeek = require('./edge-peek')
 const { builtinAvatars } = require('./builtin-avatars')
 const room = require('./room')
 const { WeatherService } = require('./weather')
@@ -416,6 +417,9 @@ function sendIdle() {
 function startWalk({ run = false, direction, distance, maxDistance = Infinity } = {}) {
   if (!companionWindow || companionWindow.isDestroyed()) return
   stopWalk()
+  // Una camminata chiesta mentre sbircia parte da dentro lo schermo.
+  endPeek('walk', 'jump')
+  stopSlide()
   // In braccio non si cammina: la finestra la sta muovendo l'utente. Nella
   // stanza nemmeno: la finestra e' la stanza.
   if (drag || viewMode === 'room') { sendIdle(); return }
@@ -853,6 +857,8 @@ handle('ai:send-message', async (_e, { history }) => {
       }
     }
 
+    // Una risposta lo fa uscire dal bordo, se stava sbirciando.
+    if (result?.reply) endPeek('message')
     if (result?.reply) speakReply(result.reply)
     return { ok: true, result }
   } catch(err) {
@@ -1332,7 +1338,7 @@ function onDragged() {
 
 function idleTick() {
   // Seduto su una finestra resta seduto: i gesti a riposo sono pose in piedi.
-  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || perch || dancingNow || Date.now() < requestedPoseUntil) return
+  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || perch || peek || dancingNow || Date.now() < requestedPoseUntil) return
   if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
   // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
   if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused()) { markActivity(); return }
@@ -1448,7 +1454,10 @@ function keepOnScreen() {
 function startDrag() {
   if (drag || viewMode === 'room' || !companionWindow || companionWindow.isDestroyed()) return
   // Ripreso in braccio scende dal sedile, senza cadere: lo tiene l'utente.
+  // Se sbirciava smette, e la finestra resta dove l'ha presa.
   leavePerch()
+  endPeek('drag', 'none')
+  stopSlide()
   stopWalk()
   if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
   const cursor = screen.getCursorScreenPoint()
@@ -1482,10 +1491,145 @@ function endDrag() {
   drag = null
   sendCompanion('drag-motion', { vx: 0, vy: 0 })
   sendCompanion('window-drag-state', { dragging: false })
-  // Posato con il punto di seduta sul bordo di una finestra si siede; se no,
-  // mezzo fuori dallo schermo o dietro la taskbar si perderebbe.
-  if (!tryPerch()) keepOnScreen()
+  // Posato con il punto di seduta sul bordo di una finestra si siede; oltre
+  // meta' fuori da un bordo sbircia; se no, mezzo fuori dallo schermo o
+  // dietro la taskbar si perderebbe.
+  if (!tryPerch() && !tryPeek()) keepOnScreen()
   markActivity()
+}
+
+// ─── Sbirciare dal bordo (Blocco 5d) ─────────────────────────────────────────
+// Lasciato oltre meta' fuori dal bordo sinistro o destro (edge-peek.js), resta
+// li' e sbircia: il renderer mette la posa e dice dove tagliare
+// (peek-geometry), e la finestra scivola finche' il taglio cade sul bordo.
+// Esce con il cursore vicino alla testa, con una risposta in arrivo o con un
+// doppio clic; ripreso in braccio smette e basta. Non sbircia sopra un'app a
+// schermo intero.
+
+const PEEK_TICK_MS = 100
+const PEEK_SLIDE_MS = 350
+const PEEK_OUT_MS = 450
+const PEEK_GEOMETRY_WAIT_MS = 1500
+
+/** @type {{ edge: import('./edge-peek').Edge, anchorX: number, cut: number | null, head: {x: number, y: number} | null, armed: boolean, placed: boolean, wait: any, timer: any } | null} */
+let peek = null
+let slideTimer = null
+
+function stopSlide() {
+  if (slideTimer) { clearInterval(slideTimer); slideTimer = null }
+}
+
+/** Sposta la finestra con un'accelerazione morbida, in ms. */
+function slideCompanion(to, ms) {
+  stopSlide()
+  if (!companionWindow || companionWindow.isDestroyed()) return
+  const [x0, y0] = companionWindow.getPosition()
+  const t0 = Date.now()
+  slideTimer = setInterval(() => {
+    if (!companionWindow || companionWindow.isDestroyed()) { stopSlide(); return }
+    const k = Math.min(1, (Date.now() - t0) / ms)
+    const e = k * k * (3 - 2 * k)
+    try { moveCompanion(x0 + (to.x - x0) * e, y0 + (to.y - y0) * e) } catch (_) { stopSlide(); return }
+    if (k >= 1) stopSlide()
+  }, DRAG_TICK_MS)
+}
+
+/** Al rilascio: oltre meta' fuori da un bordo esterno, sbircia. */
+function tryPeek() {
+  if (viewMode === 'room' || !companionWindow || companionWindow.isDestroyed()) return false
+  const bounds = companionWindow.getBounds()
+  const anchorX = currentAnchor(0).x
+  const displays = displaysInfo()
+  const edge = edgePeek.edgeState(bounds, anchorX, displays)
+  if (!edge) return false
+  const display = displays.find(d => d.id === edge.displayId)
+  if (winWindows.available() && display) {
+    const windows = winWindows.listWindows().map(w => ({ ...w, bounds: toDip(w.bounds) }))
+    if (edgePeek.fullscreenApp(windows, display, process.pid)) {
+      console.log('[sbircia] app a schermo intero: torna dentro')
+      return false
+    }
+  }
+  console.log('[sbircia] dal bordo ' + (edge.side === 'left' ? 'sinistro' : 'destro'))
+  stopWalk()
+  peek = { edge, anchorX, cut: null, head: null, armed: false, placed: false, wait: null, timer: null }
+  sendCompanion('edge-peek', { side: edge.side })
+  // La misura arriva dal renderer quando la posa si e' assestata; se tarda,
+  // si taglia con il ripiego.
+  peek.wait = setTimeout(() => placePeek(null), PEEK_GEOMETRY_WAIT_MS)
+  return true
+}
+
+/** La finestra va al bordo, con il taglio misurato (o il ripiego). */
+function placePeek(geometry) {
+  if (!peek || peek.placed || !companionWindow || companionWindow.isDestroyed()) return
+  clearTimeout(peek.wait)
+  peek.placed = true
+  const bounds = companionWindow.getBounds()
+  const pos = edgePeek.peekPosition(peek.edge, geometry ? geometry.cut : null, bounds, peek.anchorX)
+  peek.cut = peek.edge.edgeX - pos.x
+  // Senza misura la testa e' sopra il centro dell'avatar, in alto.
+  peek.head = geometry ? geometry.head : { x: peek.anchorX, y: Math.round(bounds.height * 0.2) }
+  slideCompanion(pos, PEEK_SLIDE_MS)
+  peek.timer = setInterval(peekTick, PEEK_TICK_MS)
+}
+
+function peekTick() {
+  if (!peek || drag || !peek.head) return
+  if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
+  const b = companionWindow.getBounds()
+  const spot = { x: b.x + peek.head.x, y: b.y + peek.head.y }
+  const next = edgePeek.peekCursor(peek.armed, testCursor || screen.getCursorScreenPoint(), spot)
+  peek.armed = next.armed
+  if (next.exit) endPeek('cursor')
+}
+
+/**
+ * Smette di sbirciare. move: 'slide' esce scivolando dentro lo schermo,
+ * 'jump' ci va subito (prima della stanza o di una camminata), 'none' resta
+ * dov'e' (in braccio).
+ * @param {string} reason cursor, message, dblclick, drag, walk, room, quit
+ * @param {'slide' | 'jump' | 'none'} [move]
+ */
+function endPeek(reason, move = 'slide') {
+  if (!peek) return
+  const edge = peek.edge
+  clearTimeout(peek.wait)
+  clearInterval(peek.timer)
+  peek = null
+  stopSlide()
+  console.log('[sbircia] esce: ' + reason)
+  sendCompanion('edge-peek', { side: null, reason })
+  if (move === 'none' || !companionWindow || companionWindow.isDestroyed()) return
+  const to = edgePeek.outPosition(edge, companionWindow.getBounds())
+  if (move === 'jump') moveCompanion(to.x, to.y)
+  else slideCompanion(to, PEEK_OUT_MS)
+  markActivity()
+}
+
+on('companion:peek-geometry', (_e, g) => {
+  if (!peek || !g || g.side !== peek.edge.side) return
+  const [cut, x, y] = [Number(g.cut), Number(g.headX), Number(g.headY)]
+  placePeek([cut, x, y].every(Number.isFinite) ? { cut, head: { x, y } } : null)
+})
+on('companion:peek-out', () => endPeek('dblclick'))
+
+// Solo per audit.mjs (COMPANION_TEST_HOOKS=1): mettere la finestra oltre il
+// bordo, rilasciarla come dopo una presa, muovere un cursore finto e leggere
+// lo stato. Senza la variabile il canale non esiste.
+let testCursor = null
+if (process.env.COMPANION_TEST_HOOKS === '1') {
+  handle('test:peek', (_e, cmd) => {
+    if (!companionWindow || companionWindow.isDestroyed()) return null
+    if (cmd && cmd.place) moveCompanion(Number(cmd.place.x) || 0, Number(cmd.place.y) || 0)
+    if (cmd && cmd.release && !tryPerch() && !tryPeek()) keepOnScreen()
+    if (cmd && 'cursor' in cmd) testCursor = cmd.cursor && Number.isFinite(cmd.cursor.x) ? { x: cmd.cursor.x, y: cmd.cursor.y } : null
+    const p = peek
+    return {
+      bounds: companionWindow.getBounds(), workArea: companionWorkArea(),
+      peek: p && { side: p.edge.side, edgeX: p.edge.edgeX, cut: p.cut, placed: p.placed, armed: p.armed, head: p.head },
+    }
+  })
 }
 
 // ─── Seduta su finestre e taskbar ────────────────────────────────────────────
@@ -1729,6 +1873,9 @@ function enterRoom() {
   if (viewMode === 'room') return
   endDrag()
   leavePerch()
+  // Tornando sul desktop riapparira' qui: dentro lo schermo, non mezzo fuori.
+  endPeek('room', 'jump')
+  stopSlide()
   stopWalk()
   desktopSpot = companionWindow.getBounds()
   viewMode = 'room'
@@ -2501,6 +2648,8 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   stopWalk()
   endDrag()
+  endPeek('quit', 'none')
+  stopSlide()
   if (cursorTimer) clearInterval(cursorTimer)
   if (idleTimer) clearInterval(idleTimer)
   if (weatherTimer) clearInterval(weatherTimer)

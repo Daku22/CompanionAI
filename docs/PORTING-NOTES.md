@@ -980,6 +980,37 @@ ritmo, ballo) 1,26%. Il ballo aggiunge circa lo 0,3%, il 4% di un core.
 Non ancora: la fase della clip Kimodo non si aggancia alla battuta (la clip
 non dice il suo tempo); varianti `dance-2`, `dance-3` da generare.
 
+## Blocco 5d: chibi e bordi (2026-10-02)
+
+**Chibi.** `chibi.js` scala le ossa vere: bacino a 0,7 (corpo e gambe), testa
+a 1,7 / 0,7 in locale, cosi' nel mondo vale 1,7. three-vrm copia sulle ossa
+vere solo le rotazioni dello scheletro normalizzato, piu' la posizione del
+bacino presa dal mondo: scalando anche la radice normalizzata a 0,7 il
+bacino scende quanto le gambe, e i piedi restano a terra senza misurarli.
+Le spring bone ricalcolano la lunghezza dal mondo, ma i raggi delle sfere e
+delle capsule (e l'hitRadius dei giunti) sono in metri: si scalano con la
+scala nel mondo del loro osso, poi `springBoneManager.reset()`. Provato su
+Fred (VRM 1.0) e Neko (VRM 0.x): capelli fermi, nessuna esplosione.
+
+**Sbirciare.** `edge-peek.js` (puro): il bordo e' esterno se il centro
+dell'avatar e' oltre l'area di lavoro e non sta in un altro schermo. Il
+renderer misura il taglio sulla posa (nel 3D il centro della testa piu' 0,3
+raggi dal lato del corpo, nel 2D e in Live2D il centro della testa: le
+figure sono strette) e la finestra scivola li'. Nel 2D il centro orizzontale
+e' quello dello sprite, non del suo riquadro: i fotogrammi hanno larghezze
+diverse. Trappola: con la taskbar nascosta
+un browser massimizzato copre tutto lo schermo e sembrava un'app a schermo
+intero; ora le massimizzate non contano. Per l'audit c'e' un canale di prova
+del main (`test:peek`) che esiste solo con `COMPANION_TEST_HOOKS=1`.
+
+**Posa.** Le prime prove sporgevano il busto verso lo schermo con la mano sul
+bordo; l'utente ha chiesto il busto fermo e solo l'avambraccio. Dalla clip
+Kimodo `wave`: omero alzato in avanti (x 1,0, z 1,07 dalla posa di riposo),
+gomito piegato di 1,9 rad, e la mano va a destra e a sinistra con la
+flessione del gomito (y), non con z o x, che la portano avanti e indietro.
+Con la testa grande del chibi il braccio si apre di piu' e il gomito si
+piega meno, o la mano passa davanti al viso.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

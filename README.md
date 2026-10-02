@@ -52,10 +52,10 @@ yourself from source if you prefer (see below).
   again embarrasses it, then it scolds you, then it turns its back for a few
   seconds. Touches nudge its mood, the model hears about the last one, and
   with the voice on it sometimes says a short line out loud.
+  "Reagisce ai tocchi" in the settings turns this off.
 - "Balla con la musica" in the settings (off by default): when a music app
   from your list plays (Spotify, a browser, VLC…), it listens to the beat on
   your computer and dances in time. Nothing is recorded or sent.
-  "Reagisce ai tocchi" in the settings turns this off.
 - In 3D, drag with the right or middle button to turn the camera around it,
   hold Alt while dragging to move the camera instead, and use the wheel to
   zoom. Double-click the middle button (or "Rimetti la camera" in the menu)
@@ -63,9 +63,14 @@ yourself from source if you prefer (see below).
 - Drop it with the shadow under its feet on the top edge of a window: it
   stands there, then sits with its legs dangling and follows the window. It
   can sit on the bottom taskbar too.
+- Leave it more than halfway past the left or right edge of the screen and
+  it stays there, peeking: half hidden, waving its hand from the edge. It
+  comes out when the mouse gets close, when a reply arrives, or with a
+  double-click. Over a full-screen app it comes back inside instead.
 - Right-click (without dragging) for a menu with the chat, "Stanza" (the
   room), avatars, animations (import them, or try any of them with "Prova"),
-  size (small to extra large), "Segue il mouse" (follow the mouse), "Vita
+  size (small to extra large), "Chibi" (big head and small body, for 3D
+  avatars with a human skeleton, saved per avatar; also in the settings), "Segue il mouse" (follow the mouse), "Vita
   autonoma" (idle life), "Sempre in primo piano" (always on top), "Si siede su
   finestre e taskbar" (sit on windows and the taskbar), hide and quit.
 
