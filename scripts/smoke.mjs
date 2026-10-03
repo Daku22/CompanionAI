@@ -39,7 +39,8 @@ fs.mkdirSync(OUT, { recursive: true })
 const command = EXE || require('electron')
 const args = EXE ? [`--remote-debugging-port=${PORT}`] : ['.', `--remote-debugging-port=${PORT}`]
 if (USER_DATA) args.push('--user-data-dir=' + path.resolve(USER_DATA))
-const app = spawn(command, args, { cwd: ROOT, stdio: 'ignore' })
+// Lo smoke usa i dati veri: il companion non deve scrivere per primo (Blocco 6d).
+const app = spawn(command, args, { cwd: ROOT, stdio: 'ignore', env: { ...process.env, COMPANION_NO_INITIATIVE: '1' } })
 
 async function pages() {
   for (let i = 0; i < 60; i++) {

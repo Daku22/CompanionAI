@@ -75,6 +75,13 @@
   wants and as long as it wants (one model call a day, only after a day
   with chat). Read it in "Persone", newest first. "Dimentica tutto" and
   deleting a persona remove it too.
+- It writes first ("Scrive per primo", on by default): a greeting the first
+  time you meet in the day, a welcome back after a couple of hours away,
+  and now and then a message after a long silence while you are at the
+  computer. At most 6 a day, 45 minutes apart, never while it sleeps, while
+  you type in the chat or over a full-screen app. The message goes to the
+  bubble and the chat and stays in memory; reading it aloud is a separate
+  option, off by default.
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.

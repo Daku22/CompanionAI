@@ -29,6 +29,8 @@ const moodLib = require('./mood')
 const Personas = require('./personas')
 const Rapport = require('./rapport')
 const Diary = require('./diary')
+const Initiative = require('./initiative')
+const { writeAtomic } = require('./write-atomic')
 const touchReact = require('./touch-react')
 const { decideIdle } = require('./idle-life')
 
@@ -78,7 +80,7 @@ const DEFAULT_MODEL = PROVIDERS.openrouter.models[0].id
 const DEFAULT_CONFIG = {
   provider: 'openrouter', model: DEFAULT_MODEL, avatarModel: '', idleLife: true,
   followMouse: true, alwaysOnTop: true, scale: 'm', kimodo: false, perch: true, view: 'desktop', keys: {},
-  touchReactions: true, danceMusic: false, danceApps: DANCE_APPS_DEFAULT, chibiAvatars: [],
+  touchReactions: true, initiative: true, initiativeVoice: false, danceMusic: false, danceApps: DANCE_APPS_DEFAULT, chibiAvatars: [],
 }
 
 function loadEnvFile() {
@@ -145,6 +147,9 @@ function loadConfig() {
   cfg.perch = cfg.perch !== false
   cfg.touchReactions = cfg.touchReactions !== false
   cfg.danceMusic = cfg.danceMusic === true
+  // Iniziativa (Blocco 6d): accesa di base; letta ad alta voce solo se chiesto.
+  cfg.initiative = cfg.initiative !== false
+  cfg.initiativeVoice = cfg.initiativeVoice === true
   cfg.danceApps = danceApps(cfg.danceApps) || DANCE_APPS_DEFAULT
   cfg.chibiAvatars = chibiAvatars(cfg.chibiAvatars) || []
   cfg.view = cfg.view === 'room' ? 'room' : 'desktop'
@@ -996,6 +1001,7 @@ handle('ai:send-message', async (_e, { history }) => {
   markActivity()
   updateMood(m => moodLib.onUserMessage(m))
   updateRapport(r => Rapport.onDay(r))
+  lastChatAt = Date.now()
   // La risposta resta della persona che l'ha chiesta (switchPersona aspetta
   // comunque la fine della risposta).
   const mm = memoryManager
@@ -1549,6 +1555,94 @@ function idleTick() {
   animateCompanion({ type: 'none', animation: decision.animation, bubble: decision.bubble, idle: true },
     { maxDistance: IDLE_WALK_MAX_PX })
   if (decision.holdMs > 0) gestureTimer = setTimeout(() => { gestureTimer = null; sendIdle() }, decision.holdMs)
+}
+
+// ─── Iniziativa (Blocco 6d) ──────────────────────────────────────────────────
+// Il companion scrive per primo: buongiorno, rientro dopo un'assenza, silenzio
+// lungo. Le regole stanno in initiative.js; qui un controllo ogni 30 s, il
+// testo dal modello (con memoria, umore e persona come una risposta) e la
+// consegna: fumetto sull'avatar e messaggio nella chat, voce solo se chiesta.
+const INITIATIVE_TICK_MS = 30 * 1000
+const INITIATIVE_FIRST_MS = 60 * 1000     // all'avvio aspetta che tutto sia su
+const RETURN_VALID_MS = 10 * 60 * 1000    // un rientro vale per un po', poi scade
+const INITIATIVE_PATH = path.join(MEMORY_PATH, 'initiative.json')
+const INITIATIVE_ANIMS = ['wave', 'happy', 'think', 'idle', 'highfive']
+let initiative = Initiative.createInitiative()
+let lastChatAt = Date.now()
+let awaySeen = false
+let returnedAt = 0
+let initiativeBusy = false
+
+/** Un'app a schermo intero sul monitor del companion. */
+function fullscreenNow() {
+  if (!winWindows.available() || !companionWindow || companionWindow.isDestroyed()) return false
+  const id = screen.getDisplayMatching(companionWindow.getBounds()).id
+  const display = displaysInfo().find(d => d.id === id)
+  if (!display) return false
+  const windows = winWindows.listWindows().map(w => ({ ...w, bounds: toDip(w.bounds) }))
+  return edgePeek.fullscreenApp(windows, display, process.pid)
+}
+
+function initiativeTick() {
+  const now = Date.now()
+  const systemIdleMs = powerMonitor.getSystemIdleTime() * 1000
+  // Rientro: prima via per almeno AWAY_MS, poi di nuovo al PC.
+  if (systemIdleMs >= Initiative.RULES.AWAY_MS) awaySeen = true
+  else if (awaySeen && systemIdleMs < Initiative.RULES.PRESENT_MS) { awaySeen = false; returnedAt = now }
+  const returned = returnedAt > 0 && now - returnedAt < RETURN_VALID_MS
+  const kind = Initiative.occasion(initiative, { now, returned, lastChatAt, systemIdleMs })
+  if (!kind) return
+  const typing = !!(chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused())
+  const busy = initiativeBusy || awaitingReply || !!drag || micBusy || !companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()
+  if (!Initiative.canSpeak(initiative, { now, enabled: loadConfig().initiative, asleep, fullscreen: busy ? false : fullscreenNow(), typing, busy })) return
+  speakFirst(kind).catch(e => console.error('[iniziativa] non riuscita:', e.message))
+}
+
+async function speakFirst(kind) {
+  initiativeBusy = true
+  const mm = memoryManager
+  try {
+    const cfg = loadConfig()
+    const apiKey = cfg.keys?.[cfg.provider] || ''
+    if (cfg.provider !== 'ollama' && !apiKey) return
+    const history = withMoodLine(await buildHistoryWithMemory([]))
+    history.push({ role: 'user', content: Initiative.prompt(kind) })
+    const result = await route({
+      provider: cfg.provider, model: cfg.model, apiKey, history,
+      systemPrompt: Personas.systemPrompt(activePersona(), SYSTEM_PROMPT),
+    })
+    const reply = String((result && result.reply) || '').trim().slice(0, 2000)
+    if (!reply || result.via === 'fallback') return
+    // Contato anche se poi nessuno lo legge: il freno e' sui tentativi riusciti.
+    initiative = Initiative.onSpoke(initiative, kind, Date.now())
+    fs.promises.mkdir(MEMORY_PATH, { recursive: true })
+      .then(() => writeAtomic(INITIATIVE_PATH, JSON.stringify(initiative)))
+      .catch(e => console.error('[iniziativa] salvataggio fallito:', e.message))
+    if (kind !== 'silence') returnedAt = 0
+    if (EMOTIONS.includes(result.emotion)) updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
+    if (mm) await mm.addTurn(reply, 'assistant').catch(() => {})
+    console.log('[iniziativa] ' + kind + ' (' + initiative.sent + ' oggi)')
+    const anim = result.action && INITIATIVE_ANIMS.includes(result.action.animation) ? result.action.animation : 'wave'
+    endPeek('message')
+    animateCompanion({ type: 'none', animation: anim, bubble: reply.length > 140 ? reply.slice(0, 139) + '…' : reply })
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      try { chatWindow.webContents.send('companion-initiative', { reply }) } catch (_) {}
+    }
+    if (cfg.initiativeVoice) speakReply(reply)
+  } finally { initiativeBusy = false }
+}
+
+function startInitiative() {
+  // Lo smoke gira sui dati veri: niente messaggi spontanei nella memoria.
+  if (process.env.COMPANION_NO_INITIATIVE === '1') return
+  try { initiative = Initiative.restore(JSON.parse(fs.readFileSync(INITIATIVE_PATH, 'utf8'))) } catch (_) {}
+  // L'avvio dell'app vale come un rientro: il primo del giorno e' il buongiorno.
+  returnedAt = Date.now()
+  setTimeout(() => {
+    initiativeTick()
+    const timer = setInterval(initiativeTick, INITIATIVE_TICK_MS)
+    if (timer.unref) timer.unref()
+  }, INITIATIVE_FIRST_MS).unref?.()
 }
 
 function startIdleLife() {
@@ -2862,6 +2956,7 @@ app.whenReady().then(() => {
   createTray()
   initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
   startIdleLife()
+  startInitiative()
   startCursorFeed()
   startWeatherFeed()
 })

@@ -316,6 +316,18 @@ async function sendMessage(spoken) {
   }
 }
 
+// ── Iniziativa (Blocco 6d) ──────────────────────────────────────────────────
+// Un messaggio che il companion scrive per primo: entra nella conversazione
+// come una sua risposta (il main l'ha gia' salvato in memoria).
+if (api && api.onInitiative) api.onInitiative((data) => {
+  const reply = data && typeof data.reply === 'string' ? data.reply : ''
+  if (!reply) return
+  conversationHistory.push({ role: 'assistant', content: reply.slice(0, 8000) })
+  if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
+  addMessage('assistant', reply)
+  updateMemoryFooter().catch(() => {})
+})
+
 // ── Microfono ────────────────────────────────────────────────────────────────
 // Tieni premuto 🎙 (o la scorciatoia, che il main gira qui) e parla: quando
 // lasci, la registrazione va a Whisper nel main e il testo parte come un

@@ -305,6 +305,8 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.perch === 'boolean') merged.perch = incoming.perch
   if (typeof incoming.touchReactions === 'boolean') merged.touchReactions = incoming.touchReactions
   if (typeof incoming.danceMusic === 'boolean') merged.danceMusic = incoming.danceMusic
+  if (typeof incoming.initiative === 'boolean') merged.initiative = incoming.initiative
+  if (typeof incoming.initiativeVoice === 'boolean') merged.initiativeVoice = incoming.initiativeVoice
   if (incoming.danceApps !== undefined) { const apps = danceApps(incoming.danceApps); if (apps) merged.danceApps = apps }
   if (typeof incoming.scale === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_SCALES, incoming.scale)) merged.scale = incoming.scale
   // Stanza: la scena scelta (solo il formato: room-scene.js ripiega sulla

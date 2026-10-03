@@ -211,6 +211,8 @@
   function showGeneral(cfg) {
     idleLife.checked = cfg.idleLife !== false
     touchReactions.checked = cfg.touchReactions !== false
+    $('initiative').checked = cfg.initiative !== false
+    $('initiative-voice').checked = cfg.initiativeVoice === true
     danceMusic.checked = cfg.danceMusic === true
     $('dance-section').classList.toggle('hidden', !danceMusic.checked)
     if (document.activeElement !== danceApps) danceApps.value = (cfg.danceApps || []).join(', ')
@@ -235,6 +237,8 @@
   })
   idleLife.addEventListener('change', () => saveGeneral({ idleLife: idleLife.checked }))
   touchReactions.addEventListener('change', () => saveGeneral({ touchReactions: touchReactions.checked }))
+  $('initiative').addEventListener('change', (e) => saveGeneral({ initiative: e.target.checked }))
+  $('initiative-voice').addEventListener('change', (e) => saveGeneral({ initiativeVoice: e.target.checked }))
   danceMusic.addEventListener('change', () => saveGeneral({ danceMusic: danceMusic.checked }))
   danceApps.addEventListener('change', () => saveGeneral({ danceApps: danceApps.value.split(/[,;\n]+/) }))
   danceApps.addEventListener('keydown', (e) => { if (e.key === 'Enter') danceApps.blur() })

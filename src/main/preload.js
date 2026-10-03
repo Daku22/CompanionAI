@@ -124,6 +124,12 @@ contextBridge.exposeInMainWorld('companion', {
   personasGet:    ()         => ipcRenderer.invoke('personas:get'),
   personasChange: (input)    => ipcRenderer.invoke('personas:change', input),
   personasDiary:  (id)       => ipcRenderer.invoke('personas:diary', String(id || '')),
+  // Iniziativa (Blocco 6d): un messaggio che il companion scrive per primo.
+  onInitiative: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('companion-initiative', handler)
+    return () => ipcRenderer.removeListener('companion-initiative', handler)
+  },
   onDiaryChanged: (cb) => {
     const handler = (_e, id) => cb(id)
     ipcRenderer.on('diary-changed', handler)
