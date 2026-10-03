@@ -108,6 +108,9 @@
     #weather-section { padding: 0 0 14px; }
     #weather-city { max-width: 320px; font-family: var(--font); }
     #persona-name { max-width: 320px; font-family: var(--font); }
+    #diary-list { display: flex; flex-direction: column; gap: 14px; max-height: 360px; overflow-y: auto; }
+    #diary-list article h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
+    #diary-list article p { color: var(--text-2); line-height: 1.55; white-space: pre-wrap; }
     #persona-prompt { width: 100%; min-height: 140px; resize: vertical; font-family: var(--font); line-height: 1.45; }
     .save-row { margin-top: 4px; }
     .confirm-note { font-size: 12px; color: var(--danger); line-height: 1.5; margin: -4px 0 8px; text-wrap: pretty; }
@@ -204,6 +207,15 @@
           <span class="state" id="persona-state" role="status"></span>
         </div>
         <p class="muted note">Vuota, la personalità è quella di base. Eliminare una persona cancella anche la sua memoria e il suo umore.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Diario</h2>
+      <p class="muted">Una pagina per ogni giorno in cui vi siete parlati, scritta dalla persona il primo avvio del giorno dopo.</p>
+      <div class="box">
+        <div id="diary-list"></div>
+        <p class="muted" id="diary-empty">Ancora nessuna pagina.</p>
       </div>
     </section>
    </div>

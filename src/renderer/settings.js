@@ -104,6 +104,7 @@
     personaName.value = p.name
     personaPrompt.value = p.prompt
     fillPersonaVoices(p.voice)
+    showDiary(p.id)
     const isActive = p.id === personaData.activeId
     $('persona-activate').disabled = isActive
     $('persona-remove').disabled = isActive
@@ -116,6 +117,23 @@
     showPersonas(r.personas, pick)
     personaState.textContent = done
   }
+  // Diario della persona scelta: sola lettura, la pagina piu' recente in alto.
+  async function showDiary(id) {
+    const entries = await api.personasDiary(id).catch(() => [])
+    if (id !== personaSel.value) return
+    const fmt = (day) => new Date(day + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    $('diary-list').replaceChildren(...entries.map(e => {
+      const a = document.createElement('article')
+      const h = document.createElement('h3')
+      h.textContent = fmt(e.day)
+      const p = document.createElement('p')
+      p.textContent = e.text
+      a.append(h, p)
+      return a
+    }))
+    $('diary-empty').classList.toggle('hidden', entries.length > 0)
+  }
+  if (api.onDiaryChanged) api.onDiaryChanged((id) => { if (id === personaSel.value) showDiary(id) })
   personaSel.addEventListener('change', () => { personaState.textContent = ''; showPersona() })
   $('persona-save').addEventListener('click', () =>
     changePersona({ op: 'update', id: personaSel.value, name: personaName.value, prompt: personaPrompt.value, voice: personaVoiceChoice() }, 'Salvata.'))

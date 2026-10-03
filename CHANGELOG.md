@@ -70,6 +70,11 @@
   in the prompt and make affectionate reactions more frequent and annoyed
   ones rarer (or the opposite at low levels). Level and days together show
   next to the mood in the chat. "Dimentica tutto" resets it too.
+- Diary, per persona: on the first start of a day, the persona writes a
+  page about the last day you talked, in first person, about whatever it
+  wants and as long as it wants (one model call a day, only after a day
+  with chat). Read it in "Persone", newest first. "Dimentica tutto" and
+  deleting a persona remove it too.
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.

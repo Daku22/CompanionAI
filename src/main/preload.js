@@ -123,6 +123,12 @@ contextBridge.exposeInMainWorld('companion', {
   // ─── Persone (Blocco 6a): op create, update, remove, activate ─────────────
   personasGet:    ()         => ipcRenderer.invoke('personas:get'),
   personasChange: (input)    => ipcRenderer.invoke('personas:change', input),
+  personasDiary:  (id)       => ipcRenderer.invoke('personas:diary', String(id || '')),
+  onDiaryChanged: (cb) => {
+    const handler = (_e, id) => cb(id)
+    ipcRenderer.on('diary-changed', handler)
+    return () => ipcRenderer.removeListener('diary-changed', handler)
+  },
 
   // ─── Memoria (fading memory) ───────────────────────────────────────────────
   memoryStats:      ()       => ipcRenderer.invoke('memory:stats'),

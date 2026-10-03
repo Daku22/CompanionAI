@@ -28,6 +28,7 @@ const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
 const Personas = require('./personas')
 const Rapport = require('./rapport')
+const Diary = require('./diary')
 const touchReact = require('./touch-react')
 const { decideIdle } = require('./idle-life')
 
@@ -380,6 +381,48 @@ handle('personas:change', async (_e, input) => {
   return { ok: true, personas: personasPublic() }
 })
 
+// ─── Diario (Blocco 6c) ──────────────────────────────────────────────────────
+// Una voce per l'ultimo giorno in cui vi siete parlati, scritta al primo avvio
+// del giorno dopo (e al cambio di persona, e dal timer orario se l'app resta
+// accesa a cavallo della mezzanotte). Senza chiave o con un errore si salta:
+// riprova la volta dopo.
+const diaryPath = (id) => path.join(Personas.personaDir(MEMORY_PATH, id), 'diary.jsonl')
+let diaryBusy = false
+
+async function maybeWriteDiary() {
+  const mm = memoryManager
+  const persona = activePersona()
+  if (diaryBusy || !mm || !persona) return
+  diaryBusy = true
+  try {
+    const turns = [...mm.getArchive(), ...mm.getRawTurns()]
+    const file = diaryPath(persona.id)
+    const day = Diary.dayToWrite(turns, await Diary.loadDiary(file))
+    if (!day) return
+    const cfg = loadConfig()
+    const apiKey = cfg.keys?.[cfg.provider] || ''
+    if (cfg.provider !== 'ollama' && !apiKey) return
+    const result = await route({
+      provider: cfg.provider, model: cfg.model, apiKey,
+      jsonMode: false, maxTokens: Diary.MAX_TOKENS,
+      systemPrompt: Diary.systemPrompt(persona),
+      history: [{ role: 'user', content: 'Il dialogo del ' + day + ':\n' + Diary.transcript(turns, day, persona.name) }],
+    })
+    const text = Diary.cleanEntry(result && result.reply)
+    if (!text) return
+    await Diary.appendDiary(file, { day, text })
+    console.log('[diario] scritta la voce del ' + day + ' per ' + persona.id)
+    sendSettings('diary-changed', persona.id)
+  } catch (e) {
+    console.error('[diario] non scritto:', e.message)
+  } finally { diaryBusy = false }
+}
+
+handle('personas:diary', async (_e, id) => {
+  if (!personas || !personas.list.some(p => p.id === id)) return []
+  return (await Diary.loadDiary(diaryPath(id))).slice(0, Diary.MAX_ENTRIES_SHOWN)
+})
+
 function initMemory() {
   if (!personas) loadPersonas()
   memoryManager = new MemoryManager(personas.activeId, MEMORY_PATH, memoryModelFrom(loadConfig()))
@@ -387,7 +430,7 @@ function initMemory() {
   // Carica subito lo stato su disco: senza questo la memoria del boot precedente
   // arriverebbe solo al primo turno, in ritardo rispetto alla prima domanda.
   memoryManager.loadState()
-    .then(loaded => console.log('[memory] stato caricato:', loaded ? 'si' : 'nessuno su disco'))
+    .then(loaded => { console.log('[memory] stato caricato:', loaded ? 'si' : 'nessuno su disco'); maybeWriteDiary() })
     .catch(e => console.error('[memory] loadState fallito:', e.message))
 
   // Auto-compaction: i turni piu' vecchi di 7 giorni sfumano in summary
@@ -398,6 +441,7 @@ function initMemory() {
     memoryManager.compact(7).then(did => {
       if (did) console.log('[memory] auto-compaction completata')
     }).catch(() => {})
+    maybeWriteDiary()
   }, 60 * 60 * 1000)
   if (global.__memoryTimer.unref) global.__memoryTimer.unref()
 }
@@ -1268,6 +1312,7 @@ handle('memory:clear', async () => {
     // Dimenticare tutto vale anche per come si sentiva, e per il rapporto.
     updateMood(() => moodLib.createMood())
     updateRapport(() => Rapport.createRapport())
+    await fs.promises.rm(diaryPath(personas.activeId), { force: true }).catch(() => {})
     return { ok: true }
   } catch (err) { return { ok: false, error: err.message } }
 })
