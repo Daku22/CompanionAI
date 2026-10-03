@@ -1297,6 +1297,39 @@ handle('memory:get-context', async () => {
   return memoryManager ? await memoryManager.getContext() : []
 })
 
+// ─── Memoria leggibile (Blocco 6e) ───────────────────────────────────────────
+// La persona attiva usa il MemoryManager vivo, cosi' quello che c'e' in RAM
+// resta allineato; le altre una copia letta da disco solo per l'occasione.
+async function memoryFor(id) {
+  if (!personas || typeof id !== 'string' || !personas.list.some(p => p.id === id)) return null
+  if (id === personas.activeId && memoryManager) return memoryManager
+  const mm = new MemoryManager(id, MEMORY_PATH, memoryModelFrom(loadConfig()))
+  await mm.loadState()
+  return mm
+}
+const turnView = (t) => ({ id: String(t.id), speaker: t.speaker === 'assistant' ? 'assistant' : 'user', content: String(t.content || '').slice(0, 4000), timestamp: t.timestamp })
+
+handle('memory:view', async (_e, id) => {
+  const mm = await memoryFor(id)
+  if (!mm) return null
+  return {
+    summary: mm.getSummary() || '',
+    recent: mm.getRawTurns().map(turnView).reverse(),
+    archive: mm.getArchive().map(turnView).reverse(),
+    archived: mm.getStats().archivedTurns,
+  }
+})
+
+handle('memory:edit', async (_e, input) => {
+  const mm = await memoryFor(input && input.id)
+  if (!mm) return { ok: false, error: 'Persona non trovata.' }
+  if (input.op === 'summary' && typeof input.text === 'string') await mm.editSummary(input.text)
+  else if (input.op === 'delete' && typeof input.turnId === 'string') {
+    if (!(await mm.deleteTurn(input.turnId))) return { ok: false, error: 'Ricordo non trovato.' }
+  } else return { ok: false, error: 'Richiesta non valida.' }
+  return { ok: true }
+})
+
 handle('mood:get', () => ({ ...moodLib.publicMood(moodLib.decay(mood)), rapport: Rapport.publicRapport(rapport) }))
 
 handle('memory:compact-now', async () => {

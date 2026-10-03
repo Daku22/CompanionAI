@@ -141,6 +141,9 @@ contextBridge.exposeInMainWorld('companion', {
   memoryGetContext: ()       => ipcRenderer.invoke('memory:get-context'),
   memoryCompactNow: ()       => ipcRenderer.invoke('memory:compact-now'),
   memoryClear:      ()       => ipcRenderer.invoke('memory:clear'),
+  // Memoria leggibile (Blocco 6e): vedere e correggere quella di una persona.
+  memoryView:       (id)     => ipcRenderer.invoke('memory:view', String(id || '')),
+  memoryEdit:       (input)  => ipcRenderer.invoke('memory:edit', input),
   // Umore: solo lettura. Lo cambiano le risposte e gli eventi, mai il renderer.
   getMood:          ()       => ipcRenderer.invoke('mood:get'),
 

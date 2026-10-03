@@ -105,6 +105,7 @@
     personaPrompt.value = p.prompt
     fillPersonaVoices(p.voice)
     showDiary(p.id)
+    showMemory(p.id)
     const isActive = p.id === personaData.activeId
     $('persona-activate').disabled = isActive
     $('persona-remove').disabled = isActive
@@ -133,6 +134,46 @@
     }))
     $('diary-empty').classList.toggle('hidden', entries.length > 0)
   }
+  // Memoria della persona scelta (Blocco 6e): riassunto da correggere e
+  // ricordi da eliminare, i piu' recenti in alto.
+  async function showMemory(id) {
+    const m = await api.memoryView(id).catch(() => null)
+    if (id !== personaSel.value) return
+    $('memory-summary').value = m ? m.summary : ''
+    const name = (personaData.list.find(p => p.id === id) || {}).name || 'Companion'
+    const when = (ts) => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }
+    const item = (t) => {
+      const row = document.createElement('div')
+      row.className = 'memo'
+      const meta = document.createElement('div')
+      meta.className = 'meta'
+      meta.textContent = when(t.timestamp) + ' · ' + (t.speaker === 'assistant' ? name : 'Tu')
+      const text = document.createElement('div')
+      text.className = 'text'
+      text.textContent = t.content
+      const del = document.createElement('button')
+      del.className = 'danger'
+      del.textContent = 'Elimina'
+      del.addEventListener('click', async (e) => {
+        if (!confirmClick(e.currentTarget, 'Clicca di nuovo per eliminare questo ricordo.')) return
+        const r = await api.memoryEdit({ id, op: 'delete', turnId: t.id }).catch(() => null)
+        $('memory-state').textContent = r && r.ok ? 'Ricordo eliminato.' : (r && r.error) || 'Non riuscito.'
+        showMemory(id)
+      })
+      row.append(meta, del, text)
+      return row
+    }
+    const head = (text) => { const h = document.createElement('h3'); h.textContent = text; return h }
+    const parts = []
+    if (m && m.recent.length) parts.push(head('Recenti (' + m.recent.length + ')'), ...m.recent.map(item))
+    if (m && m.archive.length) parts.push(head('In archivio (' + m.archived + (m.archived > m.archive.length ? ', qui gli ultimi ' + m.archive.length : '') + ')'), ...m.archive.map(item))
+    if (!parts.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Nessun ricordo.'; parts.push(p) }
+    $('memory-list').replaceChildren(...parts)
+  }
+  $('memory-summary-save').addEventListener('click', async () => {
+    const r = await api.memoryEdit({ id: personaSel.value, op: 'summary', text: $('memory-summary').value }).catch(() => null)
+    $('memory-state').textContent = r && r.ok ? 'Riassunto salvato.' : (r && r.error) || 'Non riuscito.'
+  })
   if (api.onDiaryChanged) api.onDiaryChanged((id) => { if (id === personaSel.value) showDiary(id) })
   personaSel.addEventListener('change', () => { personaState.textContent = ''; showPersona() })
   $('persona-save').addEventListener('click', () =>

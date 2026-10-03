@@ -151,6 +151,28 @@ async function test() {
   assert(await manual.compact(0, 4) === false, 'restano solo gli ultimi: niente da compattare')
   console.log('12. compattazione a mano tiene gli ultimi turni OK')
 
+  // Memoria leggibile (Blocco 6e): riassunto riscritto, ricordi eliminati
+  // dai recenti e dall'archivio, anche su disco e dopo un riavvio.
+  const edit = new MemoryManager('edit', dir2, opts)
+  for (let i = 0; i < 6; i++) await edit.addTurn('ricordo-' + i, 'user')
+  await edit.compact(0, 2)
+  const archivedId = edit.getArchive()[0].id
+  const rawId = edit.getRawTurns()[0].id
+  await edit.editSummary('  Riassunto scritto a mano.  ')
+  assert(await edit.deleteTurn(rawId) === true, 'il turno recente doveva sparire')
+  assert(await edit.deleteTurn(archivedId) === true, 'il turno archiviato doveva sparire')
+  assert(await edit.deleteTurn('nessuno') === false, 'un id sconosciuto non elimina nulla')
+  const again = new MemoryManager('edit', dir2, opts)
+  await again.loadState()
+  assert(again.getSummary() === 'Riassunto scritto a mano.', 'il riassunto a mano non e-` stato salvato')
+  assert(!again.getRawTurns().some(t => t.id === rawId), 'il turno recente e-` tornato al riavvio')
+  assert(!again.getArchive().some(t => t.id === archivedId), 'il turno archiviato e-` tornato al riavvio')
+  const onDisk = (await fs.promises.readdir(path.join(dir2, 'archive', 'edit')))
+    .map(f => fs.readFileSync(path.join(dir2, 'archive', 'edit', f), 'utf8')).join('')
+  assert(!onDisk.includes(archivedId) && onDisk.includes('ricordo-1'), 'il file d-`archivio non e-` stato corretto')
+  assert(again.getStats().archivedTurns === 3, 'il conteggio dell-`archivio doveva scendere')
+  console.log('13. memoria leggibile: riassunto e ricordi eliminati OK')
+
   await fs.promises.rm(dir2, { recursive: true, force: true })
   console.log('\n=== Test completato: TUTTO OK ===')
 }

@@ -82,6 +82,9 @@
   you type in the chat or over a full-screen app. The message goes to the
   bubble and the chat and stays in memory; reading it aloud is a separate
   option, off by default.
+- Readable memory, in "Persone" for each persona: the summary can be
+  corrected by hand, and every remembered message (recent or archived) can
+  be read and deleted, from the files on disk too.
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.

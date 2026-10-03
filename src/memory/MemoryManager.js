@@ -25,6 +25,8 @@ const MAX_RAW_TURNS = 200
 // L'archivio completo sta nei file archive/*.jsonl; in state.json ne resta solo
 // la coda, che serve a riconoscere i turni gia' compattati durante un reload.
 const MAX_ARCHIVE_IN_RAM = 200
+// Il riassunto riscritto a mano: piu' largo di quello automatico, ma con un tetto.
+const MAX_SUMMARY_EDIT = 8000
 // Limite per messaggio applicato da sanitizeHistory in ai-router.js: il testo da
 // riassumere va spezzato in blocchi che ci stiano dentro.
 const ROUTER_MESSAGE_CHARS = 8000
@@ -241,6 +243,52 @@ class MemoryManager {
       hasSummary: !!this.state.fadingMemory.summary,
       lastCompacted: this.state.lastCompacted,
     }
+  }
+
+  // ─── Memoria leggibile (Blocco 6e) ────────────────────────────────────────
+  // L'utente rilegge e corregge: il riassunto si riscrive a mano, un ricordo
+  // (turno recente o archiviato) si elimina. Un turno archiviato tolto resta
+  // nel riassunto finche' non lo si corregge li'.
+
+  /** @param {string} text */
+  async editSummary(text) {
+    await this._ensureLoaded()
+    this.state.fadingMemory.summary = String(text || '').trim().slice(0, MAX_SUMMARY_EDIT)
+    await this._persistState()
+  }
+
+  /**
+   * Elimina un turno dai recenti o dall'archivio (anche dai file su disco).
+   * @param {string} id
+   * @returns {Promise<boolean>} false se non c'era
+   */
+  async deleteTurn(id) {
+    await this._ensureLoaded()
+    const mem = this.state.fadingMemory
+    if (mem.rawTurns.some(t => t.id === id)) {
+      mem.rawTurns = mem.rawTurns.filter(t => t.id !== id)
+      await this._persistState()
+      await this._rewriteActiveTurns()
+      return true
+    }
+    let found = mem.archive.some(t => t.id === id)
+    mem.archive = mem.archive.filter(t => t.id !== id)
+    // L'archivio su disco puo' avere piu' turni di quelli in RAM.
+    let files = []
+    try { files = (await fs.promises.readdir(this.archiveDir)).filter(f => f.endsWith('.jsonl')) } catch (_) {}
+    for (const f of files) {
+      const file = path.join(this.archiveDir, f)
+      const lines = (await fs.promises.readFile(file, 'utf-8')).split('\n').filter(Boolean)
+      const kept = lines.filter(l => { try { return JSON.parse(l).id !== id } catch (_) { return true } })
+      if (kept.length === lines.length) continue
+      found = true
+      if (kept.length) await writeAtomic(file, kept.join('\n') + '\n')
+      else await fs.promises.rm(file, { force: true })
+    }
+    if (!found) return false
+    if (mem.archivedCount) mem.archivedCount--
+    await this._persistState()
+    return true
   }
 
   async clear() {
