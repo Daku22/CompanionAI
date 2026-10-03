@@ -40,7 +40,7 @@ function isNight(hour) {
 }
 
 /** Pesi dei gesti secondo umore, energia e ora; present: l'utente e' al PC. */
-function gestureWeights(mood, hour, present = false) {
+function gestureWeights(mood, hour, present = false, bond = { affection: 1, annoyance: 1 }) {
   const e = (mood && mood.emotions) || {}
   const tired = isNight(hour) || (mood && mood.energy < 0.35)
   if (tired) return { doze: 4, yawn: 2, look: 1, rest: 1 }
@@ -51,6 +51,11 @@ function gestureWeights(mood, hour, present = false) {
   if ((e.sadness || 0) >= FELT)   { w.rest += 2; w.happy = 0 }
   if ((e.annoyance || 0) >= FELT) { w.smoke += 1; w.happy = 0 }
   if ((e.calm || 0) >= FELT)      { w.rest += 1 }
+  // Il livello del rapporto (rapport.js, reactionScale) rende piu' o meno
+  // frequenti i gesti affettuosi e quelli infastiditi.
+  w.happy *= bond.affection
+  if (w.highfive) w.highfive *= bond.affection
+  w.smoke *= bond.annoyance
   return w
 }
 
@@ -74,7 +79,7 @@ function pick(weights, rand) {
  * @returns {null | { name: string, animation: string, bubble: string,
  *                    holdMs: number, walk?: boolean, asleep?: boolean }}
  */
-function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour, rand = Math.random }) {
+function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour, bond, rand = Math.random }) {
   // Utente via: ci si addormenta una volta sola, e si resta cosi' (holdMs 0).
   if (systemIdleMs >= AWAY_MS) {
     return asleep ? null : { name: 'sleep', animation: 'sit', bubble: '💤', holdMs: 0, asleep: true }
@@ -86,7 +91,7 @@ function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour,
   const chance = BASE_CHANCE + Math.min(EXTRA_CHANCE, (quietMs / HOUR_MS) * EXTRA_CHANCE)
   if (rand() >= chance) return null
 
-  const name = pick(gestureWeights(mood, hour, systemIdleMs < PRESENT_MS), rand)
+  const name = pick(gestureWeights(mood, hour, systemIdleMs < PRESENT_MS, bond), rand)
   return { name, ...GESTURES[name] }
 }
 

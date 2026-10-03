@@ -62,6 +62,17 @@
   activated again. Today's memory becomes the default persona, untouched.
   Switching persona clears the chat on screen; deleting one deletes its
   memory too.
+- Relationship levels, per persona: Sconosciuto, Conoscente, Amico, Amico
+  stretto, Confidente, Anima gemella. The score grows with the days you talk
+  (more with a streak) and with how you treat it (a new optional "rapport"
+  field in the reply, -2 to +2, capped per day); it drops after long
+  absences and with hostile tones. Levels unlock nothing: they set the tone
+  in the prompt and make affectionate reactions more frequent and annoyed
+  ones rarer (or the opposite at low levels). Level and days together show
+  next to the mood in the chat. "Dimentica tutto" resets it too.
+- "Compatta" in the chat now summarises everything but the last four turns,
+  whatever their age; before, it only took turns older than seven days, so
+  it almost always said there was nothing to do. Errors are shown as such.
 - 27 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions),
   now in the repository and the installer under CC0. Credits and the model

@@ -173,4 +173,26 @@ test('batti cinque: la riga per il prompt', () => {
   assert.match(touchPromptText({ name: 'missed', zone: 'hand', kind: 'highfive', at: now }, now), /non l'ha raccolto/)
 })
 
+test('rapporto: basso ventre, il fastidio arriva prima o dopo', () => {
+  const clicks = (patience) => {
+    const s = createTouchState()
+    return [0, 1, 2].map(i => s.onTouch('lowerBelly', 'poke', i * 1000, patience).name)
+  }
+  assert.deepEqual(clicks(0), ['shy', 'scold', 'scold'])
+  assert.deepEqual(clicks(-1), ['shy', 'scold', 'turnaway'])
+  assert.deepEqual(clicks(1), ['shy', 'shy', 'scold'])
+})
+
+test('rapporto: affetto e fastidio scalati, battute comprese', () => {
+  const { scaleReaction } = require('../src/main/touch-react')
+  const close = { affection: 1.4, annoyance: 0.6 }
+  const pat = scaleReaction(REACTIONS.pat, close)
+  assert.ok(Math.abs(pat.mood.affection - REACTIONS.pat.mood.affection * 1.4) < 1e-9)
+  assert.equal(pat.mood.calm, REACTIONS.pat.mood.calm)
+  assert.ok(pat.chance > REACTIONS.pat.chance)
+  const scold = scaleReaction(REACTIONS.scold, close)
+  assert.ok(scold.mood.annoyance < REACTIONS.scold.mood.annoyance && scold.chance < REACTIONS.scold.chance)
+  assert.ok(scaleReaction(REACTIONS.turnaway, { affection: 1, annoyance: 1.4 }).chance <= 1)
+})
+
 console.log('=== ' + passed + ' test superati ===')

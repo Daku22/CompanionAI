@@ -89,6 +89,20 @@ function lowerBellyReaction(step) {
 }
 
 /**
+ * La reazione secondo il livello del rapporto (rapport.js, reactionScale):
+ * affetto e gioia, e la probabilita' della battuta nelle reazioni gentili,
+ * per affection; fastidio, e la battuta in quelle infastidite, per annoyance.
+ */
+function scaleReaction(r, scale) {
+  if (!r || !scale) return r
+  const annoyed = (r.mood.annoyance || 0) > 0
+  const k = annoyed ? scale.annoyance : scale.affection
+  const mood = Object.fromEntries(Object.entries(r.mood).map(([name, delta]) =>
+    [name, delta * (name === 'annoyance' ? scale.annoyance : (name === 'affection' || name === 'joy') && delta > 0 ? scale.affection : 1)]))
+  return { ...r, mood, chance: Math.min(1, r.chance * k) }
+}
+
+/**
  * Un tocco dal renderer, controllato: arriva da una pagina e non ci si fida.
  * @returns {{ zone: string, kind: string } | null}
  */
@@ -117,9 +131,11 @@ function createTouchState() {
      * @param {string} zone
      * @param {string} kind 'poke' o 'pat'
      * @param {number} now ms
+     * @param {number} [patience] dal livello del rapporto (rapport.js): -1 il
+     *        fastidio arriva un clic prima, +1 un clic dopo
      * @returns {{ name: string, step: number, zone: string, kind: string } | null}
      */
-    onTouch(zone, kind, now) {
+    onTouch(zone, kind, now, patience = 0) {
       if (!ZONES.includes(zone) || !KINDS.includes(kind)) return null
       settle(now)
       // Girato di spalle non si lascia toccare; una carezza lo addolcisce.
@@ -135,7 +151,8 @@ function createTouchState() {
       if (zone === 'lowerBelly') {
         lower++
         lowerAt = now
-        const name = lowerBellyReaction(lower)
+        // Il primo clic e' sempre imbarazzo; il livello sposta i gradini dopo.
+        const name = lowerBellyReaction(lower === 1 ? 1 : Math.max(1, lower - patience))
         if (name === 'turnaway') turnedUntil = now + STEPS.TURNAWAY_MS
         return { name, step: lower, zone, kind }
       }
@@ -204,5 +221,5 @@ function touchPromptText(last, now) {
 module.exports = {
   ZONES, KINDS, STEPS, REACTIONS, HIGHFIVE,
   checkTouch, createTouchState, pickLine, shouldSayLine, touchPromptText,
-  createHighFiveState, highFiveReaction,
+  createHighFiveState, highFiveReaction, scaleReaction,
 }

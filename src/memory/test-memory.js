@@ -141,6 +141,16 @@ async function test() {
   assert(full.getSummary().length <= 2000, 'il riassunto di ripiego deve restare entro 2000 caratteri')
   console.log('11. ripiego senza chiave tiene i turni recenti OK')
 
+  // Il pulsante "Compatta": turni recenti (meno di 7 giorni) compattati
+  // comunque, tranne gli ultimi keepRecent.
+  const manual = new MemoryManager('manual', dir2, opts)
+  for (let i = 0; i < 6; i++) await manual.addTurn('recente-' + i, 'user')
+  assert(await manual.compact(7) === false, 'con i 7 giorni non doveva compattare nulla')
+  assert(await manual.compact(0, 4) === true, 'a mano doveva compattare')
+  assert(manual.getRawTurns().map(t => t.content).join() === 'recente-2,recente-3,recente-4,recente-5', 'restano gli ultimi 4')
+  assert(await manual.compact(0, 4) === false, 'restano solo gli ultimi: niente da compattare')
+  console.log('12. compattazione a mano tiene gli ultimi turni OK')
+
   await fs.promises.rm(dir2, { recursive: true, force: true })
   console.log('\n=== Test completato: TUTTO OK ===')
 }

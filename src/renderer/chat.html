@@ -207,7 +207,8 @@
     .text-btn:disabled { opacity: 0.45; cursor: default; }
     #forget-btn:hover:not(:disabled), #forget-btn.armed { background: var(--danger-soft); color: var(--danger); }
     /* Pulsante armato: l'avviso prende il posto di umore e "Compatta". */
-    #memory-footer:has(#forget-btn.armed) :is(#mood-chip, #compact-btn) { display: none; }
+    #rapport-chip { color: var(--text-3); white-space: nowrap; cursor: default; }
+    #memory-footer:has(#forget-btn.armed) :is(#mood-chip, #rapport-chip, #compact-btn) { display: none; }
     #memory-footer:has(#forget-btn.armed) #memory-info { margin-left: 0; color: var(--danger); }
 
     /* ── Input ─────────────────────────────────────────────────────────────── */
@@ -321,6 +322,7 @@
   <!-- ── Footer memoria ───────────────────────────────────────────────────── -->
   <footer id="memory-footer" class="hidden">
     <span id="mood-chip" title="Umore del companion">·</span>
+    <span id="rapport-chip" class="hidden"></span>
     <div id="memory-info">Memoria: —</div>
     <button class="text-btn" id="compact-btn">Compatta</button>
     <button class="text-btn" id="forget-btn" title="Cancella riassunto, turni e archivio">Dimentica tutto</button>

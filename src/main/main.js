@@ -27,6 +27,7 @@ const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
 const Personas = require('./personas')
+const Rapport = require('./rapport')
 const touchReact = require('./touch-react')
 const { decideIdle } = require('./idle-life')
 
@@ -210,6 +211,8 @@ const MEMORY_PATH = path.join(os.homedir(), '.desktop-companion', 'memory')
 
 // Budget di contesto riservato alla memoria a lungo termine, in token stimati.
 const MEMORY_CONTEXT_TOKENS = 1500
+// "Compatta" lascia interi gli ultimi turni (due scambi).
+const MANUAL_COMPACT_KEEP = 4
 
 // Per il riassunto usa il provider configurato. Senza chiave il MemoryManager
 // ripiega su un riassunto deterministico invece di bloccarsi.
@@ -232,11 +235,36 @@ let moodSave = Promise.resolve()
 
 async function initMood() {
   mood = await moodLib.loadMood(moodPath())
+  rapport = await Rapport.loadRapport(rapportPath())
   broadcastMood()
 }
 
+// ─── Rapporto (Blocco 6b) ────────────────────────────────────────────────────
+// Anche questo della persona attiva, accanto al suo umore (rapport.js).
+const rapportPath = () => path.join(Personas.personaDir(MEMORY_PATH, personas ? personas.activeId : 'default'), 'rapport.json')
+let rapport = Rapport.createRapport()
+let rapportSave = Promise.resolve()
+
+/** Come updateMood. Salire di livello fa piacere: un gesto contento. */
+function updateRapport(change) {
+  const before = rapport
+  rapport = change(rapport)
+  if (rapport === before) return
+  const snapshot = rapport
+  const file = rapportPath()
+  rapportSave = rapportSave.then(() => Rapport.saveRapport(file, snapshot))
+    .catch(e => console.error('[rapporto] salvataggio fallito:', e.message))
+  if (rapport.level !== before.level) {
+    console.log('[rapporto] livello ' + Rapport.LEVELS[before.level] + ' -> ' + Rapport.LEVELS[rapport.level])
+    if (rapport.level > before.level) animateCompanion({ type: 'none', animation: 'happy', bubble: '💞' })
+  }
+  broadcastMood()
+}
+
+const bond = () => Rapport.reactionScale(rapport.level)
+
 function broadcastMood() {
-  const data = moodLib.publicMood(mood)
+  const data = { ...moodLib.publicMood(mood), rapport: Rapport.publicRapport(rapport) }
   for (const win of [companionWindow, chatWindow]) {
     if (win && !win.isDestroyed()) try { win.webContents.send('mood-changed', data) } catch (_) {}
   }
@@ -292,6 +320,7 @@ async function switchPersona(id) {
   const next = Personas.activate(Personas.snapshot(personas, { avatarModel: cfg.avatarModel, voice: cfg.voice }), id)
   if (!next) return false
   await moodSave
+  await rapportSave
   personas = next
   savePersonas()
   const p = activePersona()
@@ -421,7 +450,7 @@ async function buildHistoryWithMemory(rendererHistory) {
 // sistema subito dopo la memoria: prepare() nel router li unisce in ordine.
 function withMoodLine(history) {
   const touched = touchReact.touchPromptText(lastTouch, Date.now())
-  const line = { role: 'system', content: moodLib.promptLine(mood) + (touched ? ' ' + touched : '') }
+  const line = { role: 'system', content: moodLib.promptLine(mood) + ' ' + Rapport.promptLine(rapport) + (touched ? ' ' + touched : '') }
   const firstDialog = history.findIndex(m => m.role !== 'system')
   if (firstDialog === -1) return [...history, line]
   return [...history.slice(0, firstDialog), line, ...history.slice(firstDialog)]
@@ -922,6 +951,7 @@ handle('ai:send-message', async (_e, { history }) => {
   awaitingReply = true
   markActivity()
   updateMood(m => moodLib.onUserMessage(m))
+  updateRapport(r => Rapport.onDay(r))
   // La risposta resta della persona che l'ha chiesta (switchPersona aspetta
   // comunque la fine della risposta).
   const mm = memoryManager
@@ -953,6 +983,11 @@ handle('ai:send-message', async (_e, { history }) => {
     // Il campo arriva da un modello: solo i valori del contratto passano.
     if (result && !EMOTIONS.includes(result.emotion)) delete result.emotion
     if (result?.emotion) updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
+    // rapport: solo interi da -2 a +2 (onReply scarta il resto), mai alla chat.
+    if (result && 'rapport' in result) {
+      updateRapport(r => Rapport.onReply(r, result.rapport))
+      delete result.rapport
+    }
 
     if (result?.reply && mm) {
       await mm.addTurn(result.reply, 'assistant').catch(() => {})
@@ -1212,12 +1247,14 @@ handle('memory:get-context', async () => {
   return memoryManager ? await memoryManager.getContext() : []
 })
 
-handle('mood:get', () => moodLib.publicMood(moodLib.decay(mood)))
+handle('mood:get', () => ({ ...moodLib.publicMood(moodLib.decay(mood)), rapport: Rapport.publicRapport(rapport) }))
 
 handle('memory:compact-now', async () => {
   if (!memoryManager) return { ok: false, error: 'memory not initialized' }
   try {
-    const did = await memoryManager.compact()
+    // A mano si riassume tutto tranne gli ultimi turni, di qualunque eta':
+    // con i 7 giorni del timer il pulsante non faceva quasi mai nulla.
+    const did = await memoryManager.compact(0, MANUAL_COMPACT_KEEP)
     return { ok: true, compacted: did }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -1228,8 +1265,9 @@ handle('memory:clear', async () => {
   if (!memoryManager) return { ok: false, error: 'memory not initialized' }
   try {
     await memoryManager.clear()
-    // Dimenticare tutto vale anche per come si sentiva.
+    // Dimenticare tutto vale anche per come si sentiva, e per il rapporto.
     updateMood(() => moodLib.createMood())
+    updateRapport(() => Rapport.createRapport())
     return { ok: true }
   } catch (err) { return { ok: false, error: err.message } }
 })
@@ -1456,6 +1494,7 @@ function idleTick() {
     asleep,
     mood: moodLib.decay(mood, now),
     hour: new Date(now).getHours(),
+    bond: bond(),
   })
   if (!decision) return
   lastGestureAt = now
@@ -2446,9 +2485,10 @@ handle('companion:touch', (_e, input) => {
   const now = Date.now()
   if (!touch || now - lastTouchAt < TOUCH_MIN_MS) return null
   lastTouchAt = now
-  const result = touchState.onTouch(touch.zone, touch.kind, now)
+  const scale = bond()
+  const result = touchState.onTouch(touch.zone, touch.kind, now, scale.patience)
   if (!result) return null
-  const r = touchReact.REACTIONS[result.name]
+  const r = touchReact.scaleReaction(touchReact.REACTIONS[result.name], scale)
   updateMood(m => Object.entries(r.mood).reduce((acc, [name, delta]) => moodLib.nudge(acc, name, delta), moodLib.decay(m, now)))
   lastTouch = { name: result.name, zone: result.zone, kind: result.kind, at: now }
   const line = touchReact.pickLine(r.line, r.chance, touchLines)
@@ -2483,7 +2523,7 @@ handle('companion:highfive', (_e, input) => {
   const now = Date.now()
   if (now - lastHighFiveAt < TOUCH_MIN_MS) return null
   lastHighFiveAt = now
-  const r = touchReact.highFiveReaction(event, event === 'slap' ? highFiveState.onSlap(now) : 1)
+  const r = touchReact.scaleReaction(touchReact.highFiveReaction(event, event === 'slap' ? highFiveState.onSlap(now) : 1), bond())
   updateMood(m => Object.entries(r.mood).reduce((acc, [name, delta]) => moodLib.nudge(acc, name, delta), moodLib.decay(m, now)))
   lastTouch = { name: event === 'slap' ? 'highfive' : 'missed', zone: 'hand', kind: 'highfive', at: now }
   const line = touchReact.pickLine(r.line, r.chance, touchLines)

@@ -80,6 +80,14 @@ function showMood(mood) {
   moodChip.textContent = mood.icon + ' ' + mood.label
   const energy = mood.energy >= 0.7 ? 'piena' : mood.energy >= 0.4 ? 'normale' : 'bassa'
   moodChip.title = 'Umore del companion: ' + mood.label + ' · energia ' + energy
+  // Rapporto (Blocco 6b): livello, giorni insieme e serie.
+  const r = mood.rapport
+  const chip = document.getElementById('rapport-chip')
+  chip.classList.toggle('hidden', !r)
+  if (!r) return
+  chip.textContent = r.label + (r.days ? ' · ' + r.days + ' g' : '')
+  chip.title = 'Rapporto: ' + r.label + ' (livello ' + (r.level + 1) + ' di ' + r.levels + ')' +
+    ' · insieme da ' + r.days + (r.days === 1 ? ' giorno' : ' giorni') + ' · serie di ' + r.streak
 }
 if (api && api.onMoodChanged) api.onMoodChanged(showMood)
 
@@ -98,11 +106,9 @@ compactBtn.addEventListener('click', async () => {
   compactBtn.disabled = true
   compactBtn.textContent = '…'
   const res = await api.memoryCompactNow()
-  if (res?.ok && res.compacted) {
-    memoryInfo.textContent = '✓ Memoria compattata'
-  } else {
-    memoryInfo.textContent = 'Niente da compattare o errore'
-  }
+  if (res?.ok && res.compacted) memoryInfo.textContent = '✓ Memoria compattata'
+  else if (res?.ok) memoryInfo.textContent = 'Niente da compattare'
+  else memoryInfo.textContent = 'Errore: ' + (res?.error || 'sconosciuto')
   setTimeout(async () => {
     compactBtn.textContent = 'Compatta'
     compactBtn.disabled = false

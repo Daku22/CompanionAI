@@ -129,5 +129,14 @@ test('senza direzione una meta-` a caso, lontana abbastanza, e i gesti restano v
   }
 })
 
+test('rapporto: gesti affettuosi e infastiditi piu\' o meno frequenti', () => {
+  const happy = { emotions: { joy: 0.8, annoyance: 0.5 }, energy: 1 }
+  const base = gestureWeights(happy, 15, true)
+  const close = gestureWeights(happy, 15, true, { affection: 1.4, annoyance: 0.6 })
+  assert.ok(close.highfive > base.highfive)
+  const cold = gestureWeights({ emotions: { annoyance: 0.5 }, energy: 1 }, 15, false, { affection: 0.6, annoyance: 1.4 })
+  assert.ok(cold.smoke > gestureWeights({ emotions: { annoyance: 0.5 }, energy: 1 }, 15, false).smoke)
+})
+
 console.log('\n=== ' + passed + ' test superati ===')
 if (process.exitCode) console.error('=== ALCUNI TEST SONO FALLITI ===')

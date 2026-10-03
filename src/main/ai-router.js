@@ -131,6 +131,8 @@ const COMPANION_SCHEMA = {
     reply: { type: 'string', description: "Testo della risposta all'utente" },
     // Facoltativa: un provider che non la manda non rompe nulla, l'umore resta com'e'.
     emotion: { type: 'string', enum: EMOTIONS, description: 'Emozione che provi rispondendo' },
+    // Facoltativo anche questo (Blocco 6b): come ti ha trattato l'utente.
+    rapport: { type: 'integer', minimum: -2, maximum: 2, description: "Come ti ha trattato l'utente in questo messaggio, da -2 (ostile) a +2 (affettuoso)" },
     action: {
       type: 'object',
       properties: {
@@ -159,6 +161,7 @@ Rispondi SEMPRE e SOLO con un oggetto JSON valido in questo formato, senza testo
 {
   "reply": "Testo della risposta all'utente (stringa, obbligatorio)",
   "emotion": ${EMOTIONS.map(e => `"${e}"`).join(' | ')},
+  "rapport": -2 | -1 | 0 | 1 | 2,
   "action": {
     "type": ${ACTION_TYPES.map(t => `"${t}"`).join(' | ')},
     "animation": ${ANIMATIONS.map(a => `"${a}"`).join(' | ')},

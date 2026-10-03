@@ -141,23 +141,26 @@ class MemoryManager {
    * soglia possono chiederla insieme, e due in parallelo riassumerebbero gli
    * stessi turni due volte.
    * @param {number} [olderThanDays]
+   * @param {number} [keepRecent] gli ultimi turni da lasciare comunque interi
+   *        (il pulsante "Compatta": tutto il resto, di qualunque eta')
    * @returns {Promise<boolean>}
    */
-  compact(olderThanDays = 7) {
+  compact(olderThanDays = 7, keepRecent = 0) {
     if (!this._compacting) {
-      this._compacting = this._compact(olderThanDays).finally(() => { this._compacting = null })
+      this._compacting = this._compact(olderThanDays, keepRecent).finally(() => { this._compacting = null })
     }
     return this._compacting
   }
 
-  async _compact(olderThanDays) {
+  async _compact(olderThanDays, keepRecent = 0) {
     await this._ensureLoaded()
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000)
     const raw = this.state.fadingMemory.rawTurns
     const overflow = Math.max(0, raw.length - MAX_RAW_TURNS)
     // Limite inclusivo: con olderThanDays = 0 ("tutto fino ad adesso") un turno
     // scritto nello stesso millisecondo restava fuori dalla compattazione.
-    const toCompact = raw.filter((t, i) => i < overflow || new Date(t.timestamp) <= cutoff)
+    const keepFrom = raw.length - keepRecent
+    const toCompact = raw.filter((t, i) => i < overflow || (i < keepFrom && new Date(t.timestamp) <= cutoff))
     if (toCompact.length === 0) return false
 
     const prev = this.state.fadingMemory.summary || ''
