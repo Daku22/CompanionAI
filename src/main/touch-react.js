@@ -40,6 +40,43 @@ const REACTIONS = {
   turnaway:   { slot: 'turnaway', expression: 'angry',     weight: 0.9,  ms: 5000, mood: { annoyance: 0.25, affection: -0.02 }, line: 'turnaway',   chance: 1 },
   spamGiggle: { slot: 'giggle',   expression: 'happy',     weight: 1.0,  ms: 1000, mood: { joy: 0.02, annoyance: 0.03 },        line: 'spamGiggle', chance: 0.3 },
   spamScold:  { slot: 'scold',    expression: 'angry',     weight: 0.35, ms: 1500, mood: { annoyance: 0.08 },                   line: 'spamScold',  chance: 0.6 },
+  // Batti cinque (Blocco 5e): l'umore lo sposta highFiveReaction, che lo
+  // riduce se se ne battono tanti di fila; mancato, solo un po' di delusione.
+  highfive:   { slot: 'highfive', expression: 'happy',     weight: 1.0,  ms: 1600, mood: { joy: 0.08, affection: 0.05 },        line: 'highfive',   chance: 0.6 },
+  missed:     { slot: 'missed',   expression: 'sad',       weight: 0.4,  ms: 1600, mood: { sadness: 0.02 },                     line: 'missed',     chance: 0.35 },
+}
+
+// Batti cinque: quelli battuti negli ultimi WINDOW_MS riducono l'effetto del
+// prossimo (il secondo vale meta', il terzo un terzo...).
+const HIGHFIVE = { WINDOW_MS: 10 * 60000, EVENTS: ['offer', 'cancel', 'slap', 'missed'] }
+
+/**
+ * Stato dei batti cinque: onSlap dice quanto vale questo (1, 1/2, 1/3...).
+ */
+function createHighFiveState() {
+  let slaps = []
+  return {
+    onSlap(now) {
+      slaps = slaps.filter(t => now - t < HIGHFIVE.WINDOW_MS)
+      const factor = 1 / (1 + slaps.length)
+      slaps.push(now)
+      return factor
+    },
+    debug: () => ({ slaps: slaps.length }),
+  }
+}
+
+/**
+ * La reazione a un batti cinque battuto (slap) o mancato (missed), con
+ * l'umore gia' scalato. null per un evento che non ne ha.
+ * @param {string} event
+ * @param {number} factor da createHighFiveState().onSlap (1 per missed)
+ */
+function highFiveReaction(event, factor = 1) {
+  const r = event === 'slap' ? REACTIONS.highfive : event === 'missed' ? REACTIONS.missed : null
+  if (!r) return null
+  const mood = Object.fromEntries(Object.entries(r.mood).map(([k, v]) => [k, v * factor]))
+  return { ...r, mood }
 }
 
 const POKE_REACTION = { head: 'headTap', face: 'flinch', chest: 'giggle', belly: 'giggle', hand: 'hand', legs: 'hop' }
@@ -154,6 +191,8 @@ const ZONE_TEXT = {
  */
 function touchPromptText(last, now) {
   if (!last || !(now - last.at < 3 * 60000)) return null
+  if (last.name === 'highfive') return "Poco fa tu e l'utente avete battuto il cinque, e ti ha fatto piacere."
+  if (last.name === 'missed') return "Poco fa hai offerto il batti cinque all'utente, che non l'ha raccolto."
   if (last.kind === 'pat') return "Poco fa l'utente ti ha fatto una carezza sulla testa, e ti ha fatto piacere."
   const where = ZONE_TEXT[last.zone] || ''
   if (last.name === 'turnaway') return "Poco fa l'utente ha insistito a toccarti " + where + ' anche dopo che avevi chiesto di smettere: hai voltato le spalle e provi fastidio.'
@@ -163,6 +202,7 @@ function touchPromptText(last, now) {
 }
 
 module.exports = {
-  ZONES, KINDS, STEPS, REACTIONS,
+  ZONES, KINDS, STEPS, REACTIONS, HIGHFIVE,
   checkTouch, createTouchState, pickLine, shouldSayLine, touchPromptText,
+  createHighFiveState, highFiveReaction,
 }

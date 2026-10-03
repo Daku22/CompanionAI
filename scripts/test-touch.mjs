@@ -157,4 +157,86 @@ t('carezza: continuando, una ogni tanto e non a ogni passo', () => {
   assert.ok(hits <= Math.ceil(now / PAT.REPEAT_MS), hits + ' carezze in ' + now + ' ms')
 })
 
+// ─── Batti cinque ────────────────────────────────────────────────────────────
+const { HIGHFIVE, nearHand, handFollow, createHighFive } = globalThis.CompanionTouch
+console.log('=== Batti cinque ===')
+// L'avatar: centro a 300, mezza larghezza 60, alto da 100 a 500.
+const BODY5 = { centerX: 300, halfWidth: 60, top: 100, bottom: 500 }
+
+t('accanto: dal lato di una mano, fuori dalla sagoma, all\'altezza delle mani', () => {
+  assert.equal(nearHand({ x: 400, y: 250 }, BODY5, false), 'right')
+  assert.equal(nearHand({ x: 190, y: 250 }, BODY5, false), 'left')
+  assert.equal(nearHand({ x: 400, y: 250 }, BODY5, true), null, 'sopra la sagoma')
+  assert.equal(nearHand({ x: 340, y: 250 }, BODY5, false), null, 'dentro il fianco')
+  assert.equal(nearHand({ x: 360 + HIGHFIVE.NEAR_PX + 5, y: 250 }, BODY5, false), null, 'troppo lontano')
+  assert.equal(nearHand({ x: 400, y: 110 }, BODY5, false), null, 'all\'altezza della testa')
+  assert.equal(nearHand({ x: 400, y: 480 }, BODY5, false), null, 'all\'altezza dei piedi')
+  assert.equal(nearHand(null, BODY5, false), null)
+})
+
+t('la mano segue il cursore di lato, entro +-1', () => {
+  assert.equal(handFollow({ x: 360 }, BODY5, 'right'), 0)
+  assert.ok(handFollow({ x: 400 }, BODY5, 'right') > 0)
+  assert.ok(handFollow({ x: 330 }, BODY5, 'right') < 0)
+  assert.equal(handFollow({ x: 2000 }, BODY5, 'right'), 1)
+  assert.equal(handFollow({ x: -2000 }, BODY5, 'left'), -1)
+  assert.equal(handFollow(null, BODY5, 'left'), 0)
+})
+
+t('il cursore accanto per un secondo: offre la mano da quel lato', () => {
+  const h = createHighFive()
+  assert.equal(h.update(0, { near: 'right' }).state, 'idle')
+  assert.equal(h.update(HIGHFIVE.NEAR_MS - 1, { near: 'right' }).state, 'idle')
+  const r = h.update(HIGHFIVE.NEAR_MS, { near: 'right' })
+  assert.deepEqual([r.state, r.side, r.changed], ['offer', 'right', true])
+})
+
+t('cambiare lato o allontanarsi riparte da capo', () => {
+  const h = createHighFive()
+  h.update(0, { near: 'right' })
+  h.update(800, { near: 'left' })
+  assert.equal(h.update(1500, { near: 'left' }).state, 'idle')
+  assert.equal(h.update(1800, { near: 'left' }).state, 'offer')
+})
+
+t('lo schiaffo sulla mano, poi la pausa: da solo non la rioffre subito', () => {
+  const h = createHighFive()
+  h.update(0, { near: 'left' })
+  h.update(HIGHFIVE.NEAR_MS, { near: 'left' })
+  assert.equal(h.click(1500, false), false, 'clic fuori dalla mano')
+  assert.equal(h.click(1600, true), true)
+  assert.equal(h.get().state, 'slap')
+  let now = 1600 + HIGHFIVE.SLAP_MS
+  assert.equal(h.update(now, { near: 'left' }).state, 'cooldown')
+  now += HIGHFIVE.COOLDOWN_MS - 1
+  assert.equal(h.update(now, { near: 'left' }).state, 'cooldown')
+  assert.equal(h.request(now, { spontaneous: true }), false, 'la vita autonoma aspetta')
+  now += 1
+  assert.equal(h.update(now, { near: 'left' }).state, 'idle')
+  assert.equal(h.update(now + HIGHFIVE.NEAR_MS, { near: 'left' }).state, 'offer')
+})
+
+t('nessuno la prende: dopo 5 s la abbassa, poi pausa', () => {
+  const h = createHighFive()
+  assert.equal(h.request(0, { side: 'left' }), true)
+  assert.deepEqual(h.get(), { state: 'offer', side: 'left' })
+  assert.equal(h.update(HIGHFIVE.OFFER_MS - 1).state, 'offer')
+  assert.equal(h.update(HIGHFIVE.OFFER_MS).state, 'missed')
+  assert.equal(h.click(HIGHFIVE.OFFER_MS + 10, true), false, 'troppo tardi')
+  assert.equal(h.update(HIGHFIVE.OFFER_MS + HIGHFIVE.MISSED_MS).state, 'cooldown')
+})
+
+t('chiesto in chat vale anche nella pausa; mai mentre e\' bloccato', () => {
+  const h = createHighFive()
+  h.request(0)
+  h.click(100, true)
+  h.update(100 + HIGHFIVE.SLAP_MS)
+  assert.equal(h.get().state, 'cooldown')
+  assert.equal(h.request(2000, { blocked: true }), false)
+  assert.equal(h.request(2000), true)
+  // Preso in braccio mentre offre: la mano torna giu', senza delusione.
+  assert.equal(h.update(2100, { blocked: true }).state, 'idle')
+  assert.equal(h.update(9000, { near: 'right', blocked: true }).state, 'idle')
+})
+
 console.log('=== ' + passed + ' test superati ===')

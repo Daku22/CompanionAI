@@ -17,6 +17,9 @@ const LINES = {
   turnaway: ['Hmpf. Non ti guardo.', 'Adesso mi giro, così impari.', 'Non ti parlo. Per un po’.'],
   spamGiggle: ['Ahah, quanti clic!', 'Calma, calma!'],
   spamScold: ['Ok, ok, basta clic.', 'Mi gira la testa…'],
+  // Batti cinque (Blocco 5e): preso, o lasciato con la mano alzata.
+  highfive: ['Batti cinque!', 'Yeah!', 'Bel colpo!', 'Così si fa!', 'Grande!'],
+  missed: ['Niente? Peccato.', 'Sarà per la prossima.', 'Va be’, la mano la riabbasso.'],
 }
 
 module.exports = { LINES }

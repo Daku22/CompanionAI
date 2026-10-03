@@ -89,6 +89,8 @@ contextBridge.exposeInMainWorld('companion', {
   peekGeometry:     (g)      => ipcRenderer.send('companion:peek-geometry', g && typeof g === 'object'
     ? { side: g.side, cut: g.cut, headX: g.headX, headY: g.headY } : null),
   peekOut:          ()       => ipcRenderer.send('companion:peek-out'),
+  // Batti cinque: 'offer' | 'cancel' | 'slap' | 'missed'; risponde con la reazione
+  highFive:         (event, speaking) => ipcRenderer.invoke('companion:highfive', { event: String(event), speaking: speaking === true }),
   // Solo per audit.mjs: il main risponde solo con COMPANION_TEST_HOOKS=1
   testPeek:         (cmd)    => ipcRenderer.invoke('test:peek', cmd),
   live2dSetChoices: (id, choices) => ipcRenderer.invoke('live2d:set-choices', id, choices),

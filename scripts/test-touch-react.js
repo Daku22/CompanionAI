@@ -32,7 +32,8 @@ test('zone e tipi uguali a quelli del renderer', () => {
 
 test('ogni reazione ha uno slot vero, emozioni vere e battute', () => {
   for (const [name, r] of Object.entries(REACTIONS)) {
-    assert.ok(ANIMATION_SLOTS.includes(r.slot), name + ': slot ' + r.slot)
+    // Il batti cinque usa pose col lato della mano, fuori dalla libreria .vrma.
+    assert.ok(ANIMATION_SLOTS.includes(r.slot) || ['highfive', 'missed'].includes(r.slot), name + ': slot ' + r.slot)
     for (const e of Object.keys(r.mood)) assert.ok(EMOTION_NAMES.includes(e), name + ': ' + e)
     assert.ok(LINES[r.line] && LINES[r.line].length, name + ': battute ' + r.line)
     assert.ok(r.chance >= 0 && r.chance <= 1)
@@ -143,6 +144,33 @@ test('prompt: l\'ultimo tocco, solo per tre minuti', () => {
   assert.match(touchPromptText({ name: 'shy', zone: 'lowerBelly', kind: 'poke', at: now }, now), /imbarazzo/)
   assert.equal(touchPromptText({ name: 'pat', zone: 'head', kind: 'pat', at: now - 3 * 60000 }, now), null)
   assert.equal(touchPromptText(null, now), null)
+})
+
+test('batti cinque: preso vale umore e battuta, di fila vale sempre meno', () => {
+  const { createHighFiveState, highFiveReaction, REACTIONS } = require('../src/main/touch-react')
+  const hs = createHighFiveState()
+  const f1 = hs.onSlap(0), f2 = hs.onSlap(1000), f3 = hs.onSlap(2000)
+  assert.deepEqual([f1, f2, f3], [1, 1 / 2, 1 / 3])
+  assert.equal(hs.onSlap(2000 + 10 * 60000), 1, 'dopo la finestra torna a valere tutto')
+  const slap = highFiveReaction('slap', 0.5)
+  assert.equal(slap.slot, 'highfive')
+  assert.equal(slap.mood.joy, REACTIONS.highfive.mood.joy * 0.5)
+  assert.ok(slap.mood.affection > 0)
+})
+
+test('batti cinque mancato: un po\' di delusione, niente fastidio', () => {
+  const { highFiveReaction } = require('../src/main/touch-react')
+  const missed = highFiveReaction('missed')
+  assert.equal(missed.slot, 'missed')
+  assert.ok(!missed.mood.annoyance)
+  assert.ok(missed.mood.sadness > 0 && missed.mood.sadness <= 0.05)
+  assert.equal(highFiveReaction('offer'), null)
+})
+
+test('batti cinque: la riga per il prompt', () => {
+  const now = 1e9
+  assert.match(touchPromptText({ name: 'highfive', zone: 'hand', kind: 'highfive', at: now }, now), /battuto il cinque/)
+  assert.match(touchPromptText({ name: 'missed', zone: 'hand', kind: 'highfive', at: now }, now), /non l'ha raccolto/)
 })
 
 console.log('=== ' + passed + ' test superati ===')

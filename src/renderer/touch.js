@@ -207,10 +207,115 @@
     }
   }
 
+  // ─── Batti cinque (Blocco 5e) ─────────────────────────────────────────────
+  // Stati: idle, offer (mano alzata verso di te, segue un poco il cursore),
+  // slap (lo schiaffo), missed (nessuno l'ha presa: la abbassa), cooldown.
+  // Offre la mano se il cursore resta NEAR_MS accanto all'avatar dal lato di
+  // una mano (nearHand), se glielo chiedi in chat o, ogni tanto, quando e'
+  // contento (request). Da solo, dopo un batti cinque o una mano mancata,
+  // aspetta COOLDOWN_MS; chiesto in chat no.
+  const HIGHFIVE = {
+    NEAR_MS: 1000, OFFER_MS: 5000, SLAP_MS: 1100, MISSED_MS: 1600, COOLDOWN_MS: 45000,
+    // Accanto all'avatar: fuori dalla sagoma, entro NEAR_PX dal suo fianco,
+    // all'altezza delle mani (fra TOP e BOTTOM dell'altezza, dall'alto).
+    NEAR_PX: 90, TOP: 0.2, BOTTOM: 0.65,
+    // La mano segue il cursore di lato per +-1 entro FOLLOW_FRACTION
+    // dell'altezza dell'avatar.
+    FOLLOW_FRACTION: 0.3,
+  }
+
+  /**
+   * Il cursore e' accanto all'avatar dal lato di una mano? Il lato e' quello
+   * sullo schermo.
+   * @param {{x: number, y: number} | null} cursor px della finestra
+   * @param {{ centerX: number, halfWidth: number, top: number, bottom: number } | null} body
+   *        l'avatar sullo schermo, px della finestra
+   * @param {boolean} overModel il cursore e' sopra la sagoma
+   * @returns {'left' | 'right' | null}
+   */
+  function nearHand(cursor, body, overModel) {
+    if (!cursor || !body || overModel || !Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return null
+    const h = body.bottom - body.top
+    if (!(h > 0)) return null
+    if (cursor.y < body.top + HIGHFIVE.TOP * h || cursor.y > body.top + HIGHFIVE.BOTTOM * h) return null
+    const out = Math.abs(cursor.x - body.centerX) - body.halfWidth
+    if (out < 0 || out > HIGHFIVE.NEAR_PX) return null
+    return cursor.x < body.centerX ? 'left' : 'right'
+  }
+
+  /**
+   * Quanto la mano offerta segue il cursore di lato: da -1 (a sinistra) a 1.
+   * @param {{x: number} | null} cursor
+   * @param {{ centerX: number, halfWidth: number, top: number, bottom: number } | null} body
+   * @param {'left' | 'right'} side
+   */
+  function handFollow(cursor, body, side) {
+    if (!cursor || !body || !Number.isFinite(cursor.x)) return 0
+    const range = HIGHFIVE.FOLLOW_FRACTION * (body.bottom - body.top)
+    if (!(range > 0)) return 0
+    const anchor = body.centerX + (side === 'left' ? -1 : 1) * body.halfWidth
+    return Math.max(-1, Math.min(1, (cursor.x - anchor) / range))
+  }
+
+  function createHighFive() {
+    let state = 'idle'
+    let side = null
+    let since = 0
+    let quietUntil = -Infinity
+    let near = null
+    let nearSince = 0
+    const go = (next, now) => { state = next; since = now }
+    return {
+      /**
+       * A ogni frame. near: il lato da nearHand; blocked: in braccio, seduto,
+       * balla, sbircia, dorme, di spalle.
+       * @returns {{ state: string, side: string | null, changed: boolean }}
+       */
+      update(now, { near: nearNow = null, blocked = false } = {}) {
+        const before = state
+        if (nearNow !== near) { near = nearNow; nearSince = now }
+        if (blocked) {
+          near = null
+          if (state === 'offer') { go('idle', now); side = null }
+        }
+        if (state === 'idle' && near && !blocked && now >= quietUntil && now - nearSince >= HIGHFIVE.NEAR_MS) { go('offer', now); side = near }
+        else if (state === 'offer' && now - since >= HIGHFIVE.OFFER_MS) go('missed', now)
+        else if (state === 'slap' && now - since >= HIGHFIVE.SLAP_MS) { go('cooldown', now); quietUntil = now + HIGHFIVE.COOLDOWN_MS }
+        else if (state === 'missed' && now - since >= HIGHFIVE.MISSED_MS) { go('cooldown', now); quietUntil = now + HIGHFIVE.COOLDOWN_MS }
+        else if (state === 'cooldown' && now >= quietUntil) { go('idle', now); side = null }
+        return { state, side, changed: state !== before }
+      },
+      /**
+       * Chiesto in chat (spontaneous false) o dalla vita autonoma (true).
+       * @returns {boolean} se offre la mano
+       */
+      request(now, { spontaneous = false, side: wanted = 'right', blocked = false } = {}) {
+        if (blocked || state === 'offer' || state === 'slap' || state === 'missed') return false
+        if (spontaneous && now < quietUntil) return false
+        go('offer', now)
+        side = wanted === 'left' ? 'left' : 'right'
+        return true
+      },
+      /** Un clic sull'avatar: true se e' lo schiaffo sulla mano offerta. */
+      click(now, onHand) {
+        if (state !== 'offer' || !onHand) return false
+        go('slap', now)
+        return true
+      },
+      /** Annulla l'offerta (il main ha detto di no: tocchi spenti). */
+      cancel(now) {
+        if (state === 'offer') { go('idle', now); side = null }
+      },
+      get: () => ({ state, side }),
+      debug: () => ({ state, side, since, quietUntil, near, nearSince }),
+    }
+  }
+
   const api = {
     PRESS, pressAction, movedBeyondClick,
     ZONES, KINDS, HEIGHT_TABLES, BODY, zoneFromHeight, heightTableFrom, zoneFromBones,
     PAT, createRubDetector,
+    HIGHFIVE, nearHand, handFollow, createHighFive,
   }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.CompanionTouch = api

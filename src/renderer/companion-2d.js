@@ -508,7 +508,7 @@ function applyTouchFx(groundY) {
   charC.scale.set(1, 1);
   charC.alpha = 1;
   charC.y = groundY;
-  if (!touchFx) { applyDanceFx(groundY); return; }
+  if (!touchFx) { applyDanceFx(groundY); keepOffering2D(); return; }
   const ms = performance.now() - touchFx.start;
   const p = ms / touchFx.ms;
   if (p >= 1) { touchFx = null; return; }
@@ -584,6 +584,43 @@ window.addEventListener('companion-peek', (e) => {
     setTimeout(() => { if (!State.dragging && !peek2D && State.name === 'happy') setAnim('idle'); }, 1500);
   }
 });
+
+// ── Batti cinque (Blocco 5e) ────────────────────────────────────────────────
+// companion-highfive.js decide; qui l'animazione "wave" del pacchetto, girato
+// verso il lato della mano, finche' offre; lo schiaffo e' "happy" con un
+// saltello, la mano mancata un attimo a riposo, un po' rimpicciolito.
+let offer2D = false;
+window.addEventListener('companion-highfive', (e) => {
+  const d = e.detail || {};
+  offer2D = d.state === 'offer';
+  if (window.__threeVisible || !charSprite || State.dragging) return;
+  const r = d.reaction;
+  if (d.state === 'offer') {
+    State.dir = d.side === 'left' ? -1 : 1;
+    setAnim('wave');
+  } else if (d.state === 'slap') {
+    touchFx = { name: 'hop', start: performance.now(), ms: 900 };
+    setAnim('happy');
+    clearTimeout(touchAnimTimer);
+    touchAnimTimer = setTimeout(() => { if (!State.dragging && State.name === 'happy') setAnim('idle'); }, 1500);
+  } else if (d.state === 'missed') {
+    touchFx = { name: 'shrink', start: performance.now(), ms: 1600 };
+    if (State.name === 'wave') setAnim('idle');
+  } else if (State.name === 'wave') setAnim('idle');
+  if (r && r.line) showBubble(r.line, 2600);
+});
+function keepOffering2D() {
+  if (offer2D && State.name === 'idle' && !State.dragging) setAnim('wave');
+}
+
+/** L'avatar sullo schermo, in px della finestra: per il cursore "accanto". */
+window.body2D = () => {
+  if (window.__threeVisible || !charSprite) return null;
+  const b = charSprite.getBounds();
+  const r0 = b.rectangle || b;
+  // Il fotogramma ha margini vuoti ai lati: la figura ne occupa circa meta'.
+  return { centerX: charC.x, halfWidth: 0.25 * r0.width, top: r0.y, bottom: r0.y + r0.height };
+};
 
 /** Dove tagliare e dove sta la testa, in px della finestra. */
 window.peekMeasure2D = (side) => {
@@ -666,6 +703,8 @@ if (api && api.onTriggerAnimation) {
     if (!action || State.dragging) return;
     // Se siamo in modalità 3D, ignora il branch 2D (lo gestisce il modulo Three)
     if (window.__threeVisible) return;
+    // Il batti cinque lo decide companion-highfive.js.
+    if (action.animation === 'highfive') return;
     const key = resolveAnimKey(action);
     // I gesti a riposo portano il proprio fumetto, anche vuoto: un'occhiata in
     // giro non e' "Sto pensando...".

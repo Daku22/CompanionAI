@@ -199,7 +199,7 @@
     api.onTriggerAnimation((action) => {
       if (!active || !action || state.dragging) return
       const key = action.animation || action.type || 'idle'
-      if (key === 'idle' || key === 'none' || key === 'walk-to' || key === 'run-to') return
+      if (key === 'idle' || key === 'none' || key === 'walk-to' || key === 'run-to' || key === 'highfive') return
       play(key)
     })
   }
@@ -244,6 +244,7 @@
       case 'shy': return { ParamAngleX: 20 * env, ParamAngleY: -10 * env, ParamCheek: env }
       case 'scold': return { ParamAngleX: 15 * Math.sin(tt * 12) * (1 - p), ParamAngleY: -5 * env }
       case 'turnaway': return { ParamAngleX: 30 * env, ParamBodyAngleX: 10 * env, ParamAngleY: -8 * env }
+      case 'missed': return { ParamAngleY: -14 * env, ParamBodyAngleY: -4 * env }
       default: return null
     }
   }
@@ -303,6 +304,39 @@
     for (const [id, value] of Object.entries(params)) {
       try { core.addParameterValueById(internal.getIdSafe(id), value) } catch (_) { /* parametro assente */ }
     }
+  }
+
+  // ── Batti cinque (Blocco 5e) ──────────────────────────────────────────────
+  // companion-highfive.js decide; qui il gruppo "wave" del modello ogni tanto
+  // finche' offre (non segue il cursore: niente ossa), lo schiaffo e' il
+  // gruppo "happy" con un saltello, la mano mancata la testa che si abbassa.
+  const OFFER_WAVE_MS = 2500
+  let offerTimer = null
+  window.addEventListener('companion-highfive', (e) => {
+    const d = e.detail || {}
+    clearInterval(offerTimer)
+    offerTimer = null
+    if (!active || !model || state.dragging) return
+    const r = d.reaction
+    if (d.state === 'offer') {
+      play('wave')
+      offerTimer = setInterval(() => { if (!state.dragging) play('wave') }, OFFER_WAVE_MS)
+    } else if (d.state === 'slap') {
+      play('happy')
+      touchFx = { slot: 'hop', start: performance.now(), ms: 900 }
+    } else if (d.state === 'missed') {
+      touchFx = { slot: 'missed', start: performance.now(), ms: 1600 }
+    }
+    if (r) showReactionExpression(r.expression, r.ms)
+    if (r && r.line && window.showBubble) window.showBubble(r.line, 2600)
+  })
+
+  /** L'avatar sullo schermo, in px della finestra: per il cursore "accanto". */
+  window.bodyLive2D = () => {
+    if (!model || !active) return null
+    const b = model.getBounds()
+    const rect = b.rectangle || b
+    return { centerX: rect.x + rect.width / 2, halfWidth: 0.4 * rect.width, top: rect.y, bottom: rect.y + rect.height }
   }
 
   /** Dove tagliare e dove sta la testa, in px della finestra. */
@@ -435,6 +469,7 @@
     window.CompanionInput.setProbe(window.hitTestLive2D)
     window.CompanionInput.setZoneProbe(window.zoneLive2D)
     if (window.CompanionPeek) window.CompanionPeek.setMeasure(window.peekMeasureLive2D)
+    if (window.CompanionHighFive) window.CompanionHighFive.setGeometry(window.bodyLive2D)
     applyMood()
     play('wave')
     // Gruppi ed espressioni alle Impostazioni, per la tabella degli abbinamenti.

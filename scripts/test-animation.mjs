@@ -54,9 +54,11 @@ test('ogni alias punta a una clip che esiste', () => {
 
 test('la libreria delle clip .vrma conosce gli stessi gesti del player', () => {
   const { ANIMATION_SLOTS } = createRequire(process.argv[1])('../src/main/AnimationLibrary.js')
-  // peek (sbircia dal bordo) non si riassegna: la mano che saluta dipende dal
-  // bordo, e una clip saluterebbe sempre con la stessa.
-  assert.deepEqual([...ANIMATION_SLOTS].sort(), Object.keys(CLIPS).filter(k => k !== GENERATED && k !== 'peek').sort())
+  // Non si riassegnano le pose che dipendono da un lato: peek (la mano che
+  // tiene il bordo) e il batti cinque (offer, highfive, missed: la mano verso
+  // il cursore). Una clip userebbe sempre la stessa mano.
+  const SIDED = ['peek', 'offer', 'highfive', 'missed']
+  assert.deepEqual([...ANIMATION_SLOTS].sort(), Object.keys(CLIPS).filter(k => k !== GENERATED && !SIDED.includes(k)).sort())
 })
 
 test('le animazioni del contratto AI sono tutte gestite', () => {

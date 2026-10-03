@@ -152,6 +152,9 @@
       window.__pokes = (window.__pokes || 0) + 1
       window.__lastPokeZone = zone
     }
+    // Mano offerta per il batti cinque (companion-highfive.js): il clic sulla
+    // mano e' lo schiaffo, non un tocco.
+    if (window.CompanionHighFive && window.CompanionHighFive.click(zone)) return
     window.dispatchEvent(new CustomEvent('companion-poke', { detail: { x, y, zone } }))
     touch(zone, 'poke')
   }
@@ -230,6 +233,8 @@
       sync()
     },
     isPressed() { return !!press },
+    /** Il cursore e' sopra la sagoma dell'avatar. */
+    isOverModel() { return overModel },
     /** Destro o centrale premuto: la camera sta ruotando. */
     isOrbiting() { return !!orbit },
     /** Stanza accesa o spenta (companion-3d.js, dalla modalita' del main). */

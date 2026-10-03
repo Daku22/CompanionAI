@@ -112,7 +112,7 @@ const PROVIDERS = {
 const ANIMATIONS = [
   'idle', 'walk-to', 'run-to', 'think', 'wave', 'sit', 'smoke',
   'click', 'happy', 'scroll', 'open-file', 'search',
-  'stretch', 'yawn', 'doze', 'dance',
+  'stretch', 'yawn', 'doze', 'dance', 'highfive',
 ]
 const ACTION_TYPES = ['none', 'open-desktop-item', 'open-url', 'open-path', 'run-command']
 // Emozioni che il modello puo' dichiarare: le stesse che mood.js sa gestire.
@@ -182,6 +182,7 @@ Esempi:
 - "vieni qui" / "vieni dal mouse" -> type: "none", animation: "walk-to", direction: "toward-cursor"
 - "siediti" / "siediti qui" -> type: "none", animation: "sit"
 - "balla" / "facciamo festa" -> type: "none", animation: "dance", emotion: "joy"
+- "batti cinque!" / "dammi il cinque" -> type: "none", animation: "highfive", emotion: "joy"
 - "sono stanco, stiracchiati con me" -> type: "none", animation: "stretch"
 - "buonanotte" -> type: "none", animation: "doze", emotion: "calm"
 

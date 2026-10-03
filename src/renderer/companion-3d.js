@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanoid } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import {
-  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS, GENERATED, setDanceBeat, setPeekSide,
+  createVRMAnimator, baseYaw, isVRM0, createBlinker, createGaze, moodExpressions, MOOD_EXPRESSIONS, GENERATED, setDanceBeat, setPeekSide, setHighFive,
 } from './vrm-animation.js';
 import { createClipLayer, applyLook, isLoopSlot } from './clip-layer.js';
 import { prepareHumanoid, retargetClip, writeVRMA } from './motion-retarget.js';
@@ -369,10 +369,67 @@ if (api && api.onPerchState) {
 // (sittingOnEdge), senza alzarsi.
 let dancingNow = false;
 let peekingSide = null;
+let offering = false;
 function restClip() {
   if (perchPhase === 'sit') return 'perch';
   if (peekingSide) return 'peek';
+  if (offering) return 'offer';
   return dancingNow && !perchPhase ? 'dance' : 'idle';
+}
+
+// ─── Batti cinque (Blocco 5e) ──────────────────────────────────────────────
+// companion-highfive.js decide; qui la posa. Mentre offre, il riposo e' la
+// mano alzata (un altro gesto torna li'); schiaffo e mano mancata partono
+// dalla stessa posa (keepWeight), senza far cadere il braccio per poi
+// rialzarlo. La mano segue il cursore con un inseguimento morbido.
+const HIGHFIVE_FOLLOW_RATE = 6;   // 1/s
+let highFiveFollow = 0;
+window.addEventListener('companion-highfive', (e) => {
+  const d = e.detail || {};
+  offering = d.state === 'offer';
+  if (d.side) {
+    const chibi = chibiOf(currentVrm);
+    setHighFive({ side: d.side, headRatio: chibi ? chibi.headRatio : 1 });
+  }
+  animator.setRest(restClip());
+  if (!window.__threeVisible || dragging || !currentVrm) return;
+  const r = d.reaction;
+  if (d.state === 'offer') {
+    highFiveFollow = 0;
+    playClip('offer');
+    react('happy', 0.6, 5000);
+  } else if (d.state === 'slap' || d.state === 'missed') {
+    clearReactions();
+    animator.play(d.state === 'slap' ? 'highfive' : 'missed', { keepWeight: true, restart: true });
+    if (r) react(r.expression, r.weight, r.ms);
+    else if (d.state === 'slap') react('happy', 1, 1500);
+    if (r && r.line) showBubble(r.line, 2600);
+  } else if (animator.debug().clipName === 'offer') playClip(restClip());
+});
+
+/** La mano offerta segue il cursore: a ogni frame, dallo stato del batti cinque. */
+function updateHighFive(delta) {
+  if (!offering || !window.CompanionHighFive) return;
+  const target = window.CompanionHighFive.state().follow || 0;
+  highFiveFollow += (target - highFiveFollow) * Math.min(1, delta * HIGHFIVE_FOLLOW_RATE);
+  setHighFive({ follow: highFiveFollow });
+}
+
+/** L'avatar sullo schermo, in px della finestra: per il cursore "accanto". */
+const groundPoint = new THREE.Vector3();
+function body3D() {
+  const h = currentVrm && currentVrm.humanoid;
+  const hipsNode = h && h.getRawBoneNode('hips');
+  if (!hipsNode || !camera) return null;
+  const at = (name) => { const node = h.getRawBoneNode(name); return node ? toWindowPx(node.getWorldPosition(boneWorld)) : null; };
+  const [hips, head, l, r] = [at('hips'), at('head'), at('leftUpperArm'), at('rightUpperArm')];
+  if (!hips || !head) return null;
+  const chibi = chibiOf(currentVrm);
+  const H = Math.hypot(head.x - hips.x, head.y - hips.y);
+  const shoulder = Math.max(l ? Math.abs(l.x - hips.x) : 0, r ? Math.abs(r.x - hips.x) : 0);
+  hipsNode.getWorldPosition(groundPoint).setY(0);
+  const ground = toWindowPx(groundPoint);
+  return { centerX: hips.x, halfWidth: shoulder + 0.15 * H, top: head.y - 0.45 * H * (chibi ? chibi.headRatio : 1), bottom: ground.y };
 }
 
 // ─── Sbircia dal bordo (Blocco 5d) ─────────────────────────────────────────
@@ -605,6 +662,7 @@ function animate() {
 
   if (currentVrm && window.__threeVisible) {
     const lookTarget = updateLook(currentVrm);
+    updateHighFive(delta);
     updateAnimation(currentVrm, delta);
     updateFace(currentVrm, delta, lookTarget);
     updateWind(currentVrm);
@@ -1031,6 +1089,7 @@ function show2D() {
   if (body) body.visible = false;
   window.CompanionInput.setProbe(window.hitTest2D);
   window.CompanionInput.setZoneProbe(window.zone2D);
+  if (window.CompanionHighFive) window.CompanionHighFive.setGeometry(window.body2D);
   if (window.CompanionPeek) window.CompanionPeek.setMeasure(window.peekMeasure2D);
   document.body.classList.remove('mode-3d');
   if (window.set2DActive) window.set2DActive(true);
@@ -1047,6 +1106,7 @@ function show3D() {
   if (window.unloadLive2DAvatar) window.unloadLive2DAvatar();
   window.CompanionInput.setProbe(probe3D);
   window.CompanionInput.setZoneProbe(zone3D);
+  if (window.CompanionHighFive) window.CompanionHighFive.setGeometry(body3D, { handOnly: true });
   if (window.CompanionPeek) window.CompanionPeek.setMeasure(peekMeasure3D);
   ensureThree();
   controls.enabled = true;
@@ -1121,6 +1181,8 @@ if (api && api.onTriggerAnimation) {
   api.onTriggerAnimation((action) => {
     if (!window.__threeVisible) return;
     const key = (action && (action.animation || action.type)) || 'idle';
+    // Il batti cinque lo decide companion-highfive.js, che risponde con la posa.
+    if (key === 'highfive') return;
     // Il corpo si muove sempre; le espressioni le applica updateFace, se il
     // modello le espone.
     playClip(key);

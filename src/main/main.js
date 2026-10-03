@@ -1338,7 +1338,7 @@ function onDragged() {
 
 function idleTick() {
   // Seduto su una finestra resta seduto: i gesti a riposo sono pose in piedi.
-  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || perch || peek || dancingNow || Date.now() < requestedPoseUntil) return
+  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || perch || peek || dancingNow || highFiveActive || Date.now() < requestedPoseUntil) return
   if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
   // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
   if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused()) { markActivity(); return }
@@ -2354,6 +2354,36 @@ handle('companion:touch', (_e, input) => {
     name: result.name, step: result.step, zone: result.zone, kind: result.kind,
     slot: r.slot, expression: r.expression, weight: r.weight, ms: r.ms, line,
   }
+})
+
+// Batti cinque (Blocco 5e). La pagina decide quando offrire la mano
+// (touch.js, companion-highfive.js) e lo dice qui: offer chiede il permesso
+// (con i tocchi spenti no) e ferma la vita autonoma finche' la mano e'
+// alzata; slap e missed danno umore, battuta e riga per il prompt.
+let highFiveActive = false
+const highFiveState = touchReact.createHighFiveState()
+let lastHighFiveAt = 0
+handle('companion:highfive', (_e, input) => {
+  const event = input && input.event
+  if (!touchReact.HIGHFIVE.EVENTS.includes(event)) return null
+  if (event === 'offer') {
+    if (!touchEnabled) return { off: true }
+    highFiveActive = true
+    markActivity()
+    return { ok: true }
+  }
+  highFiveActive = false
+  if (event === 'cancel') return { ok: true }
+  const now = Date.now()
+  if (now - lastHighFiveAt < TOUCH_MIN_MS) return null
+  lastHighFiveAt = now
+  const r = touchReact.highFiveReaction(event, event === 'slap' ? highFiveState.onSlap(now) : 1)
+  updateMood(m => Object.entries(r.mood).reduce((acc, [name, delta]) => moodLib.nudge(acc, name, delta), moodLib.decay(m, now)))
+  lastTouch = { name: event === 'slap' ? 'highfive' : 'missed', zone: 'hand', kind: 'highfive', at: now }
+  const line = touchReact.pickLine(r.line, r.chance, touchLines)
+  const voiceOn = voiceConfig(loadConfig()).enabled
+  if (touchReact.shouldSayLine(line, { voiceOn, speaking: input.speaking === true, awaitingReply, listening: micBusy || !!micHold })) speakReply(line)
+  return { slot: r.slot, expression: r.expression, weight: r.weight, ms: r.ms, line }
 })
 
 // Ombra e seduta dentro la finestra, in px: solo numeri, la finestra li limita.

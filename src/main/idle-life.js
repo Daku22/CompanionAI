@@ -18,6 +18,8 @@ const BASE_CHANCE    = 0.04             // per battito da 5 s: un gesto ogni ~2 
 const EXTRA_CHANCE   = 0.08             // in piu', raggiunto dopo un'ora di quiete
 const HOUR_MS        = 60 * 60 * 1000
 const FELT           = 0.4              // un'emozione cambia i gesti da qui in su
+const HAPPY          = 0.6              // da qui, contento, ogni tanto offre il batti cinque
+const PRESENT_MS     = 60 * 1000        // ...ma solo se l'utente e' al PC
 
 // holdMs: dopo quanto il main riporta a idle. La camminata finisce da sola.
 const GESTURES = {
@@ -29,19 +31,22 @@ const GESTURES = {
   smoke: { animation: 'smoke',   bubble: '🚬 ...',  holdMs: 6000 },
   stretch: { animation: 'stretch', bubble: '',      holdMs: 3500 },
   yawn:  { animation: 'yawn',    bubble: '🥱',      holdMs: 3000 },
+  // La mano si abbassa da sola (touch.js, createHighFive): niente holdMs.
+  highfive: { animation: 'highfive', bubble: '', holdMs: 0 },
 }
 
 function isNight(hour) {
   return hour >= 23 || hour < 6
 }
 
-/** Pesi dei gesti secondo umore, energia e ora. */
-function gestureWeights(mood, hour) {
+/** Pesi dei gesti secondo umore, energia e ora; present: l'utente e' al PC. */
+function gestureWeights(mood, hour, present = false) {
   const e = (mood && mood.emotions) || {}
   const tired = isNight(hour) || (mood && mood.energy < 0.35)
   if (tired) return { doze: 4, yawn: 2, look: 1, rest: 1 }
   const w = { look: 3, walk: 2, happy: 1, rest: 1, smoke: 1, stretch: 1 }
   if ((e.joy || 0) >= FELT)       { w.happy += 2; w.walk += 1 }
+  if ((e.joy || 0) >= HAPPY && present) w.highfive = 2
   if ((e.curiosity || 0) >= FELT) { w.look += 2; w.walk += 1 }
   if ((e.sadness || 0) >= FELT)   { w.rest += 2; w.happy = 0 }
   if ((e.annoyance || 0) >= FELT) { w.smoke += 1; w.happy = 0 }
@@ -81,7 +86,7 @@ function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour,
   const chance = BASE_CHANCE + Math.min(EXTRA_CHANCE, (quietMs / HOUR_MS) * EXTRA_CHANCE)
   if (rand() >= chance) return null
 
-  const name = pick(gestureWeights(mood, hour), rand)
+  const name = pick(gestureWeights(mood, hour, systemIdleMs < PRESENT_MS), rand)
   return { name, ...GESTURES[name] }
 }
 

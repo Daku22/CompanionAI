@@ -67,6 +67,34 @@ export function setPeekSide(side, headRatio = 1) {
   peek.headRatio = Number.isFinite(headRatio) && headRatio > 0 ? headRatio : 1
 }
 
+// Batti cinque (Blocco 5e): side il lato dello schermo della mano offerta,
+// follow da -1 a 1 quanto la mano segue il cursore di lato (touch.js,
+// handFollow), headRatio come per peek.
+const highFive = { side: 'right', follow: 0, headRatio: 1 }
+export function setHighFive({ side, follow, headRatio } = {}) {
+  if (side === 'left' || side === 'right') highFive.side = side
+  if (Number.isFinite(follow)) highFive.follow = Math.max(-1, Math.min(1, follow))
+  if (Number.isFinite(headRatio) && headRatio > 0) highFive.headRatio = headRatio
+}
+
+// La mano alzata del batti cinque, come nella clip wave: omero alzato in
+// avanti, gomito piegato, palmo verso chi guarda. Il busto resta fermo: la
+// mano va a destra e a sinistra solo con la flessione del gomito (bend, in
+// radianti, positivo verso destra sullo schermo). arm: peso della posa (0..1),
+// push: lo schiaffo, che spinge la mano verso lo schermo.
+function raisedHand(arm, bend, push = 0) {
+  // A sinistra sullo schermo c'e' la mano destra dell'avatar (che guarda la
+  // camera); m specchia i segni per la sinistra.
+  const right = highFive.side === 'left'
+  const m = right ? 1 : -1
+  const k = Math.max(0, Math.min(1, (highFive.headRatio - 1) / 1.4))
+  const side = right ? 'right' : 'left'
+  return {
+    [side + 'UpperArm']: { x: (1.0 + 0.45 * push) * arm, y: 0.15 * m * arm, z: (1.07 + 0.28 * k) * m * arm },
+    [side + 'LowerArm']: { x: 0.16 * arm, y: (1.9 - 0.5 * k + bend * m - 0.7 * push) * m * arm, z: -0.16 * m * arm },
+  }
+}
+
 // Un ciclo ogni due battute (destra, sinistra): da -1 a 1.
 const beatSway = (b) => Math.sin(Math.PI * (b.count + b.phase))
 // Il colpo sulla battuta: 1 sulla battuta, 0 a meta'.
@@ -447,6 +475,44 @@ export const CLIPS = {
     },
     yaw: () => 0.3 * peek.side,
   },
+  // Batti cinque (Blocco 5e). offer: la mano alzata verso di te, che segue
+  // un poco il cursore; ciclica, e' il riposo finche' la offre.
+  offer: {
+    duration: 0,
+    pose: (t) => ({
+      ...raisedHand(1, 0.35 * highFive.follow + Math.sin(t * 2.2) * 0.04),
+      head: { z: (highFive.side === 'left' ? 1 : -1) * 0.06, x: 0.03 },
+    }),
+  },
+  // Lo schiaffo: la mano spinge verso lo schermo e rimbalza, un saltello di
+  // gioia, poi il braccio torna giu'.
+  highfive: {
+    duration: 1.1,
+    pose: (t) => {
+      const push = t < 0.12 ? t / 0.12 : Math.exp(-(t - 0.12) * 9)
+      const arm = 1 - smooth((t - 0.5) / 0.5)
+      const air = t >= 0.15 && t <= 0.5 ? Math.sin(Math.PI * (t - 0.15) / 0.35) : 0
+      return {
+        ...raisedHand(arm, 0.35 * highFive.follow, push),
+        hips: { y: 0.04 * air },
+        head: { x: -0.08 * air },
+        chest: { x: -0.04 * air },
+      }
+    },
+  },
+  // Nessuno l'ha presa: la mano scende piano, la testa si abbassa un poco.
+  missed: {
+    duration: 1.6,
+    pose: (t) => {
+      const down = smooth(t / 1.0)
+      const sad = envelope(t, 1.6, 0.35)
+      return {
+        ...raisedHand(1 - down, 0.35 * highFive.follow * (1 - down)),
+        head: { x: -0.16 * sad, z: (highFive.side === 'left' ? -1 : 1) * 0.05 * sad },
+        chest: { x: 0.05 * sad },
+      }
+    },
+  },
   // Movimento generato da Kimodo su richiesta (kimodo-service.js): la clip
   // vera la mette clip-layer.js; qui solo il respiro sotto, e la durata di
   // ripiego se la clip non arriva.
@@ -471,6 +537,7 @@ export const CLIP_ALIAS = {
   drag: 'dangle', dangle: 'dangle',
   'sit-edge': 'sit-edge', perch: 'perch', stretch: 'stretch', yawn: 'yawn',
   doze: 'doze', sleep: 'doze', dance: 'dance', peek: 'peek',
+  offer: 'offer', highfive: 'highfive', missed: 'missed',
   pat: 'pat', flinch: 'flinch', giggle: 'giggle', hop: 'hop', shy: 'shy', scold: 'scold', turnaway: 'turnaway',
   [GENERATED]: GENERATED,
 }
@@ -499,7 +566,7 @@ export const LOOK_LIMITS = {
 }
 // Quanto segue il mouse durante ogni clip: pieno a riposo, per niente mentre
 // cammina, siede o penzola, dove girare la testa sembrerebbe un difetto.
-export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4, dance: 0.3, peek: 0.7 }
+export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4, dance: 0.3, peek: 0.7, offer: 0.8 }
 const LOOK_RATE = 7          // inseguimento del bersaglio, 1/s
 const LOOK_WEIGHT_RATE = 3   // entrata e uscita del peso, 1/s
 
@@ -621,7 +688,10 @@ export function createVRMAnimator(getBone) {
     clipEnding  = false
     // Il peso riparte da zero: senza, la clip nuova entrerebbe di scatto al
     // peso pieno ereditato dalla precedente e la fusione non servirebbe.
-    clipWeight  = 0
+    // keepWeight: la clip nuova parte dalla stessa posa della precedente
+    // (dalla mano offerta allo schiaffo), e ripartire da zero la farebbe
+    // cadere e risalire.
+    if (!options.keepWeight) clipWeight = 0
     if (resolved === restName) facingTarget = 0
     return resolved
   }
@@ -634,7 +704,7 @@ export function createVRMAnimator(getBone) {
      * Avvia una clip per nome o alias. Sconosciuto significa idle, cioe' la
      * posa di riposo (setRest).
      * @param {string} name
-     * @param {{ duration?: number, restart?: boolean }} [options] duration:
+     * @param {{ duration?: number, restart?: boolean, keepWeight?: boolean }} [options] duration:
      *        durata della clip .vrma che la riproduce (clip-layer.js), il
      *        player torna a riposo quando finisce lei; restart: riparte anche
      *        se e' gia' in corso

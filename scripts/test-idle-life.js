@@ -66,6 +66,14 @@ test('l-umore cambia i gesti', () => {
   assert.equal(gestureWeights({ emotions: { sadness: 0.6 }, energy: 1 }, 15).happy, 0, 'triste non canticchia')
 })
 
+test('molto contento, con l-utente al PC, ogni tanto offre il batti cinque', () => {
+  const happy = { emotions: { joy: 0.7 }, energy: 1 }
+  assert.ok(gestureWeights(happy, 15, true).highfive > 0)
+  assert.ok(!gestureWeights(happy, 15, false).highfive, 'utente lontano')
+  assert.ok(!gestureWeights({ emotions: { joy: 0.45 }, energy: 1 }, 15, true).highfive, 'contento ma non abbastanza')
+  assert.ok(!gestureWeights(happy, 2, true).highfive, 'di notte no')
+})
+
 test('il dado sceglie fra i gesti in proporzione ai pesi', () => {
   // look ha il peso piu' alto ed e' il primo: con il dado al minimo esce lui.
   assert.equal(decideIdle({ ...base, rand: always }).name, 'look')
