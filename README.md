@@ -98,8 +98,28 @@ snow and fog from the real weather of a city you type (through Open-Meteo, see
 the desktop.
 
 **Settings.** Right-click the avatar (or the tray icon) → "Impostazioni…", or
-⚙ in the chat. Four tabs: Modello (provider, model and key), Generale (start
-with Windows, idle life, weather), Voce and Microfono.
+⚙ in the chat. Tabs: Modello (provider, model and key), Generale (start
+with Windows, idle life, weather), Persone, Voce, Microfono and Live2D.
+
+**Personas and your relationship.** In Settings → Persone each persona has a
+name, a personality you write, a voice (with "Prova" to hear it), and its own
+memory, mood, relationship and diary; it remembers the avatar it was using.
+The memory you had before becomes the first persona. The relationship goes
+from "Sconosciuto" to "Anima gemella": it grows with the days you talk and
+with how you treat it, and drops after long absences or hostile tones. It
+unlocks nothing; it changes the tone of the replies and how often the
+affectionate or annoyed reactions come. Level and days together show next to
+the mood in the chat.
+- **Diary:** on the first start of a day, the persona writes a page about the
+  last day you talked, about whatever it wants. Read it in "Persone".
+- **It writes first** ("Scrive per primo", on by default): a greeting the
+  first time you meet in the day, a welcome back after a couple of hours
+  away, a message after a long silence. At most 6 a day, never while it
+  sleeps, while you type or over a full-screen app. Reading these aloud is a
+  separate option, off by default.
+- **Readable memory:** in "Persone" you can correct the summary by hand and
+  delete any remembered message. "Compatta" in the chat summarises everything
+  but the last few messages.
 
 **Voice (optional, off by default).** In Settings → Voce turn on "Legge ad alta voce le risposte", press "Scarica" once (about 180 MB:
 the Kokoro-82M model with two Italian voices, Sara and Nicola, and the eSpeak NG

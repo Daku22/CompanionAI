@@ -8,6 +8,7 @@ everything the app sends out and everything it stores.
 | Destination | When | What |
 |---|---|---|
 | The AI provider you chose | Every message you send, and when memory is summarized | Your message, the recent conversation, the memory summary and the app's instructions for the model. Your API key authenticates the request |
+| The AI provider you chose | Once a day per persona for the diary (only after a day you talked), and up to 6 times a day when the companion writes first ("Scrive per primo", on by default) | For the diary: that day's conversation (at most the last 6000 characters) and the persona's personality. For a message it writes first: the same as a normal reply, with a line saying why it writes (greeting, welcome back, long silence) instead of your message |
 | `openrouter.ai` | When you open the settings with OpenRouter selected | A request for the list of free models. No key, no conversation |
 | The Ollama server | Only if you use Ollama | Same as any AI provider. By default Ollama runs on your own computer (`127.0.0.1`) |
 | A website | Only if the AI proposes opening a link **and you approve it** | The link opens in your default browser |
@@ -53,6 +54,7 @@ personal data.
 |---|---|
 | Settings and API keys | `%USERPROFILE%\.desktop-companion\config.json`. Keys are encrypted with Windows' own key store (Electron `safeStorage`) |
 | Conversation memory | `%USERPROFILE%\.desktop-companion\memory\`: recent turns, summary, and the lossless archive of summarized turns |
+| Personas | `%USERPROFILE%\.desktop-companion\memory\personas.json` (names, personalities, avatar and voice of each), and for every persona its mood, relationship (`rapport.json`) and diary (`diary.jsonl`). The first persona keeps them in `memory\`, the others in `memory\personas\<id>\` |
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
 | Imported animations | `%APPDATA%\CompanionAI\animations\` |
 | Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, and the sentence each one came from in `index.json` |
@@ -63,8 +65,10 @@ personal data.
 | Error log | `%APPDATA%\CompanionAI\logs\`: warnings and errors only, never your conversations. Open it from the tray icon menu |
 
 **Deleting your data:**
-- the chat's "Dimentica tutto" button erases the memory (summary, recent turns
-  and archive);
+- the chat's "Dimentica tutto" button erases the active persona's memory
+  (summary, recent turns and archive), mood, relationship and diary; single
+  messages can be deleted in Settings → Persone → Memoria;
+- deleting a persona in Settings → Persone erases all of its data;
 - uninstalling the app keeps settings, memory and avatars, so a reinstall picks
   up where you left off. To remove everything, delete the folders above.
 

@@ -119,8 +119,9 @@ La roadmap decisa il 28 settembre 2026 prosegue, in ordine, con:
 - modalita' stanza con scene 3D e camera libera;
 - voce;
 - Live2D;
-- tocchi e ballo;
-- persone con relazione che cresce e cala;
+- tocchi e ballo (fatto);
+- persone con relazione che cresce e cala (fatto: persone, rapporto, diario,
+  iniziativa, memoria leggibile);
 - sensi e strumenti;
 - piu' companion insieme.
 

@@ -190,12 +190,65 @@ background, invece di essere scartati. Il testo da riassumere viene diviso in
 blocchi che stanno nel limite del router. Dopo ogni compattazione
 `turns.jsonl` contiene solo i turni non ancora riassunti.
 
+**Compattazione a mano.** Il pulsante "Compatta" riassume tutto tranne gli
+ultimi quattro turni, di qualunque età (`compact(0, 4)`); il timer orario usa
+i sette giorni. Prima anche il pulsante usava i sette giorni e quasi sempre
+diceva "niente da compattare".
+
 Nella chat, ↺ pulisce solo lo schermo: il companion continua a ricordare.
 "Dimentica tutto", nel footer della memoria, chiede conferma e cancella
 riassunto, turni e archivio dal disco.
 
 Il limite di quaranta messaggi vale solo per il dialogo: la memoria arriva al
 router come messaggi di sistema e non viene mai tagliata insieme alla chat.
+
+## Persone e relazione
+
+Il Blocco 6 (piano in `docs/blocco-6.md`).
+
+**Persone** (`personas.js`, Impostazioni → Persone). Ognuna ha nome,
+personalità (fino a 2000 caratteri, messa davanti al prompt di base), voce
+(motore, voce e velocità; accensione, volume e microfono restano dell'app),
+memoria (`MemoryManager` con l'id come `conversationId`), umore, rapporto e
+diario. Ricorda l'avatar che usava quando la si lascia e lo rimette quando
+torna attiva. La persona `default` è la memoria di prima: tiene i suoi file in
+`memory\`, le altre in `memory\personas\<id>\`. Cambiare persona svuota la
+chat a schermo; con una risposta in corso il cambio aspetta. La persona attiva
+non si elimina; eliminarne un'altra cancella memoria, archivio, umore, rapporto
+e diario.
+
+**Rapporto** (`rapport.js`). Punteggio da 0 a 100 per persona: +1 ogni giorno in
+cui vi parlate (+2 dopo sette di fila), il campo facoltativo `rapport` della
+risposta (da −2 a +2, come il modello ha vissuto il messaggio; al massimo +6 al
+giorno, i negativi pesano una volta e mezza), −2 per ogni giorno oltre i tre di
+assenza (al massimo −20). Sei livelli con isteresi di 4 punti. Il livello non
+sblocca nulla: entra nel prompt con un tono e, con `reactionScale`, rende più o
+meno frequenti le reazioni affettuose e quelle infastidite (umore e battute
+dei tocchi, gesti a riposo, il gradino del basso ventre dopo il primo clic).
+Salire di livello dà un gesto contento. Nel piè di pagina della chat: livello e
+giorni insieme.
+
+**Diario** (`diary.js`). Al primo avvio del giorno (e al cambio di persona, e
+dal timer orario) la persona attiva scrive la pagina dell'ultimo giorno con
+chat che non ne ha ancora una: una chiamata al modello senza JSON, libera nel
+contenuto e nella lunghezza (tetti di sicurezza: 2000 token, 8000 caratteri),
+con l'unico paletto di non inventare cose successe che non sono nel dialogo.
+Senza chiave o con un errore si riprova la volta dopo. Si legge in Persone.
+
+**Iniziativa** (`initiative.js`, "Scrive per primo", acceso di base). Occasioni:
+buongiorno (la prima volta che vi vedete nella giornata, anche all'avvio; il
+saluto segue l'ora vera), rientro dopo almeno due ore lontano dal PC, silenzio
+di tre ore con l'utente al PC. Freni: sei al giorno, 45 minuti fra uno e
+l'altro, mai addormentato, con la chat in primo piano, con un'app a schermo
+intero, durante una risposta o una presa. Il testo lo scrive il modello con
+memoria, umore e persona; va nel fumetto (con un gesto), nella chat e in
+memoria. "Legge ad alta voce i messaggi spontanei" è spento di base. Lo smoke,
+che gira sui dati veri, lo spegne con `COMPANION_NO_INITIATIVE=1`.
+
+**Memoria leggibile.** In Persone → Memoria: il riassunto si corregge a mano,
+ogni ricordo (recente o in archivio, fino agli ultimi 200) si elimina, anche
+dai file d'archivio su disco. Un ricordo archiviato eliminato resta nel
+riassunto finché non lo si corregge lì.
 
 ## Umore e vita a riposo
 
@@ -947,6 +1000,8 @@ Fatto:
 - azioni OS ristrette;
 - stanza con scene 3D e camera libera; voce (Kokoro, XTTS) e microfono;
 - avatar Live2D (Cubism 3, 4 e 5) su Pixi 8;
+- persone con personalità, voce, memoria, rapporto e diario propri; iniziativa
+  con i freni; memoria leggibile e correggibile;
 - presenza: tocchi con reazioni e carezza, ballo con la musica, chibi,
   sbirciare dal bordo, batti cinque; clip Kimodo integrate (CC0);
 - installer NSIS con Fuses, CI e release automatiche.
@@ -958,7 +1013,6 @@ Da fare:
 - taratura a occhio delle pose 3D;
 - prova con un FBX vero (Mixamo): il percorso è lo stesso del glTF, ma i test
   non hanno un file FBX;
-- la roadmap che resta è in `IDEA.md` (Blocco 6 in poi);
-- iniziativa con freni, memoria leggibile;
+- la roadmap che resta è in `IDEA.md` (Blocco 7 in poi);
 - Live2D: modelli Cubism 2 (serve un altro runtime, non più distribuito da
   Live2D) e suoni dei movimenti.

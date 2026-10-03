@@ -1159,6 +1159,25 @@ try {
   const forget = await chat.evaluate('window.companion.memoryClear()')
   check(forget && forget.ok === true, 'dimentica tutto')
 
+  // 5b. Persone, rapporto, diario, memoria leggibile (Blocco 6).
+  const rapportChip = await chat.evaluate(`document.getElementById('rapport-chip').textContent`)
+  check(/Sconosciuto/.test(rapportChip || ''), 'rapporto mostrato nella chat (' + rapportChip + ')')
+  const made = await chat.evaluate(`window.companion.personasChange({ op: 'create', name: 'Prova Audit', prompt: 'Sei di poche parole.' })`)
+  const auditId = made && made.ok && (made.personas.list.find(p => p.name === 'Prova Audit') || {}).id
+  const switched = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'activate', id: '${auditId}' })`)
+  await sleep(800)
+  const header = await chat.evaluate(`document.querySelector('#header-info h1').textContent`)
+  check(!!(switched && switched.ok && switched.personas.activeId === auditId && header === 'Prova Audit'),
+    'persona nuova creata e attivata, nome nella chat (' + header + ')')
+  const edited = auditId && await chat.evaluate(`window.companion.memoryEdit({ id: '${auditId}', op: 'summary', text: 'Riassunto di prova.' })`)
+  const view = auditId && await chat.evaluate(`window.companion.memoryView('${auditId}')`)
+  const diary = auditId && await chat.evaluate(`window.companion.personasDiary('${auditId}')`)
+  check(!!(edited && edited.ok && view && view.summary === 'Riassunto di prova.' && Array.isArray(diary)),
+    'memoria leggibile della persona: riassunto corretto a mano, diario leggibile')
+  const back = await chat.evaluate(`window.companion.personasChange({ op: 'activate', id: 'default' })`)
+  const removed = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'remove', id: '${auditId}' })`)
+  check(!!(back && back.ok && removed && removed.ok && removed.personas.list.length === 1), 'tornati alla persona predefinita, quella di prova eliminata')
+
   // 6. Eliminazione dell'avatar importato dal menu.
   await comp.evaluate(`document.getElementById('switch-zone').click(); true`)
   await sleep(300)

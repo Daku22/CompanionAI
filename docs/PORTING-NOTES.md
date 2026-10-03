@@ -1039,6 +1039,42 @@ schiaffo spinge l'omero in avanti (x +0,45) e distende il gomito (-0,7).
 `AnimationLibrary`: come `peek` dipendono dal lato della mano, e una clip
 userebbe sempre la stessa. Il test delle reazioni li ammette a parte.
 
+## Blocco 6: persone e relazione (2026-10-03)
+
+**Persone.** Il `conversationId` di `MemoryManager`, sempre `default`, e' diventato
+l'id della persona: la memoria di prima e' la persona predefinita senza spostare
+un file. Umore, rapporto e diario stanno accanto, in `personaDir` (la radice per
+`default`). Avatar e voce non si scelgono in una schermata a parte: la persona
+li ricorda quando la si lascia (`snapshot`) e li rimette quando torna attiva; la
+voce si sceglie anche dalla scheda, con "Prova". Il cambio di persona aspetta la
+fine di una risposta, e la risposta in volo resta della persona che l'ha
+chiesta (`mm` catturato all'inizio).
+
+**Rapporto.** Il livello non sblocca nulla (scelta dell'utente): scala con
+`reactionScale` l'umore e le battute dei tocchi e i pesi dei gesti a riposo.
+Trappola trovata con l'audit: la pazienza applicata anche al primo clic sul
+basso ventre faceva rimproverare subito da Sconosciuto; il primo clic e' sempre
+imbarazzo.
+
+**Compattazione.** Il pulsante usava i sette giorni del timer: con 198 turni
+di sei giorni non faceva nulla e diceva "niente da compattare o errore". Ora
+`compact(0, 4)`, e l'errore si vede come errore.
+
+**Diario e iniziativa.** Due chiamate in piu' al modello, entrambe facoltative
+nei fatti (senza chiave si saltano). L'iniziativa usa il contratto normale,
+con una riga d'occasione al posto del messaggio dell'utente, cosi' arrivano
+anche emozione e gesto. Trappola: lo smoke gira sui dati veri con la chiave
+vera e ha fatto partire un buongiorno vero nella memoria della persona attiva;
+ora lo spegne con `COMPANION_NO_INITIATIVE=1`. Il primo testo dell'occasione
+("primo momento della giornata") faceva dire "buongiorno, cosi' presto" alle
+18:30: ora chiede un saluto adatto all'ora indicata. Sveglie, timer e pomodoro
+sono stati tolti dal blocco su richiesta dell'utente.
+
+**Memoria leggibile.** `editSummary` e `deleteTurn` (recenti, archivio in RAM e
+file d'archivio su disco). Per le persone non attive si apre un
+`MemoryManager` solo per l'occasione.
+
+## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)
 - Cosa portato: limiti dello sguardo (testa ±45°/±30°, busto ±15°), molla
