@@ -107,6 +107,8 @@
     .toggle.disabled b, .toggle.disabled input { opacity: 0.45; }
     #weather-section { padding: 0 0 14px; }
     #weather-city { max-width: 320px; font-family: var(--font); }
+    #persona-name { max-width: 320px; font-family: var(--font); }
+    #persona-prompt { width: 100%; min-height: 140px; resize: vertical; font-family: var(--font); line-height: 1.45; }
     .save-row { margin-top: 4px; }
     .confirm-note { font-size: 12px; color: var(--danger); line-height: 1.5; margin: -4px 0 8px; text-wrap: pretty; }
     .confirm-note:empty { display: none; }
@@ -139,6 +141,9 @@
     }
     :where(select:hover) { border-color: var(--line-strong); }
     select option { background: #1c1b1e; }
+    /* Gruppi nel menu (Kokoro, XTTS-v2): etichetta piccola sul fondo scuro, non grigio su bianco. */
+    select optgroup { background: #151417; color: var(--text-3); font-style: normal; font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+    select optgroup option { color: var(--text); font-weight: 400; font-size: 13px; letter-spacing: 0; text-transform: none; }
     a { color: var(--text); text-decoration-color: var(--accent-line); text-underline-offset: 3px; transition: text-decoration-color 0.2s var(--ease); }
     a:hover { text-decoration-color: var(--accent); }
 
@@ -149,6 +154,7 @@
     <div class="group">Companion</div>
     <button class="item" data-page="modello"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 4.5 7.5v9L12 20.5l7.5-4v-9z"/><path d="M4.5 7.5 12 11.5l7.5-4M12 11.5v9"/></svg> Modello</button>
     <button class="item" data-page="generale"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg> Generale</button>
+    <button class="item" data-page="persone"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.5"/><path d="M3 19.5c.6-3.2 3-5.5 6-5.5s5.4 2.3 6 5.5"/><path d="M15.5 5.2a3.5 3.5 0 0 1 0 6.6M17.5 14.3c1.8.8 3.1 2.7 3.5 5.2"/></svg> Persone</button>
     <div class="group">Voce</div>
     <button class="item" data-page="voce"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg> Voce</button>
     <button class="item" data-page="microfono"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg> Microfono</button>
@@ -164,6 +170,42 @@
       <button class="primary" id="pf-save">Salva</button>
       <span class="state" id="pf-state" role="status"></span>
     </div>
+   </div>
+
+   <div class="page hidden" id="page-persone">
+    <h1>Persone</h1>
+    <p class="sub">Ogni persona ha il suo nome, la sua personalità e la sua memoria, il suo umore. Ricorda l'avatar e la voce
+      che usava l'ultima volta: quando la riattivi tornano quelli.</p>
+    <section>
+      <div class="box">
+        <div class="row">
+          <label class="name" for="persona-select">Persona</label>
+          <select id="persona-select"></select>
+          <button class="primary" id="persona-activate">Attiva</button>
+          <span class="state" id="persona-active" role="status"></span>
+        </div>
+        <div class="row">
+          <label class="name" for="persona-name">Nome</label>
+          <input class="pf-input" id="persona-name" type="text" maxlength="40" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="row">
+          <label class="name" for="persona-voice">Voce</label>
+          <select id="persona-voice"></select>
+          <button id="persona-voice-test"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z" fill="currentColor" stroke="none"/></svg> Prova</button>
+          <span class="muted" id="persona-voice-note" role="status"></span>
+        </div>
+        <label class="name" for="persona-prompt">Personalità</label>
+        <textarea class="pf-input" id="persona-prompt" maxlength="2000" spellcheck="true"
+          placeholder="Per esempio: sei una gatta curiosa e un po' sarcastica, parli in modo informale e ti piacciono i videogiochi."></textarea>
+        <div class="row">
+          <button class="primary" id="persona-save">Salva</button>
+          <button id="persona-new">Nuova persona</button>
+          <button class="danger" id="persona-remove">Elimina</button>
+          <span class="state" id="persona-state" role="status"></span>
+        </div>
+        <p class="muted note">Vuota, la personalità è quella di base. Eliminare una persona cancella anche la sua memoria e il suo umore.</p>
+      </div>
+    </section>
    </div>
 
    <div class="page hidden" id="page-generale">

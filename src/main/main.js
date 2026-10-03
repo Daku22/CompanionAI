@@ -26,6 +26,7 @@ const XTTS_LICENSE_URL = 'https://huggingface.co/coqui/XTTS-v2/blob/6c2b0d75eae4
 const { walkTarget } = require('./walk-target')
 const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
+const Personas = require('./personas')
 const touchReact = require('./touch-react')
 const { decideIdle } = require('./idle-life')
 
@@ -193,6 +194,7 @@ function publicConfig(cfg) {
     kimodoAvailable: !!kimodo && kimodo.available(),
     // Meteo della stanza: la citta' trovata, o perche' non c'e'.
     weatherStatus,
+    persona: activePersona() ? { id: activePersona().id, name: activePersona().name } : null,
     voice: voiceConfig(cfg),
     // Microfono: installato, la scorciatoia davvero registrata (null se un
     // altro programma la usa gia'), e le scorciatoie fra cui scegliere.
@@ -223,12 +225,13 @@ function memoryModelFrom(cfg) {
 // Lo stato d'animo vive accanto alla memoria e sparisce con "Dimentica tutto".
 // Le regole stanno in mood.js; qui si carica, si salva e si avvisano le finestre.
 
-const MOOD_PATH = path.join(MEMORY_PATH, 'mood.json')
+// L'umore e' della persona attiva (Blocco 6a): "default" lo tiene dov'era.
+const moodPath = () => path.join(Personas.personaDir(MEMORY_PATH, personas ? personas.activeId : 'default'), 'mood.json')
 let mood = moodLib.createMood()
 let moodSave = Promise.resolve()
 
 async function initMood() {
-  mood = await moodLib.loadMood(MOOD_PATH)
+  mood = await moodLib.loadMood(moodPath())
   broadcastMood()
 }
 
@@ -244,13 +247,113 @@ function updateMood(change) {
   mood = change(mood)
   // In coda: due salvataggi ravvicinati non devono superarsi a vicenda.
   const snapshot = mood
-  moodSave = moodSave.then(() => moodLib.saveMood(MOOD_PATH, snapshot))
+  const file = moodPath()
+  moodSave = moodSave.then(() => moodLib.saveMood(file, snapshot))
     .catch(e => console.error('[mood] salvataggio fallito:', e.message))
   broadcastMood()
 }
 
+// ─── Persone (Blocco 6a) ─────────────────────────────────────────────────────
+// Ognuna ha memoria, umore, personalita', avatar e voce. Le regole stanno in
+// personas.js; qui si carica, si salva e si cambia persona.
+const PERSONAS_PATH = path.join(MEMORY_PATH, 'personas.json')
+let personas = null
+
+function loadPersonas() {
+  const cfg = loadConfig()
+  personas = Personas.load(PERSONAS_PATH, { avatarModel: cfg.avatarModel, voice: cfg.voice })
+}
+
+function savePersonas() {
+  fs.promises.mkdir(MEMORY_PATH, { recursive: true })
+    .then(() => Personas.save(PERSONAS_PATH, personas))
+    .catch(e => console.error('[persone] salvataggio fallito:', e.message))
+}
+
+const activePersona = () => (personas ? Personas.active(personas) : null)
+
+// La voce della persona attiva e' quella in uso adesso (si cambia anche dalla
+// scheda Voce); le altre hanno quella ricordata.
+function personasPublic() {
+  const current = voiceConfig(loadConfig())
+  return {
+    activeId: personas.activeId,
+    list: personas.list.map(({ id, name, prompt, voice }) => {
+      const v = id === personas.activeId ? current : { ...current, ...(voice || {}) }
+      return { id, name, prompt, voice: { engine: v.engine, kokoroVoice: v.kokoroVoice, xttsSpeaker: v.xttsSpeaker } }
+    }),
+  }
+}
+
+/** Lascia la persona attiva (ricordando avatar e voce) e passa a id. */
+async function switchPersona(id) {
+  if (!personas || id === personas.activeId || awaitingReply) return false
+  const cfg = loadConfig()
+  const next = Personas.activate(Personas.snapshot(personas, { avatarModel: cfg.avatarModel, voice: cfg.voice }), id)
+  if (!next) return false
+  await moodSave
+  personas = next
+  savePersonas()
+  const p = activePersona()
+  const merged = mergeConfig(cfg, { voice: p.voice || {} })
+  merged.avatarModel = p.avatarModel || ''
+  saveConfig(merged)
+  initMemory()
+  await initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
+  // L'avatar lo cambia il companion, come dal menu ('' = il predefinito).
+  let avatarId = p.avatarModel
+  if (!avatarId && avatarLibrary) {
+    const avatars = await avatarLibrary.list().catch(() => [])
+    avatarId = (avatars.find(a => a.default) || avatars[0] || {}).id
+  }
+  if (avatarId) sendCompanion('menu-command', { cmd: 'avatar', id: avatarId })
+  syncVoice(merged)
+  sendChatConfig(merged)
+  console.log('[persone] attiva:', p.id)
+  return true
+}
+
+handle('personas:get', () => personasPublic())
+handle('personas:change', async (_e, input) => {
+  const op = input && input.op
+  const id = input && typeof input.id === 'string' ? input.id : ''
+  let next = null
+  if (op === 'create') {
+    const made = Personas.create(personas, input.name, input.prompt)
+    if (made) next = made.state
+  } else if (op === 'update') {
+    // La voce passa dai controlli di sempre (mergeVoice) prima di salvarla.
+    const voice = input.voice && typeof input.voice === 'object' ? mergeConfig(loadConfig(), { voice: input.voice }).voice : undefined
+    next = Personas.update(personas, id, { name: input.name, prompt: input.prompt, voice })
+    // Per la persona attiva la voce vale subito.
+    if (next && voice && id === personas.activeId) {
+      const merged = mergeConfig(loadConfig(), { voice })
+      saveConfig(merged)
+      syncVoice(merged)
+    }
+  }
+  else if (op === 'remove') {
+    if (id === personas.activeId) return { ok: false, error: 'Attiva prima un\'altra persona.' }
+    next = Personas.remove(personas, id)
+    // Memoria e umore se ne vanno con lei; "default" non ha una cartella sua.
+    if (next && id !== 'default') {
+      for (const dir of [Personas.personaDir(MEMORY_PATH, id), path.join(MEMORY_PATH, 'active', id), path.join(MEMORY_PATH, 'archive', id)]) {
+        await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {})
+      }
+    }
+  } else if (op === 'activate') {
+    return (await switchPersona(id)) ? { ok: true, personas: personasPublic() } : { ok: false, error: 'Non adesso: aspetta la risposta.' }
+  }
+  if (!next) return { ok: false, error: 'Richiesta non valida.' }
+  personas = next
+  savePersonas()
+  sendChatConfig(loadConfig())
+  return { ok: true, personas: personasPublic() }
+})
+
 function initMemory() {
-  memoryManager = new MemoryManager('default', MEMORY_PATH, memoryModelFrom(loadConfig()))
+  if (!personas) loadPersonas()
+  memoryManager = new MemoryManager(personas.activeId, MEMORY_PATH, memoryModelFrom(loadConfig()))
 
   // Carica subito lo stato su disco: senza questo la memoria del boot precedente
   // arriverebbe solo al primo turno, in ritardo rispetto alla prima domanda.
@@ -819,10 +922,13 @@ handle('ai:send-message', async (_e, { history }) => {
   awaitingReply = true
   markActivity()
   updateMood(m => moodLib.onUserMessage(m))
+  // La risposta resta della persona che l'ha chiesta (switchPersona aspetta
+  // comunque la fine della risposta).
+  const mm = memoryManager
   try {
     const lastUser = [...(history || [])].reverse().find(m => m.role === 'user')
-    if (lastUser?.content && memoryManager) {
-      await memoryManager.addTurn(lastUser.content, 'user').catch(() => {})
+    if (lastUser?.content && mm) {
+      await mm.addTurn(lastUser.content, 'user').catch(() => {})
     }
 
     const historyWithMemory = withMoodLine(await buildHistoryWithMemory(safeHistory))
@@ -834,7 +940,7 @@ handle('ai:send-message', async (_e, { history }) => {
       apiKey,
       history: historyWithMemory,
       // Il campo motion si spiega al modello solo quando si puo' usare.
-      systemPrompt: (await motionsEnabled(cfg)) ? SYSTEM_PROMPT + MOTION_PROMPT : undefined,
+      systemPrompt: Personas.systemPrompt(activePersona(), (await motionsEnabled(cfg)) ? SYSTEM_PROMPT + MOTION_PROMPT : SYSTEM_PROMPT),
     })
     console.log('[Main] route() completato, reply length:', result?.reply?.length)
 
@@ -848,12 +954,12 @@ handle('ai:send-message', async (_e, { history }) => {
     if (result && !EMOTIONS.includes(result.emotion)) delete result.emotion
     if (result?.emotion) updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
 
-    if (result?.reply && memoryManager) {
-      await memoryManager.addTurn(result.reply, 'assistant').catch(() => {})
+    if (result?.reply && mm) {
+      await mm.addTurn(result.reply, 'assistant').catch(() => {})
       // Oltre la soglia i turni piu' vecchi vanno riassunti. In background: la
       // risposta all'utente non deve aspettare il riassunto.
-      if (memoryManager.needsCompaction()) {
-        memoryManager.compact().catch(e => console.error('[memory] compattazione per soglia fallita:', e.message))
+      if (mm.needsCompaction()) {
+        mm.compact().catch(e => console.error('[memory] compattazione per soglia fallita:', e.message))
       }
     }
 

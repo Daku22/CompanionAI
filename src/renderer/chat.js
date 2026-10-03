@@ -63,8 +63,11 @@ function showSetup() {
 // configurazione si chiude da sola.
 if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
   if (!cfg) return
+  // Un'altra persona: la conversazione a schermo era dell'altra (Blocco 6a).
+  const switched = config.persona && cfg.persona && config.persona.id !== cfg.persona.id
   config = { ...config, ...cfg }
   updateBadge()
+  if (switched) { resetChatView('Ora parli con ' + cfg.persona.name + '.'); updateMemoryFooter() }
   if (isConfigured() && !setupOverlay.classList.contains('hidden')) {
     setupOverlay.classList.add('hidden')
     inputEl.focus()
@@ -107,7 +110,9 @@ compactBtn.addEventListener('click', async () => {
   }, 2000)
 })
 
+const headerTitle = document.querySelector('#header-info h1')
 function updateBadge() {
+  if (config.persona) headerTitle.textContent = config.persona.name
   const p = (config.providers || {})[config.provider]
   providerBadge.textContent = p ? `${p.name} · ${providerForm.labelOf(config.provider, config.model) || config.model}` : '—'
 }

@@ -56,6 +56,12 @@
   by itself, at most once every 45 s. Not while carried, sitting, dancing,
   peeking, dozing or turned away. Live2D and 2D use the "wave" motion and
   do not follow the cursor. Off together with "Reagisce ai tocchi".
+- Personas ("Persone" in the settings): each one has a name, a personality
+  written by you, a voice (with a "Prova" button), and its own memory and
+  mood. A persona remembers the avatar it was using and gets it back when
+  activated again. Today's memory becomes the default persona, untouched.
+  Switching persona clears the chat on screen; deleting one deletes its
+  memory too.
 - 27 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions),
   now in the repository and the installer under CC0. Credits and the model

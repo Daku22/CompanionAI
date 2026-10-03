@@ -37,6 +37,101 @@
   showPage(lastPage)
   if (api.onSettingsPage) api.onSettingsPage(showPage)
 
+  // ─── Persone (Blocco 6a) ──────────────────────────────────────────────────
+  // Il main tiene l'elenco (personas.js); qui si sceglie, si rinomina, si
+  // scrive la personalita', si crea, si elimina e si attiva.
+  const personaSel = $('persona-select')
+  const personaName = $('persona-name')
+  const personaPrompt = $('persona-prompt')
+  const personaState = $('persona-state')
+  let personaData = null
+  function showPersonas(data, pick) {
+    if (!data) return
+    personaData = data
+    const keep = pick || personaSel.value || data.activeId
+    personaSel.replaceChildren(...data.list.map(p => {
+      const o = document.createElement('option')
+      o.value = p.id
+      o.textContent = p.name + (p.id === data.activeId ? ' (attiva)' : '')
+      return o
+    }))
+    personaSel.value = data.list.some(p => p.id === keep) ? keep : data.activeId
+    showPersona()
+  }
+  // Le voci sono quelle della scheda Voce: Kokoro e, se XTTS e' installato,
+  // le sue (il campione e le voci del modello).
+  const personaVoice = $('persona-voice')
+  function fillPersonaVoices(v) {
+    const group = (label, items) => {
+      const g = document.createElement('optgroup')
+      g.label = label
+      g.append(...items.map(([value, text]) => new Option(text, value)))
+      return g
+    }
+    const xtts = [...speakerSel.options].map(o => ['xtts:' + o.value, o.textContent])
+    if (v.xttsSpeaker && !xtts.some(([value]) => value === 'xtts:' + v.xttsSpeaker)) xtts.push(['xtts:' + v.xttsSpeaker, v.xttsSpeaker])
+    personaVoice.replaceChildren(
+      group('Kokoro', radios.map(r => ['kokoro:' + r.value, r.parentElement.textContent.trim()])),
+      group('XTTS-v2', xtts))
+    personaVoice.value = v.engine === 'xtts' ? 'xtts:' + v.xttsSpeaker : 'kokoro:' + v.kokoroVoice
+  }
+  // Le voci di XTTS arrivano dopo l'avvio (loadSpeakers): il menu si rifa'
+  // tenendo la scelta, senza toccare nome e personalita' gia' scritti.
+  function refreshPersonaVoices() {
+    if (!personaData || !personaVoice.value) return
+    const keep = personaVoiceChoice()
+    fillPersonaVoices({ engine: keep.engine, kokoroVoice: keep.kokoroVoice, xttsSpeaker: keep.xttsSpeaker })
+  }
+  $('persona-voice-test').addEventListener('click', async () => {
+    const note = $('persona-voice-note')
+    const btn = $('persona-voice-test')
+    note.textContent = 'Preparo la voce…'
+    btn.disabled = true
+    try {
+      const res = await api.voiceTest(personaVoiceChoice())
+      note.textContent = res && res.ok ? '' : 'Non ha parlato: ' + ((res && res.error) || 'errore sconosciuto')
+    } catch (e) { note.textContent = 'Non ha parlato: ' + e.message }
+    btn.disabled = false
+  })
+  function personaVoiceChoice() {
+    const [engine, ...rest] = personaVoice.value.split(':')
+    const name = rest.join(':')
+    return engine === 'xtts' ? { engine, xttsSpeaker: name } : { engine: 'kokoro', kokoroVoice: name }
+  }
+  function showPersona() {
+    const p = personaData.list.find(x => x.id === personaSel.value)
+    if (!p) return
+    personaName.value = p.name
+    personaPrompt.value = p.prompt
+    fillPersonaVoices(p.voice)
+    const isActive = p.id === personaData.activeId
+    $('persona-activate').disabled = isActive
+    $('persona-remove').disabled = isActive
+    $('persona-active').textContent = isActive ? 'È quella attiva.' : ''
+  }
+  async function changePersona(input, done, pick) {
+    personaState.textContent = ''
+    const r = await api.personasChange(input).catch(() => null)
+    if (!r || !r.ok) { personaState.textContent = (r && r.error) || 'Non riuscito.'; return }
+    showPersonas(r.personas, pick)
+    personaState.textContent = done
+  }
+  personaSel.addEventListener('change', () => { personaState.textContent = ''; showPersona() })
+  $('persona-save').addEventListener('click', () =>
+    changePersona({ op: 'update', id: personaSel.value, name: personaName.value, prompt: personaPrompt.value, voice: personaVoiceChoice() }, 'Salvata.'))
+  $('persona-activate').addEventListener('click', () => changePersona({ op: 'activate', id: personaSel.value }, 'Attivata.'))
+  $('persona-new').addEventListener('click', async () => {
+    const before = new Set(personaData.list.map(p => p.id))
+    await changePersona({ op: 'create', name: 'Nuova persona' }, 'Creata: dalle un nome e una personalità.')
+    const made = personaData.list.find(p => !before.has(p.id))
+    if (made) { personaSel.value = made.id; showPersona(); personaName.focus(); personaName.select() }
+  })
+  $('persona-remove').addEventListener('click', (e) => {
+    if (!confirmClick(e.currentTarget, 'Clicca di nuovo per eliminare questa persona, con la sua memoria e il suo umore.')) return
+    changePersona({ op: 'remove', id: personaSel.value }, 'Eliminata.')
+  })
+  api.personasGet().then(d => showPersonas(d)).catch(() => {})
+
   // Conferma con un secondo clic, al posto di confirm(): il primo arma il
   // pulsante e scrive l'avviso sotto la sua riga, il secondo (entro 5
   // secondi) agisce. Restituisce true solo al secondo clic.
@@ -153,6 +248,8 @@
     if (!cfg) return
     showGeneral(cfg)
     if (formKey(cfg) !== formShown) loadForm(cfg)
+    // Altra persona, o voce cambiata dalla scheda Voce: la scheda Persone si rilegge.
+    if (personaData) api.personasGet().then(d => showPersonas(d)).catch(() => {})
   })
 
   const micEnabled = $('mic-enabled')
@@ -299,6 +396,7 @@
       if (!names.length) { speakersLoaded = false; return }
       speakerSel.replaceChildren(new Option('La mia voce (campione)', 'sample'), ...names.map(n => new Option(n, n)))
       speakerSel.value = voice.xttsSpeaker
+      refreshPersonaVoices()
     } catch (_) { speakersLoaded = false }
   }
 

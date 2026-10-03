@@ -120,6 +120,10 @@ contextBridge.exposeInMainWorld('companion', {
   getLoginItem: ()           => ipcRenderer.invoke('app:login-item:get'),
   setLoginItem: (enabled)    => ipcRenderer.invoke('app:login-item:set', enabled),
 
+  // ─── Persone (Blocco 6a): op create, update, remove, activate ─────────────
+  personasGet:    ()         => ipcRenderer.invoke('personas:get'),
+  personasChange: (input)    => ipcRenderer.invoke('personas:change', input),
+
   // ─── Memoria (fading memory) ───────────────────────────────────────────────
   memoryStats:      ()       => ipcRenderer.invoke('memory:stats'),
   memoryGetContext: ()       => ipcRenderer.invoke('memory:get-context'),
