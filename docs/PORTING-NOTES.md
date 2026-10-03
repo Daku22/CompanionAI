@@ -1019,7 +1019,26 @@ normalizzata proiettato sullo schermo, o il bordo tagliava a meta' del viso.
 Il saluto con il solo avambraccio provato in un primo momento era
 un'indicazione per il 5e: numeri nella memoria del progetto.
 
-## Mate Engine
+## Blocco 5e: batti cinque (2026-10-02/03)
+
+**Macchina.** `createHighFive` in `touch.js` e' pura (tempo passato a mano,
+test in `test-touch.mjs`); `companion-highfive.js` la aggiorna a ogni frame
+con il cursore e i blocchi del renderer, e chiede al main (`companion:highfive`)
+il permesso di offrire e la reazione allo schiaffo. Il main decide umore,
+battuta e riga del prompt come per i tocchi, e ferma la vita autonoma finche'
+la mano e' alzata.
+
+**Niente IK.** Il piano prevedeva `reach-ik.js` (IK a due ossa verso il
+cursore). Su indicazione dell'utente, ispirata alla clip wave di Kimodo, la
+mano segue il cursore solo con la flessione del gomito (asse y del
+lowerArm), busto fermo: su Fred omero {x 1,0, y 0,15, z 1,07}, gomito
+{x 0,16, y 1,9 +- bend, z -0,16}. In chibi omero z +0,28, gomito y -0,5. Lo
+schiaffo spinge l'omero in avanti (x +0,45) e distende il gomito (-0,7).
+
+**Slot.** `highfive` e `missed` sono reazioni senza clip in
+`AnimationLibrary`: come `peek` dipendono dal lato della mano, e una clip
+userebbe sempre la stessa. Il test delle reazioni li ammette a parte.
+
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)
 - Cosa portato: limiti dello sguardo (testa ±45°/±30°, busto ±15°), molla

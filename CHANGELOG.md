@@ -46,6 +46,16 @@
   the head tilts toward the edge. It comes out when the mouse gets close,
   when a reply arrives or with a double-click. Over a full-screen app it
   comes back inside.
+- High five: leave the mouse still for a second beside one of its hands,
+  outside the figure, or ask in chat ("batti cinque!"), and it raises a hand
+  toward you, smiling. In 3D the forearm follows the cursor a little, the
+  torso stays still. Click the hand to slap it: a happy bounce, sometimes a
+  line, and a bit of joy and affection (less and less for many in a row).
+  Leave it hanging for 5 s and it lowers the hand, slightly disappointed.
+  Now and then, when it is happy and you are at the computer, it offers one
+  by itself, at most once every 45 s. Not while carried, sitting, dancing,
+  peeking, dozing or turned away. Live2D and 2D use the "wave" motion and
+  do not follow the cursor. Off together with "Reagisce ai tocchi".
 - 27 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions),
   now in the repository and the installer under CC0. Credits and the model

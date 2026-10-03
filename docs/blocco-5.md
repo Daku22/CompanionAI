@@ -264,6 +264,9 @@ cinque.
 Non lo fa mentre lo tieni in braccio, è seduto, balla, sbircia, dorme o è
 girato di spalle.
 
+(Fatto senza IK: la mano segue con la sola flessione del gomito, vedi
+PORTING-NOTES, Blocco 5e.)
+
 **Mano che segue (3D):** `reach-ik.js`, IK a due ossa con limiti del gomito e
 del polo (test `scripts/test-reach-ik.mjs`). Il bersaglio è il cursore
 proiettato su un piano davanti all'avatar, limitato a una piccola zona

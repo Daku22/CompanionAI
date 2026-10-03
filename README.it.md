@@ -465,6 +465,31 @@ interrompe una risposta e tace mentre il microfono ascolta.
 "Reagisce ai tocchi" nelle Impostazioni spegne tutto: un clic torna a dare
 solo il sorriso.
 
+**Batti cinque.** La macchina sta in `touch.js` (`createHighFive`, con test):
+`idle`, `offer`, `slap`, `missed`, `cooldown`; `companion-highfive.js` la
+collega ai tre renderer.
+- **Quando offre la mano:** il cursore resta 1 s accanto all'avatar dal lato di
+  una mano (`nearHand`: fuori dalla sagoma, entro 90 px dal fianco,
+  all'altezza delle mani); oppure lo chiedi in chat (animazione `highfive` nel
+  contratto della risposta); oppure, ogni tanto, la vita autonoma lo propone
+  quando la gioia è alta e l'utente è al PC. Da solo aspetta 45 s dopo
+  l'ultimo; chiesto in chat no. Mai in braccio, seduto, mentre balla,
+  sbircia, sonnecchia o è girato di spalle.
+- **Nel 3D** la mano si alza come nella clip wave e segue il cursore di lato
+  (`handFollow`) solo con la flessione del gomito: il busto resta fermo. In
+  chibi il braccio si apre di più e il gomito si piega meno.
+- **Il clic sulla mano** è lo schiaffo: la mano spinge verso lo schermo,
+  espressione happy, a volte una battuta. Il main (`touch-react.js`,
+  `highFiveReaction`) dà joy e affection; quelli battuti negli ultimi 10
+  minuti riducono il prossimo (metà, un terzo...). Dopo 5 s senza clic la
+  mano si abbassa con un po' di delusione, senza fastidio. L'ultimo batti
+  cinque entra nel prompt come un tocco.
+- **Live2D e 2D:** il gruppo o l'animazione `wave` finché offre, senza seguire
+  il cursore; lo schiaffo è `happy` con un saltello. Il clic sull'avatar
+  durante l'offerta vale come schiaffo.
+
+Con i tocchi spenti il main rifiuta l'offerta e la mano non si alza.
+
 **Ballo con la musica** (spento di base, "Balla con la musica" nelle
 Impostazioni).
 - **Chi suona:** il main legge il mixer di Windows ogni 0,7 s (`win-audio.js`:
@@ -922,6 +947,8 @@ Fatto:
 - azioni OS ristrette;
 - stanza con scene 3D e camera libera; voce (Kokoro, XTTS) e microfono;
 - avatar Live2D (Cubism 3, 4 e 5) su Pixi 8;
+- presenza: tocchi con reazioni e carezza, ballo con la musica, chibi,
+  sbirciare dal bordo, batti cinque; clip Kimodo integrate (CC0);
 - installer NSIS con Fuses, CI e release automatiche.
 
 Da fare:
@@ -929,13 +956,9 @@ Da fare:
 - interfaccia in inglese;
 - firma del codice e aggiornamenti automatici;
 - taratura a occhio delle pose 3D;
-- clip integrate pubblicabili: la serie di base generata con Kimodo è per ora
-  solo nella copia privata, finché non si confermano i termini sulle uscite;
 - prova con un FBX vero (Mixamo): il percorso è lo stesso del glTF, ma i test
   non hanno un file FBX;
-- la roadmap che resta è in `IDEA.md` (Blocco 5 in poi);
-- Fase D: nascondersi ai bordi, chibi, danza con l'audio, mano verso il
-  cursore;
+- la roadmap che resta è in `IDEA.md` (Blocco 6 in poi);
 - iniziativa con freni, memoria leggibile;
 - Live2D: modelli Cubism 2 (serve un altro runtime, non più distribuito da
   Live2D) e suoni dei movimenti.

@@ -53,6 +53,10 @@ yourself from source if you prefer (see below).
   seconds. Touches nudge its mood, the model hears about the last one, and
   with the voice on it sometimes says a short line out loud.
   "Reagisce ai tocchi" in the settings turns this off.
+- High five: keep the mouse still for a second beside one of its hands, or
+  ask in chat ("batti cinque!"). It raises a hand toward you, and in 3D the
+  hand follows the cursor a little; click it to slap it. When it is happy it
+  sometimes offers one by itself.
 - "Balla con la musica" in the settings (off by default): when a music app
   from your list plays (Spotify, a browser, VLC…), it listens to the beat on
   your computer and dances in time. Nothing is recorded or sent.

@@ -78,7 +78,8 @@ function connect(target) {
 }
 
 // Gli avvisi di sicurezza di Electron compaiono solo in sviluppo: il pacchetto non li mostra.
-const IGNORED = [/Electron Security Warning/]
+// Un modello importato senza scheletro umano resta statico: e' previsto.
+const IGNORED = [/Electron Security Warning/, /Modello senza scheletro umano/]
 function problems(events) {
   return events.map(e => {
     if (e.method === 'Runtime.exceptionThrown') return e.params.exceptionDetails.exception?.description || e.params.exceptionDetails.text
