@@ -31,6 +31,7 @@ const Rapport = require('./rapport')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
 const ActiveApp = require('./active-app')
+const Mcp = require('./mcp')
 const { writeAtomic } = require('./write-atomic')
 const touchReact = require('./touch-react')
 const { decideIdle } = require('./idle-life')
@@ -155,6 +156,8 @@ function loadConfig() {
   // App attiva (Blocco 7c): spenta di base, con l'elenco delle finestre da non leggere.
   cfg.activeApp = cfg.activeApp === true
   cfg.activeAppIgnore = ActiveApp.cleanIgnore(cfg.activeAppIgnore) || ActiveApp.IGNORE_DEFAULT
+  // Server MCP (Blocco 7f): li aggiunge l'utente, spenti di base.
+  cfg.mcpServers = Mcp.cleanServers(cfg.mcpServers)
   cfg.danceApps = danceApps(cfg.danceApps) || DANCE_APPS_DEFAULT
   cfg.chibiAvatars = chibiAvatars(cfg.chibiAvatars) || []
   cfg.view = cfg.view === 'room' ? 'room' : 'desktop'
@@ -196,7 +199,8 @@ function saveConfig(cfg) {
 }
 
 function publicConfig(cfg) {
-  const { keys, unreadableKeys, kimodoDir, ...safe } = cfg
+  // I server MCP hanno variabili d'ambiente (a volte chiavi): alle pagine vanno con mcp:list, senza valori.
+  const { keys, unreadableKeys, kimodoDir, mcpServers, ...safe } = cfg
   return {
     ...safe,
     keyConfigured: Object.fromEntries(Object.entries(keys || {}).map(([name, value]) => [name, !!value])),
@@ -1062,6 +1066,263 @@ handle('photo:save', async (_e, dataUrl) => {
   return { ok: true, path: file }
 })
 
+// ─── Connettori MCP (Blocco 7f) ──────────────────────────────────────────────
+// Due tipi, come i connettori di Claude: remoti (nome e URL, con login OAuth o
+// token quando servono) e sul PC (un comando, per esempio i file di una
+// cartella). L'azione del modello si controlla (mcp.js), poi l'utente la
+// conferma a parole semplici; per gli strumenti che leggono soltanto puo'
+// dire "non chiedermelo piu'".
+const Connectors = require('./connectors')
+const McpOAuth = require('./mcp-oauth')
+const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1)
+
+// Segreti dei connettori (token di accesso, token personali): un file a parte,
+// ogni voce cifrata con il portachiavi di Windows (safeStorage). Senza
+// cifratura restano solo in memoria fino all'uscita.
+const MCP_SECRETS_PATH = path.join(os.homedir(), '.desktop-companion', 'mcp-secrets.json')
+let mcpSecrets = null
+function loadMcpSecrets() {
+  if (mcpSecrets) return mcpSecrets
+  mcpSecrets = {}
+  try {
+    const raw = JSON.parse(fs.readFileSync(MCP_SECRETS_PATH, 'utf8'))
+    for (const [id, value] of Object.entries(raw || {})) {
+      try { mcpSecrets[id] = JSON.parse(safeStorage.decryptString(Buffer.from(value, 'base64'))) } catch (_) {}
+    }
+  } catch (_) {}
+  return mcpSecrets
+}
+function setMcpSecret(id, data) {
+  const all = loadMcpSecrets()
+  if (data) all[id] = data
+  else delete all[id]
+  if (!safeStorage.isEncryptionAvailable()) return
+  const out = {}
+  for (const [k, v] of Object.entries(all)) out[k] = safeStorage.encryptString(JSON.stringify(v)).toString('base64')
+  try {
+    fs.mkdirSync(path.dirname(MCP_SECRETS_PATH), { recursive: true })
+    fs.writeFileSync(MCP_SECRETS_PATH, JSON.stringify(out))
+  } catch (e) { console.error('[mcp] segreti non salvati:', e.message) }
+}
+const tokenOf = (id) => () => { const s = loadMcpSecrets()[id]; return (s && (s.access_token || s.api_key)) || null }
+const clientOf = (server) => Mcp.clientFor(server, tokenOf(server.id))
+
+class NeedsLogin extends Error {
+  constructor(server) { super(server.name + ' chiede di accedere di nuovo'); this.needsLogin = true }
+}
+
+/**
+ * Esegue fn(client) con l'accesso in ordine: token scaduto -> si rinnova; il
+ * server dice 401 -> si rinnova e si riprova una volta; senza rinnovo possibile
+ * -> NeedsLogin (o il login, se interactive).
+ */
+async function withMcpAuth(server, fn, { interactive = false } = {}) {
+  const renew = async () => {
+    const saved = loadMcpSecrets()[server.id]
+    const tokens = await McpOAuth.refresh(saved, server.url)
+    setMcpSecret(server.id, { ...saved, ...tokens })
+  }
+  const saved = loadMcpSecrets()[server.id]
+  if (server.url && McpOAuth.expired(saved)) await renew().catch(() => {})
+  try {
+    return await fn(clientOf(server))
+  } catch (e) {
+    if (!e || !e.authRequired || !server.url) throw e
+    if (loadMcpSecrets()[server.id]?.refresh_token) {
+      try { await renew(); return await fn(clientOf(server)) } catch (again) { if (!again || !again.authRequired) throw again }
+    }
+    if (!interactive || server.auth === 'token') throw server.auth === 'token' ? new Error('il token non è valido o è scaduto') : new NeedsLogin(server)
+    // Login nel browser, poi di nuovo.
+    const { tokens, client, meta } = await McpOAuth.login(server.url, e.wwwAuthenticate, (url) => shell.openExternal(url))
+    setMcpSecret(server.id, { ...tokens, token_endpoint: meta.token_endpoint, client_id: client.client_id, client_secret: client.client_secret })
+    Mcp.clientFor(server, tokenOf(server.id)).stop()
+    return fn(clientOf(server))
+  }
+}
+
+const MAX_TOOL_STEPS = 3
+
+async function useTool(action) {
+  const checked = Mcp.checkToolAction(action, loadConfig().mcpServers)
+  // Una chiamata sbagliata torna al modello, che puo' correggerla.
+  if ('error' in checked) {
+    console.warn('[mcp] azione rifiutata:', checked.error)
+    return { error: checked.error }
+  }
+  const { server, tool, args } = checked
+  const label = Mcp.toolLabel(tool.name)
+  if (!server.trusted.includes(tool.name)) {
+    const who = (activePersona() && activePersona().name) || 'Il companion'
+    const options = {
+      type: /** @type {const} */ ('question'), buttons: ['Non consentire', 'Consenti'], defaultId: 1, cancelId: 0,
+      title: 'Permesso per un connettore',
+      message: Mcp.knownLabel(tool.name) ? who + ' vuole ' + label : who + ' vuole usare «' + label + '» di ' + server.name,
+      detail: 'Connettore: ' + server.name + (tool.readOnly ? ' (legge soltanto)' : ' (può modificare qualcosa)') +
+        '\n\n' + Mcp.argsText(args) + (tool.description ? '\n\nCosa fa: ' + tool.description : ''),
+      checkboxLabel: tool.readOnly ? 'Non chiedermelo più per questa azione' : undefined,
+    }
+    const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+    const answer = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
+    if (answer.response !== 1) return { notice: 'Non hai dato il permesso: il connettore non è stato usato.' }
+    if (answer.checkboxChecked && tool.readOnly) {
+      saveMcp(list => list.map(s => (s.id === server.id ? { ...s, trusted: [...s.trusted, tool.name] } : s)))
+    }
+  }
+  try {
+    const r = await withMcpAuth(server, client => client.callTool(tool.name, args))
+    console.log('[mcp] ' + server.id + '/' + tool.name + ' eseguito')
+    return { server, tool, text: Mcp.resultText(r), note: '🔧 ' + capital(label) + ' · ' + server.name }
+  } catch (e) {
+    console.error('[mcp] ' + server.id + '/' + tool.name + ' fallito:', e.message)
+    if (e.needsLogin) return { notice: server.name + ' chiede di accedere di nuovo: Impostazioni → Connettori → «Accedi di nuovo».' }
+    return { server, tool, text: 'ERRORE: ' + e.message, note: '🔧 ' + capital(label) + ' · ' + server.name + ': non è riuscito (' + friendlyMcpError(e.message) + ')' }
+  }
+}
+
+/** Gli errori piu' comuni, detti in chiaro. */
+function friendlyMcpError(message) {
+  const m = String(message || '')
+  if (/ENOENT|riconosciuto|is not recognized|non parte/i.test(m)) return 'il programma del connettore non si trova: per i connettori sul PC serve Node.js'
+  if (/non ha risposto in/i.test(m)) return 'ci ha messo troppo a rispondere, riprova'
+  if (/E404|404 Not Found/i.test(m)) return 'il pacchetto non esiste: controlla il nome'
+  if (/non raggiungibile|ENOTFOUND|EAI_AGAIN|network/i.test(m)) return 'il server non si raggiunge: controlla l\'indirizzo e la connessione'
+  if (/ha risposto 404/i.test(m)) return 'a quell\'indirizzo non c\'è un server MCP: controlla l\'URL'
+  if (/accesso annullato|access_denied/i.test(m)) return 'l\'accesso è stato annullato'
+  return m.slice(0, 200)
+}
+
+const mcpPublic = (servers) => {
+  const secrets = loadMcpSecrets()
+  return servers.map(s => ({
+    id: s.id, name: s.name, url: s.url, auth: s.auth, command: s.command, args: s.args, envKeys: Object.keys(s.env), enabled: s.enabled,
+    signedIn: !!(secrets[s.id] && (secrets[s.id].access_token || secrets[s.id].api_key)),
+    tools: s.tools.map(t => ({ name: t.name, label: capital(Mcp.toolLabel(t.name)), description: t.description, readOnly: t.readOnly })),
+    allowed: s.allowed, trusted: s.trusted,
+  }))
+}
+function saveMcp(change) {
+  const cfg = loadConfig()
+  cfg.mcpServers = Mcp.cleanServers(change(cfg.mcpServers))
+  saveConfig(cfg)
+  return mcpPublic(cfg.mcpServers)
+}
+/** Un id nuovo dal nome, unico fra i connettori. */
+function mcpId(list, name) {
+  const base = String(name).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'connettore'
+  let id = base
+  for (let n = 2; list.some(s => s.id === id); n++) id = base + '-' + n
+  return id
+}
+
+/** Legge gli strumenti (con il login se serve) e li salva; pick sceglie quelli permessi. */
+async function connectMcp(id, pick) {
+  const server = loadConfig().mcpServers.find(s => s.id === id)
+  if (!server) return { ok: false, error: 'Connettore non trovato.' }
+  try {
+    const tools = await withMcpAuth(server, client => Mcp.listTools(client), { interactive: true })
+    const servers = saveMcp(list => list.map(s => (s.id !== id ? s : {
+      ...s, tools, auth: s.url && loadMcpSecrets()[id]?.access_token ? 'oauth' : s.auth,
+      allowed: pick ? tools.filter(pick).map(t => t.name) : s.allowed.filter(n => tools.some(t => t.name === n)),
+    })))
+    return { ok: true, servers, id }
+  } catch (e) {
+    return { ok: false, error: friendlyMcpError(e.message) }
+  }
+}
+
+/** Aggiunge un connettore e lo collega; se non va, lo toglie (con i suoi segreti). */
+async function addAndConnect(def, pick, secret) {
+  let id = null
+  saveMcp(list => { id = mcpId(list, def.name); return [...list, { env: {}, args: [], ...def, id, enabled: true, tools: [], allowed: [] }] })
+  if (!loadConfig().mcpServers.some(s => s.id === id)) return { ok: false, error: 'Al massimo 10 connettori.' }
+  if (secret) setMcpSecret(id, secret)
+  const r = await connectMcp(id, pick)
+  if (!r.ok) {
+    const server = loadConfig().mcpServers.find(s => s.id === id)
+    if (server) clientOf(server).stop()
+    setMcpSecret(id, null)
+    saveMcp(list => list.filter(s => s.id !== id))
+  }
+  return r
+}
+
+handle('mcp:list', () => mcpPublic(loadConfig().mcpServers))
+handle('mcp:catalog', () => Connectors.catalog(loadConfig().mcpServers))
+
+// Node.js serve ai connettori sul PC (npx): si controlla prima, per dirlo in chiaro.
+handle('mcp:node', () => new Promise((resolve) => {
+  const child = require('child_process').spawn('node', ['--version'], { windowsHide: true })
+  let out = ''
+  child.stdout.on('data', d => { out += d })
+  child.once('error', () => resolve(null))
+  child.once('exit', (code) => resolve(code === 0 ? out.trim() : null))
+}))
+handle('mcp:open-node-page', () => { shell.openExternal('https://nodejs.org/it/download').catch(() => {}) })
+// La pagina dove si crea il token di un connettore del catalogo (indirizzo dal catalogo, non dalla pagina).
+handle('mcp:open-token-page', (_e, id) => {
+  const c = Connectors.CONNECTORS.find(x => x.id === id && x.tokenUrl)
+  if (c) shell.openExternal(c.tokenUrl).catch(() => {})
+})
+
+// Dal catalogo: tutti gli strumenti permessi, ognuno chiede comunque il permesso quando si usa.
+handle('mcp:add-connector', async (_e, input) => {
+  const c = Connectors.CONNECTORS.find(x => x.id === (input && input.id))
+  if (!c) return { ok: false, error: 'Connettore sconosciuto.' }
+  const token = input && typeof input.token === 'string' ? input.token.trim().slice(0, 500) : ''
+  if (c.auth === 'token' && !token) return { ok: false, error: 'Serve il token.' }
+  return addAndConnect({ name: c.name, url: c.url, auth: c.auth }, () => true, token ? { api_key: token } : null)
+})
+
+// Connettore personalizzato: nome e URL, con un token facoltativo; se il server chiede l'accesso, parte il login.
+handle('mcp:add-remote', async (_e, input) => {
+  const name = String((input && input.name) || '').trim().slice(0, 40)
+  const url = String((input && input.url) || '').trim()
+  const token = input && typeof input.token === 'string' ? input.token.trim().slice(0, 500) : ''
+  if (!name || !url) return { ok: false, error: 'Servono un nome e l\'URL del server MCP.' }
+  if (!require('./mcp-http').validUrl(url)) return { ok: false, error: 'L\'URL deve iniziare con https://' }
+  return addAndConnect({ name, url, auth: token ? 'token' : 'none' }, () => true, token ? { api_key: token } : null)
+})
+
+// Sul PC: i file di una cartella scelta con il dialogo del main.
+handle('mcp:add-files', async (_e, input) => {
+  const parent = settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : undefined
+  const picked = await dialog.showOpenDialog(parent, { title: 'Quale cartella può usare?', properties: ['openDirectory'] })
+  if (picked.canceled || !picked.filePaths[0]) return { ok: false, canceled: true }
+  const write = !!(input && input.write === true)
+  return addAndConnect(Mcp.filesServer(picked.filePaths[0]), t => write || t.readOnly)
+})
+
+// Sul PC, personalizzato (per esperti): comando, argomenti e variabili scritti a mano.
+handle('mcp:add', async (_e, input) => {
+  const name = String((input && input.name) || '').trim().slice(0, 40)
+  const command = String((input && input.command) || '').trim()
+  if (!name || !command) return { ok: false, error: 'Servono un nome e un comando.' }
+  const env = {}
+  for (const line of Array.isArray(input.env) ? input.env : []) {
+    const m = typeof line === 'string' && line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/)
+    if (m) env[m[1]] = m[2].trim()
+  }
+  return addAndConnect({ name, command, args: Array.isArray(input.args) ? input.args : [], env }, t => t.readOnly)
+})
+handle('mcp:update', (_e, input) => {
+  const id = input && input.id
+  return { ok: true, servers: saveMcp(list => list.map(s => (s.id !== id ? s : {
+    ...s,
+    enabled: typeof input.enabled === 'boolean' ? input.enabled : s.enabled,
+    allowed: Array.isArray(input.allowed) ? input.allowed : s.allowed,
+    trusted: Array.isArray(input.trusted) ? input.trusted : s.trusted,
+  }))) }
+})
+handle('mcp:remove', (_e, id) => {
+  const server = loadConfig().mcpServers.find(s => s.id === id)
+  if (server) clientOf(server).stop()
+  setMcpSecret(id, null)
+  return { ok: true, servers: saveMcp(list => list.filter(s => s.id !== id)) }
+})
+// "Aggiorna" / "Accedi di nuovo": rilegge gli strumenti, con il login se serve.
+handle('mcp:connect', (_e, id) => connectMcp(id, null))
+app.on('will-quit', () => Mcp.stopAll())
+
 // Prova il modello (Blocco 7a): una richiesta minima, senza scorte ne'
 // nuovi tentativi, con la chiave del campo (non ancora salvata) o quella salvata.
 handle('ai:test-model', async (_e, input) => {
@@ -1123,13 +1384,15 @@ handle('ai:send-message', async (_e, { history, image }) => {
     const historyWithMemory = withMoodLine(await buildHistoryWithMemory(safeHistory))
 
     console.log('[Main] Chiamata route...')
-    const result = await route({
+    // Il campo motion si spiega al modello solo quando si puo' usare; gli
+    // strumenti MCP solo se ce ne sono di ammessi.
+    const basePrompt = ((await motionsEnabled(cfg)) ? SYSTEM_PROMPT + MOTION_PROMPT : SYSTEM_PROMPT) + Mcp.toolsPrompt(cfg.mcpServers)
+    let result = await route({
       provider: cfg.provider,
       model:    cfg.model,
       apiKey,
       history: historyWithMemory,
-      // Il campo motion si spiega al modello solo quando si puo' usare.
-      systemPrompt: Personas.systemPrompt(activePersona(), (await motionsEnabled(cfg)) ? SYSTEM_PROMPT + MOTION_PROMPT : SYSTEM_PROMPT),
+      systemPrompt: Personas.systemPrompt(activePersona(), basePrompt),
     })
     console.log('[Main] route() completato, reply length:', result?.reply?.length)
 
@@ -1147,6 +1410,31 @@ handle('ai:send-message', async (_e, { history, image }) => {
       updateRapport(r => Rapport.onReply(r, result.rapport))
       delete result.rapport
     }
+
+    // Strumenti MCP (Blocco 7f): conferma, chiamata, poi un altro giro del
+    // modello con il risultato (o con l'errore, per correggersi). Fino a
+    // MAX_TOOL_STEPS strumenti per messaggio: alcune richieste vogliono due
+    // passi (cerca, poi apri). Alla chat arriva solo la risposta finale.
+    const notes = []
+    const turns = []
+    for (let step = 0; result?.action?.type === 'tool'; step++) {
+      if (step >= MAX_TOOL_STEPS) { result.action = { type: 'none', animation: 'idle' }; break }
+      const used = await useTool(result.action)
+      result.action = { type: 'none', animation: 'idle' }
+      if (used.notice) { result.notice = used.notice; break }
+      if (used.note) notes.push(used.note)
+      turns.push({ role: 'assistant', content: result.reply || '…' },
+        { role: 'user', content: used.error ? Mcp.errorPrompt(used.error) : Mcp.resultPrompt(used.server.id, used.tool.name, used.text) })
+      const next = await route({
+        provider: cfg.provider, model: cfg.model, apiKey,
+        history: [...historyWithMemory, ...turns],
+        systemPrompt: Personas.systemPrompt(activePersona(), basePrompt),
+      }).catch(err => { console.error('[mcp] giro dopo lo strumento fallito:', err.message); return null })
+      if (!next || !next.reply) { result.notice = 'Lo strumento ha risposto, ma il modello non ha scritto la risposta: riprova.'; break }
+      result.reply = next.reply
+      result.action = next.action || { type: 'none', animation: 'idle' }
+    }
+    if (notes.length) result.toolNote = notes.join('\n')
 
     if (result?.reply && mm) {
       await mm.addTurn(result.reply, 'assistant').catch(() => {})
@@ -2729,7 +3017,7 @@ async function previewMenu(command) {
     }
   })
   const moments = generated.slice(0, 30).map((g, i) => {
-    const text = g.prompt || 'senza frase, del ' + new Date(g.time).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })
+    const text = g.name || g.prompt || 'senza frase, del ' + new Date(g.time).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })
     return {
       label: (text.length > 70 ? text.slice(0, 69) + '…' : text).replace(/&/g, '&&'),
       click: () => command({ cmd: 'preview-clip', url: 'motion://generated/' + g.key, name: g.name || g.prompt || 'movimento generato ' + (i + 1) }),

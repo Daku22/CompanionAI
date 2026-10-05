@@ -108,9 +108,55 @@
     #weather-section { padding: 0 0 14px; }
     #weather-city { max-width: 320px; font-family: var(--font); }
     #persona-name { max-width: 320px; font-family: var(--font); }
-    #motions-list .motion { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+    .mcp-area { width: 100%; min-height: 64px; resize: vertical; }
+    .mcp-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .mcp-section-head h2 { margin-bottom: 0; }
+    .mcp-custom { margin-bottom: 12px; }
+    .mcp-custom .title { font-weight: 600; margin-bottom: 4px; }
+    .mcp-actions { justify-content: flex-end; }
+    .mcp-state { min-height: 1.4em; margin-top: 8px; }
+    .mcp-cat { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin: 18px 0 8px; }
+    .mcp-cat-note { margin: -4px 0 8px; font-size: 12px; }
+    .mcp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+    .mcp-tile { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+    .mcp-tile.wide { grid-column: 1 / -1; }
+    .mcp-tile .what { flex: 1; min-width: 0; }
+    .mcp-tile .what b { display: block; font-weight: 600; margin-bottom: 2px; }
+    .mcp-tile .what > span { display: block; color: var(--text-3); font-size: 11.5px; line-height: 1.45; }
+    .mcp-tile button { flex: none; }
+    .mcp-tile button.done { color: var(--text-3); }
+    .mcp-token { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .mcp-token span { color: var(--text-2); font-size: 11.5px; line-height: 1.45; }
+    .mcp-token .link { align-self: flex-start; font-size: 11.5px; }
+    .mcp-badge { flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 700;
+      color: hsl(var(--hue) 70% 85%); background: hsl(var(--hue) 35% 24%); }
+    .mcp-write { margin-top: 8px; color: var(--text-2); font-size: 12px; }
+    .mcp-note { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--text); font-size: 12px; line-height: 1.5; }
+    .mcp-advanced { margin-top: 14px; }
+    .mcp-advanced summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; padding: 6px 0; }
+    body.mcp-busy #page-strumenti button { pointer-events: none; opacity: 0.6; }
+    button.link { background: none; border: none; padding: 0; color: var(--text-2); text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px; font-size: inherit; cursor: pointer; }
+    button.link:hover { color: var(--text); background: none; }
+    #mcp-list .server { padding: 10px 0; border-top: 1px solid var(--line); }
+    #mcp-list .server:first-child { border-top: none; }
+    #mcp-list .server .head { display: flex; align-items: center; gap: 10px; }
+    #mcp-list .server .title { flex: 1; min-width: 0; }
+    #mcp-list .server .title b { display: block; font-weight: 600; }
+    #mcp-list .server .title .status { display: block; font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #mcp-list .server details.tools { margin: 6px 0 0 40px; }
+    #mcp-list .server details.tools summary { cursor: pointer; font-size: 12px; color: var(--text-2); padding: 4px 0; }
+    #mcp-list .server .group { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); margin: 10px 0 4px; }
+    #mcp-list .server label.tool { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--text-2); margin: 5px 0; cursor: pointer; }
+    #mcp-list .server label.tool b { color: var(--text); font-weight: 500; }
+    #mcp-list .server label.tool small { display: block; color: var(--text-3); font-size: 11px; line-height: 1.45; margin-top: 1px; }
+    #mcp-list .server label.tool .link { font-size: 11px; }
+    #mcp-list .server .cmd { font-size: 10.5px; color: var(--text-3); font-family: var(--font-mono, monospace); overflow-wrap: anywhere; margin: 10px 0 4px; }
+    #motions-list .motion { display: grid; grid-template-columns: 1fr auto auto auto; gap: 4px 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
     #motions-list .motion input { font-family: var(--font); }
     #motions-list .motion .prompt { grid-column: 1 / -1; font-size: 11px; color: var(--text-3); }
+    #motions-list .motion button.save { background: #2f9e5b; border-color: transparent; color: #fff; font-weight: 600; }
+    #motions-list .motion button.save:hover:not(:disabled) { background: #36b368; }
+    #motions-list .motion button.save:disabled { opacity: 0.45; }
     #diary-list { display: flex; flex-direction: column; gap: 14px; max-height: 360px; overflow-y: auto; }
     #diary-list article h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
     #diary-list article p { color: var(--text-2); line-height: 1.55; white-space: pre-wrap; }
@@ -173,6 +219,7 @@
     <button class="item" data-page="microfono"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg> Microfono</button>
     <div class="group">Avatar</div>
     <button class="item" data-page="movimenti"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="2"/><path d="M8 21l3-6 3 2v4M11 15l1-6 4 3h3M12 9l-4 2-1 3"/></svg> Movimenti</button>
+    <button class="item" data-page="strumenti"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7V3M15 7V3M6.5 7h11v4a5.5 5.5 0 0 1-11 0zM12 16.5V21"/></svg> Connettori</button>
     <button class="item" data-page="live2d"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M5 20c.8-3.6 3.6-6 7-6s6.2 2.4 7 6"/><path d="M8.5 7.5c1.5-2 5.5-2 7 0"/></svg> Live2D</button>
   </nav>
   <main>
@@ -439,6 +486,76 @@
         <p class="muted" id="motions-empty">Ancora nessun movimento generato. Accendi Kimodo in Generale e chiedi in chat un movimento che non c'è, per esempio "fai una ruota".</p>
         <p class="state" id="motions-state" role="status"></p>
       </div>
+    </section>
+   </div>
+
+   <div class="page hidden" id="page-strumenti">
+    <h1>Connettori</h1>
+    <p class="sub">I connettori collegano il companion ad altri servizi e programmi: la ricerca sul web, Notion, Todoist,
+      i file di una cartella… Ogni volta che vuole usarne uno ti chiede il permesso, e tu decidi.</p>
+
+    <section>
+      <div class="mcp-section-head">
+        <h2>I tuoi connettori</h2>
+        <button id="mcp-custom-open">+ Aggiungi connettore personalizzato</button>
+      </div>
+      <div class="box mcp-custom hidden" id="mcp-custom">
+        <div class="title">Connettore personalizzato</div>
+        <p class="muted">Per un server MCP remoto: ti serve il suo indirizzo, che di solito il servizio indica nella sua
+          documentazione. Se chiede di accedere, si apre il browser.</p>
+        <div class="row"><label class="name" for="mcp-remote-name">Nome</label><input class="pf-input" id="mcp-remote-name" maxlength="40" placeholder="Il mio connettore"></div>
+        <div class="row"><label class="name" for="mcp-remote-url">URL</label><input class="pf-input pf-mono" id="mcp-remote-url" maxlength="500" spellcheck="false" placeholder="https://esempio.com/mcp"></div>
+        <details class="mcp-advanced">
+          <summary>Opzioni avanzate</summary>
+          <div class="row"><label class="name" for="mcp-remote-token">Token</label><input class="pf-input pf-mono" id="mcp-remote-token" type="password" maxlength="500" spellcheck="false" placeholder="facoltativo: token o chiave API"></div>
+          <p class="muted">Solo se il servizio ti ha dato un token o una chiave al posto dell'accesso. Si salva cifrato.</p>
+        </details>
+        <div class="row mcp-actions"><button id="mcp-custom-cancel">Annulla</button><button class="primary" id="mcp-remote-add">Aggiungi</button></div>
+      </div>
+      <div class="box">
+        <div id="mcp-list"></div>
+        <p class="muted" id="mcp-empty">Nessun connettore ancora: aggiungine uno qui sotto, oppure uno personalizzato.</p>
+      </div>
+      <p class="state mcp-state" id="mcp-state" role="status"></p>
+    </section>
+
+    <section>
+      <h2>Sfoglia i connettori</h2>
+      <h3 class="mcp-cat">Pronti subito, senza account</h3>
+      <div class="mcp-grid" id="mcp-grid-none"></div>
+
+      <h3 class="mcp-cat">Con il tuo account</h3>
+      <p class="muted mcp-cat-note">"Collega" apre la pagina del servizio nel browser: accedi e autorizza CompanionAI, poi torna qui.</p>
+      <div class="mcp-grid" id="mcp-grid-account"></div>
+
+      <h3 class="mcp-cat">Sul tuo PC</h3>
+      <div class="mcp-grid">
+        <div class="mcp-tile wide">
+          <span class="mcp-badge" style="--hue: 140" aria-hidden="true">📁</span>
+          <div class="what">
+            <b>File di una cartella</b>
+            <span>Legge i file di una cartella che scegli tu: appunti, liste, documenti. Solo quella cartella.</span>
+            <label class="switch mcp-write"><input type="checkbox" id="mcp-files-write"> Può anche creare e modificare file</label>
+          </div>
+          <button id="mcp-files-add">Scegli la cartella…</button>
+        </div>
+      </div>
+      <p class="mcp-note hidden" id="mcp-node-missing">I connettori sul PC hanno bisogno di <b>Node.js</b>, un programma gratuito.
+        <button class="link" id="mcp-node-get" type="button">Scarica Node.js ↗</button> poi installalo e torna qui.</p>
+
+      <details class="mcp-advanced">
+        <summary>Programma sul PC personalizzato (per esperti)</summary>
+        <p class="muted">Qualsiasi server MCP che si avvia con un comando (stdio).</p>
+        <div class="row"><label class="name" for="mcp-name">Nome</label><input class="pf-input" id="mcp-name" maxlength="40" placeholder="Il mio server"></div>
+        <div class="row"><label class="name" for="mcp-command">Comando</label><input class="pf-input pf-mono" id="mcp-command" maxlength="300" spellcheck="false" placeholder="npx"></div>
+        <label class="name" for="mcp-args">Argomenti, uno per riga</label>
+        <textarea class="pf-input pf-mono mcp-area" id="mcp-args" spellcheck="false"></textarea>
+        <label class="name" for="mcp-env">Variabili d'ambiente, NOME=valore per riga (facoltative)</label>
+        <textarea class="pf-input pf-mono mcp-area" id="mcp-env" spellcheck="false"></textarea>
+        <div class="row"><button id="mcp-add">Aggiungi e collega</button></div>
+        <p class="muted note">Un programma così gira con i tuoi permessi: aggiungi solo quelli di cui ti fidi. Le variabili
+          d'ambiente si salvano nel file di configurazione in chiaro.</p>
+      </details>
     </section>
    </div>
 

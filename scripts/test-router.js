@@ -660,3 +660,7 @@ async function main() {
 }
 
 main()
+
+test('il resto del JSON non finisce nel testo mostrato', () => {
+  assert.equal(parseResponse('{"reply":"Riprovo dopo.},\\"emotion\\":\\"calm\\",\\"rapport\\":0}').reply, 'Riprovo dopo.')
+})

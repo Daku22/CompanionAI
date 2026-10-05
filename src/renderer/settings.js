@@ -134,6 +134,202 @@
     }))
     $('diary-empty').classList.toggle('hidden', entries.length > 0)
   }
+  // Connettori MCP (Blocco 7f), come in Claude: i tuoi connettori, quello
+  // personalizzato (nome e URL) e il catalogo dei piu' usati.
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e }
+  // Un colore per nome, sempre lo stesso: le icone sono iniziali, non loghi.
+  const hueOf = (name) => [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
+  const badge = (name) => {
+    const b = el('span', 'mcp-badge', String(name).replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?')
+    b.style.setProperty('--hue', hueOf(name))
+    b.setAttribute('aria-hidden', 'true')
+    return b
+  }
+  // Il messaggio sta sotto i tuoi connettori: se si e' premuto qualcosa in fondo al catalogo, lo si porta in vista.
+  const state = (text) => {
+    $('mcp-state').textContent = text
+    if (text) $('mcp-state').scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }
+  let mcpBusy = false
+
+  async function run(label, task) {
+    if (mcpBusy) return null
+    mcpBusy = true
+    document.body.classList.add('mcp-busy')
+    state(label)
+    try { return await task() } catch (e) { return { ok: false, error: e.message } } finally {
+      mcpBusy = false
+      document.body.classList.remove('mcp-busy')
+    }
+  }
+  const loginNote = (name) => 'Collego ' + name + '… se si apre il browser, accedi e autorizza CompanionAI: ti aspetto qui.'
+
+  function showMcp(servers) {
+    $('mcp-empty').classList.toggle('hidden', servers.length > 0)
+    $('mcp-list').replaceChildren(...servers.map(s => {
+      const box = el('div', 'server')
+      const head = el('div', 'head')
+      const on = el('label', 'switch')
+      const onBox = el('input')
+      onBox.type = 'checkbox'
+      onBox.checked = s.enabled
+      onBox.setAttribute('aria-label', 'Acceso')
+      onBox.addEventListener('change', async () => { const r = await api.mcpUpdate({ id: s.id, enabled: onBox.checked }); showMcp(r.servers) })
+      on.append(onBox)
+      const where = s.url ? new URL(s.url).host : 'Sul tuo PC'
+      const title = el('div', 'title')
+      title.append(el('b', '', s.name), el('span', 'status', where + ' · ' + (!s.enabled ? 'spento'
+        : s.auth === 'oauth' && !s.signedIn ? 'da ricollegare'
+        : s.allowed.length ? 'acceso, ' + s.allowed.length + (s.allowed.length === 1 ? ' azione permessa' : ' azioni permesse')
+        : 'acceso, ma nessuna azione permessa')))
+      const del = el('button', 'danger', 'Rimuovi')
+      del.addEventListener('click', async (e) => {
+        if (!confirmClick(e.currentTarget, 'Clicca di nuovo per rimuovere ' + s.name + (s.url ? ' (si scollega anche il tuo account)' : '') + '.')) return
+        const r = await api.mcpRemove(s.id)
+        showMcp(r.servers)
+        refreshCatalog()
+      })
+      head.append(badge(s.name), title, on, del)
+      box.append(head)
+
+      const details = el('details', 'tools')
+      details.append(el('summary', '', 'Cosa può fare'))
+      const group = (label, list) => {
+        if (!list.length) return
+        details.append(el('div', 'group', label))
+        for (const t of list) {
+          const row = el('label', 'tool')
+          const check = el('input')
+          check.type = 'checkbox'
+          check.checked = s.allowed.includes(t.name)
+          check.addEventListener('change', async () => {
+            const allowed = check.checked ? [...s.allowed, t.name] : s.allowed.filter(n => n !== t.name)
+            const r = await api.mcpUpdate({ id: s.id, allowed })
+            showMcp(r.servers)
+          })
+          const text = el('span')
+          text.append(el('b', '', t.label))
+          if (s.trusted.includes(t.name)) {
+            const again = el('button', 'link', 'non chiede più · chiedi di nuovo')
+            again.type = 'button'
+            again.addEventListener('click', async (e) => {
+              e.preventDefault()
+              const r = await api.mcpUpdate({ id: s.id, trusted: s.trusted.filter(n => n !== t.name) })
+              showMcp(r.servers)
+            })
+            text.append(' ', again)
+          }
+          if (t.description) text.append(el('small', '', t.description))
+          row.append(check, text)
+          details.append(row)
+        }
+      }
+      group('Legge (non cambia niente)', s.tools.filter(t => t.readOnly))
+      group('Modifica (attenzione: cambia i tuoi file o dati)', s.tools.filter(t => !t.readOnly))
+      const again = el('button', 'link', s.auth === 'oauth' ? 'Accedi di nuovo' : 'Aggiorna l\'elenco')
+      again.type = 'button'
+      again.addEventListener('click', async () => {
+        const r = await run(loginNote(s.name), () => api.mcpConnect(s.id))
+        if (!r) return
+        state(r.ok ? '✓ ' + s.name + ' collegato.' : '✗ ' + s.name + ': ' + r.error)
+        if (r.ok) showMcp(r.servers)
+      })
+      details.append(el('div', 'cmd', s.url || [s.command, ...s.args].join(' ')), again)
+      box.append(details)
+      return box
+    }))
+  }
+
+  // Il catalogo: una scheda per connettore, "Aggiungi" o "Collega".
+  function tile(c) {
+    const t = el('div', 'mcp-tile')
+    const what = el('div', 'what')
+    what.append(el('b', '', c.name), el('span', '', c.description))
+    const btn = el('button', c.added ? 'done' : '', c.added ? 'Aggiunto ✓' : c.auth === 'none' ? 'Aggiungi' : 'Collega')
+    btn.disabled = c.added
+    t.append(badge(c.name), what, btn)
+    if (c.auth === 'token' && !c.added) {
+      // GitHub e simili: il token si crea sul sito, poi si incolla qui.
+      const form = el('div', 'mcp-token hidden')
+      const input = el('input', 'pf-input pf-mono')
+      input.type = 'password'
+      input.placeholder = 'Incolla il token'
+      const make = el('button', 'link', 'Crea il token ↗')
+      make.type = 'button'
+      make.addEventListener('click', () => api.mcpOpenTokenPage(c.id))
+      const go = el('button', 'primary', 'Collega')
+      form.append(el('span', '', c.tokenHelp), make, input, go)
+      what.append(form)
+      btn.addEventListener('click', () => {
+        const open = form.classList.toggle('hidden') === false
+        btn.textContent = open ? 'Chiudi' : 'Collega'
+        if (open) input.focus()
+      })
+      go.addEventListener('click', async () => {
+        const r = await run('Collego ' + c.name + '…', () => api.mcpAddConnector({ id: c.id, token: input.value }))
+        if (!r) return
+        state(r.ok ? '✓ ' + c.name + ' collegato: ora puoi chiederglielo in chat.' : '✗ ' + c.name + ': ' + r.error)
+        if (r.ok) { showMcp(r.servers); refreshCatalog() }
+      })
+    } else if (!c.added) {
+      btn.addEventListener('click', async () => {
+        const r = await run(c.auth === 'oauth' ? loginNote(c.name) : 'Aggiungo ' + c.name + '…', () => api.mcpAddConnector({ id: c.id }))
+        if (!r) return
+        state(r.ok ? '✓ ' + c.name + ' collegato: ora puoi chiederglielo in chat.' : '✗ ' + c.name + ': ' + r.error)
+        if (r.ok) { showMcp(r.servers); refreshCatalog() }
+      })
+    }
+    return t
+  }
+  async function refreshCatalog() {
+    const list = await api.mcpCatalog().catch(() => [])
+    $('mcp-grid-none').replaceChildren(...list.filter(c => c.auth === 'none').map(tile))
+    $('mcp-grid-account').replaceChildren(...list.filter(c => c.auth !== 'none').map(tile))
+  }
+
+  // Connettore personalizzato: nome e URL.
+  const custom = $('mcp-custom')
+  $('mcp-custom-open').addEventListener('click', () => { custom.classList.remove('hidden'); $('mcp-remote-name').focus() })
+  $('mcp-custom-cancel').addEventListener('click', () => custom.classList.add('hidden'))
+  $('mcp-remote-add').addEventListener('click', async () => {
+    const name = $('mcp-remote-name').value.trim()
+    const r = await run(loginNote(name || 'il connettore'), () => api.mcpAddRemote({ name, url: $('mcp-remote-url').value, token: $('mcp-remote-token').value }))
+    if (!r) return
+    state(r.ok ? '✓ ' + name + ' collegato: in "Cosa può fare" vedi le sue azioni.' : '✗ ' + r.error)
+    if (r.ok) {
+      showMcp(r.servers)
+      for (const id of ['mcp-remote-name', 'mcp-remote-url', 'mcp-remote-token']) $(id).value = ''
+      custom.classList.add('hidden')
+    }
+  })
+
+  // Sul PC: prima si controlla che ci sia Node.js.
+  const filesBtn = $('mcp-files-add')
+  async function checkNode() {
+    const version = await api.mcpNode().catch(() => null)
+    $('mcp-node-missing').classList.toggle('hidden', !!version)
+    filesBtn.disabled = !version
+    return version
+  }
+  $('mcp-node-get').addEventListener('click', () => api.mcpOpenNodePage())
+  filesBtn.addEventListener('click', async () => {
+    const r = await run('Scegli la cartella… poi preparo il connettore (la prima volta può volerci un minuto).', () => api.mcpAddFiles({ write: $('mcp-files-write').checked }))
+    if (!r) return
+    state(r.canceled ? '' : r.ok ? '✓ Pronto: ora puoi chiedergli dei file di quella cartella.' : '✗ Non sono riuscito: ' + r.error)
+    if (r.ok) { $('mcp-files-write').checked = false; showMcp(r.servers) }
+  })
+  $('mcp-add').addEventListener('click', async () => {
+    const lines = (id) => $(id).value.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    const r = await run('Avvio il programma e leggo le sue azioni…', () => api.mcpAdd({ name: $('mcp-name').value, command: $('mcp-command').value, args: lines('mcp-args'), env: lines('mcp-env') }))
+    if (!r) return
+    state(r.ok ? '✓ Aggiunto: in "Cosa può fare" scegli cosa permettergli.' : '✗ Non sono riuscito: ' + r.error)
+    if (r.ok) { showMcp(r.servers); for (const id of ['mcp-name', 'mcp-command', 'mcp-args', 'mcp-env']) $(id).value = '' }
+  })
+  api.mcpList().then(showMcp).catch(() => {})
+  refreshCatalog()
+  checkNode()
+  for (const t of tabs) if (t.dataset.page === 'strumenti') t.addEventListener('click', checkNode)
+
   // Movimenti generati con Kimodo (Blocco 7d): nome, prova, eliminazione.
   async function showMotions() {
     const list = await api.motionsList().catch(() => [])
@@ -147,11 +343,18 @@
       name.value = m.name || ''
       name.placeholder = m.prompt || 'movimento generato ' + (i + 1)
       name.setAttribute('aria-label', 'Nome del movimento')
-      name.addEventListener('change', async () => {
+      let savedName = name.value
+      const save = document.createElement('button')
+      save.className = 'save'
+      save.textContent = 'Salva'
+      save.disabled = true
+      name.addEventListener('input', () => { save.disabled = name.value.trim() === savedName.trim() })
+      save.addEventListener('click', async () => {
         const ok = await api.motionsRename(m.key, name.value).catch(() => false)
-        $('motions-state').textContent = ok ? 'Nome salvato.' : 'Non riuscito.'
+        if (ok) { savedName = name.value; save.disabled = true }
+        $('motions-state').textContent = ok ? '✓ Nome salvato: lo trovi così nel menu "Prova i movimenti di Kimodo".' : 'Non riuscito.'
       })
-      name.addEventListener('keydown', (e) => { if (e.key === 'Enter') name.blur() })
+      name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !save.disabled) save.click() })
       const play = document.createElement('button')
       play.textContent = 'Prova'
       play.addEventListener('click', () => api.motionsPreview(m.key))
@@ -167,7 +370,7 @@
       const prompt = document.createElement('div')
       prompt.className = 'prompt'
       prompt.textContent = m.prompt ? '“' + m.prompt + '”' : ''
-      row.append(name, play, del, prompt)
+      row.append(name, save, play, del, prompt)
       return row
     }))
   }

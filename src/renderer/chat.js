@@ -317,7 +317,11 @@ async function sendMessage(spoken) {
   conversationHistory.push({ role: 'assistant', content: (result.reply || '').slice(0, 8000) })
   if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
 
+  // Lo strumento usato per rispondere, prima della risposta (Blocco 7f).
+  if (result.toolNote) addMessage('system', result.toolNote)
   addMessage('assistant', result.reply)
+  // Uno strumento MCP annullato o rifiutato (Blocco 7f).
+  if (result.notice) addMessage('system', result.notice)
   updateMemoryFooter().catch(() => {})
   // Il modello ha risposto fuori formato: l'azione e' andata persa. Lo si dice
   // una volta per modello, altrimenti sembra che l'avatar ignori le richieste.

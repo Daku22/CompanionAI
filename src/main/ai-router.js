@@ -89,7 +89,8 @@ const ANIMATIONS = [
 ]
 // look (Blocco 7b): l'utente chiede di guardare lo schermo; la chat prepara la
 // schermata e la manda solo se l'utente conferma.
-const ACTION_TYPES = ['none', 'open-desktop-item', 'open-url', 'open-path', 'run-command', 'look']
+// tool (Blocco 7f): uno strumento MCP ammesso, sempre confermato dall'utente.
+const ACTION_TYPES = ['none', 'open-desktop-item', 'open-url', 'open-path', 'run-command', 'look', 'tool']
 // Emozioni che il modello puo' dichiarare: le stesse che mood.js sa gestire.
 const EMOTIONS = REPLY_EMOTIONS
 // Verso e distanza di walk-to / run-to. Senza, la meta' era sempre a caso e
@@ -120,6 +121,9 @@ const COMPANION_SCHEMA = {
         direction: { type: 'string', enum: DIRECTIONS, description: 'verso di walk-to / run-to' },
         distance:  { type: 'string', enum: DISTANCES, description: 'quanto lontano: short, medium, edge (fino al bordo)' },
         motion:    { type: 'string', description: 'movimento nuovo da generare, in inglese (solo se richiesto e non fra le animazioni)' },
+        server:    { type: 'string', description: 'solo per type "tool": id del server MCP' },
+        tool:      { type: 'string', description: 'solo per type "tool": nome dello strumento' },
+        args:      { type: 'object', description: 'solo per type "tool": argomenti dello strumento' },
       },
       required: ['type', 'animation'],
       additionalProperties: false,
@@ -627,6 +631,14 @@ function parseJSONReply(raw) {
 
 /** Recupero per le risposte che non sono JSON: si salva almeno il testo. */
 function recoverReply(raw) {
+  const r = recoverRaw(raw)
+  return { ...r, reply: cutJsonTail(r.reply) }
+}
+
+/** Il resto del JSON finito dentro il testo: '...},"emotion":"calm",...'. */
+const cutJsonTail = (s) => String(s).replace(/["}\s]*,\s*\\*"(emotion|rapport|action)\\*"\s*:[^]*$/, '').trim() || String(s)
+
+function recoverRaw(raw) {
   const text = String(raw)
   const unescape = (v) => v.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\//g, '/')
   const idle = { type: 'none', animation: 'idle' }
