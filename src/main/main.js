@@ -1044,6 +1044,24 @@ handle('motions:preview', async (_e, key) => {
   return true
 })
 
+// Foto (Blocco 7e): il PNG arriva dalla stanza, e dove salvarlo lo sceglie l'utente.
+const PHOTO_RE = /^data:image\/png;base64,([A-Za-z0-9+/]+=*)$/
+handle('photo:save', async (_e, dataUrl) => {
+  const m = typeof dataUrl === 'string' && dataUrl.length <= 60 * 1024 * 1024 ? dataUrl.match(PHOTO_RE) : null
+  if (!m) return { ok: false, error: 'Immagine non valida.' }
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
+  const parent = companionWindow && !companionWindow.isDestroyed() ? companionWindow : undefined
+  const picked = await dialog.showSaveDialog(parent, {
+    title: 'Salva la foto',
+    defaultPath: path.join(app.getPath('pictures'), 'CompanionAI-' + stamp + '.png'),
+    filters: [{ name: 'Immagine PNG', extensions: ['png'] }],
+  })
+  if (picked.canceled || !picked.filePath) return { ok: false, canceled: true }
+  const file = /\.png$/i.test(picked.filePath) ? picked.filePath : picked.filePath + '.png'
+  await fs.promises.writeFile(file, Buffer.from(m[1], 'base64'))
+  return { ok: true, path: file }
+})
+
 // Prova il modello (Blocco 7a): una richiesta minima, senza scorte ne'
 // nuovi tentativi, con la chiave del campo (non ancora salvata) o quella salvata.
 handle('ai:test-model', async (_e, input) => {

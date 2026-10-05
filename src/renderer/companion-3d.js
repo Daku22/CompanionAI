@@ -304,6 +304,8 @@ window.__companion3DTest = {
   /** Stanza: stato della scena; setTime forza un'ora (ISO) per le schermate. */
   room: () => ({ mode: roomMode, chatInset, ...(roomScene ? roomScene.debug() : {}) }),
   roomTime: (iso) => { if (roomScene) roomScene.setTime(iso ? new Date(iso) : null); },
+  /** Foto (Blocco 7e): lo scatto come lo fa "Scatta", senza salvarlo. */
+  photoShot: () => { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); },
   roomScene: (id) => { const chosen = roomScene ? roomScene.setScene(id) : null; roomUI.refreshScenes(); return chosen; },
   roomWeather: (w, place) => { if (roomScene) roomScene.setWeather(w, place); },
   /** Stato dell'ombra ai piedi. */
@@ -1421,6 +1423,47 @@ if (api && api.onMenuCommand) {
   });
 }
 
+// ─── Foto (Blocco 7e) ───────────────────────────────────────────────────────
+// Nella stanza: posa (le animazioni) ed espressione. Lo scatto e' il canvas
+// appena disegnato, senza interfaccia; il main chiede dove salvarlo. Per ora
+// solo con gli avatar 3D.
+let photoFace = '';
+function openPhoto() {
+  if (!roomMode) return;
+  if (!window.__threeVisible || !currentVrm) { showBubble('La foto per ora funziona con gli avatar 3D', 3200); return; }
+  const pose = /** @type {HTMLSelectElement} */ (document.getElementById('photo-pose'));
+  if (!pose.options.length) {
+    pose.append(new Option('Come adesso', ''), ...Object.entries(SLOT_LABELS).map(([slot, label]) => new Option(label, slot)));
+  }
+  document.body.classList.add('photo-mode');
+}
+function closePhoto() {
+  document.body.classList.remove('photo-mode');
+  photoFace = '';
+  clearReactions();
+}
+function photoSetup() {
+  const $ = (id) => /** @type {HTMLSelectElement} */ (document.getElementById(id));
+  document.getElementById('room-photo').addEventListener('click', openPhoto);
+  document.getElementById('photo-exit').addEventListener('click', closePhoto);
+  $('photo-pose').addEventListener('change', () => { if ($('photo-pose').value) playClip($('photo-pose').value); });
+  $('photo-face').addEventListener('change', () => {
+    clearReactions();
+    photoFace = $('photo-face').value;
+    if (photoFace) react(photoFace, 1, 24 * 3600 * 1000);
+  });
+  document.getElementById('photo-shot').addEventListener('click', async () => {
+    // Il canvas si legge subito dopo averlo disegnato: senza preserveDrawingBuffer
+    // a frame finito sarebbe vuoto.
+    renderer.render(scene, camera);
+    const url = renderer.domElement.toDataURL('image/png');
+    const hint = document.getElementById('photo-hint');
+    const r = api && api.savePhoto ? await api.savePhoto(url).catch(e => ({ ok: false, error: e.message })) : null;
+    hint.textContent = r && r.ok ? 'Salvata.' : r && r.canceled ? 'Non salvata.' : 'Non riuscita: ' + ((r && r.error) || 'errore');
+  });
+}
+photoSetup();
+
 // ─── Stanza ────────────────────────────────────────────────────────────────
 // Il main dice la modalita' (view-mode). Nella stanza la scena gira sempre,
 // il sinistro ruota la camera, e la barra del titolo e i bordi li gestisce
@@ -1516,6 +1559,7 @@ async function applyViewMode(data) {
   roomUI.setState({ room: next, maximized: !!(data && data.maximized) });
   if (next !== roomMode) {
     roomMode = next;
+    if (!next) closePhoto();
     window.CompanionInput.setRoom(roomMode);
     document.body.classList.toggle('mode-room', roomMode);
     if (roomMode) {

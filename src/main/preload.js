@@ -116,6 +116,7 @@ contextBridge.exposeInMainWorld('companion', {
   // ─── Config (API keys, provider attivo) ────────────────────────────────────
   getConfig:   ()            => ipcRenderer.invoke('config:get'),
   testModel:   (input)       => ipcRenderer.invoke('ai:test-model', input),
+  savePhoto:   (dataUrl)     => ipcRenderer.invoke('photo:save', dataUrl),
   // Movimenti generati con Kimodo (Blocco 7d).
   motionsList:    ()         => ipcRenderer.invoke('motions:list'),
   motionsRename:  (key, name) => ipcRenderer.invoke('motions:rename', String(key || ''), String(name || '')),

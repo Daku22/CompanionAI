@@ -195,6 +195,20 @@
     #room-bar button:hover { background: var(--surface-hi); color: var(--text); }
     #room-bar #room-close:hover { background: var(--danger-solid); color: white; }
     #room-bar #room-adjust { display: none; }
+    /* Foto (Blocco 7e): via barra, bordi e fumetti; resta il pannellino. */
+    #photo-panel { display: none; }
+    body.photo-mode #photo-panel {
+      display: flex; flex-direction: column; gap: 8px; position: fixed; left: 14px; bottom: 14px; z-index: 30; width: 220px;
+      padding: 12px; border-radius: 12px; background: rgba(24, 23, 27, 0.92); border: 1px solid var(--line); color: var(--text); font-size: 12px;
+    }
+    #photo-panel .title { font-weight: 600; }
+    #photo-panel label { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-2); }
+    #photo-panel select { width: 120px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 3px 6px; }
+    #photo-panel .row { display: flex; gap: 8px; justify-content: flex-end; }
+    #photo-panel button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+    #photo-panel button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+    #photo-panel .hint { font-size: 11px; color: var(--text-3); }
+    body.photo-mode #room-bar, body.photo-mode .room-grip, body.photo-mode #scene-adjust, body.photo-mode #bubble { display: none !important; }
     #room-bar #room-adjust.shown { display: grid; }
 
     /* ── Sistema la scena (scene-adjust.js), per le scene importate ────── */
@@ -273,10 +287,21 @@
     <span class="room-title">CompanionAI · <b>Stanza</b></span>
     <select id="room-scene" title="Scena"></select>
     <button id="room-adjust" title="Sistema la scena" aria-label="Sistema la scena"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.4" stroke-width="2.6" stroke-dasharray="3.3 3.3" stroke-linecap="butt"/><circle cx="12" cy="12" r="6.6"/><circle cx="12" cy="12" r="2.4"/></svg></button>
+    <button id="room-photo" title="Foto" aria-label="Foto"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l1.5-2.5h7L17 8.5h3a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg></button>
     <button id="room-chat" title="Chat" aria-label="Chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-4.5 3.5V17H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg></button>
     <button id="room-min" title="Riduci a icona" aria-label="Riduci a icona"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
     <button id="room-max" title="Ingrandisci" aria-label="Ingrandisci"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
     <button id="room-close" title="Torna sul desktop" aria-label="Torna sul desktop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+  </div>
+  <div id="photo-panel">
+    <div class="title">Foto</div>
+    <label>Posa <select id="photo-pose"></select></label>
+    <label>Espressione <select id="photo-face">
+      <option value="">Come adesso</option><option value="happy">Contenta</option><option value="relaxed">Serena</option>
+      <option value="surprised">Sorpresa</option><option value="sad">Triste</option><option value="angry">Arrabbiata</option>
+    </select></label>
+    <div class="row"><button id="photo-exit">Esci</button><button id="photo-shot" class="primary">Scatta</button></div>
+    <div class="hint" id="photo-hint">Muovi la camera col mouse come sempre.</div>
   </div>
   <div id="scene-adjust">
     <div class="title">Sistema la scena <span id="adj-name"></span></div>

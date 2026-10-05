@@ -996,6 +996,28 @@ try {
   await comp.evaluate('window.__companion3DTest.resetCamera(); true')
   await sleep(1200)
   await shot('4g-scena-importata')
+  // Foto (Blocco 7e): il pannello si apre, lo scatto e' un PNG con la scena
+  // senza interfaccia, nessun errore della pagina. Nel Giardino (cielo e nebbia
+  // che cambiano a ogni fotogramma), poi si torna alla scena di prima.
+  const sceneBefore = await comp.evaluate("document.getElementById('room-scene').value")
+  await comp.evaluate("window.__companion3DTest.roomScene('giardino'); true")
+  await sleep(800)
+  const photo = await comp.evaluate(`(async () => {
+    const errors = []
+    const onError = (e) => errors.push(e.message)
+    window.addEventListener('error', onError)
+    document.getElementById('room-photo').click()
+    const open = document.body.classList.contains('photo-mode') && getComputedStyle(document.getElementById('room-bar')).display === 'none'
+    const url = window.__companion3DTest.photoShot()
+    await new Promise(r => setTimeout(r, 500))
+    document.getElementById('photo-exit').click()
+    window.removeEventListener('error', onError)
+    return { open, closed: !document.body.classList.contains('photo-mode'), png: url.startsWith('data:image/png') && url.length > 10000, errors: errors.length }
+  })()`)
+  check(!!(photo && photo.open && photo.closed && photo.png && photo.errors === 0),
+    'foto: pannello, scatto PNG senza interfaccia, nessun errore (' + JSON.stringify(photo) + ')')
+  await comp.evaluate('window.__companion3DTest.roomScene(' + JSON.stringify(sceneBefore) + '); true')
+  await sleep(1500)
   // Alt + destro sposta la camera invece di girarla, e non apre il menu.
   await comp.evaluate('window.__menuOpened = 0; true')
   const [sx, sy] = [Math.round(rw * 0.35), Math.round(rh * 0.5)]

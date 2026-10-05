@@ -110,6 +110,9 @@
   never read.
 - Settings → Movimenti: the movements generated with Kimodo can be named
   (the name shows in the "Prova" menu too), tried on the avatar and deleted.
+- Photo mode in the room (📷 in the title bar): the interface hides, a small
+  panel picks a pose and an expression, and "Scatta" saves a PNG of the scene
+  with the avatar where you choose. 3D avatars only for now.
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.
