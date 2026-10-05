@@ -108,6 +108,9 @@
     #weather-section { padding: 0 0 14px; }
     #weather-city { max-width: 320px; font-family: var(--font); }
     #persona-name { max-width: 320px; font-family: var(--font); }
+    #motions-list .motion { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+    #motions-list .motion input { font-family: var(--font); }
+    #motions-list .motion .prompt { grid-column: 1 / -1; font-size: 11px; color: var(--text-3); }
     #diary-list { display: flex; flex-direction: column; gap: 14px; max-height: 360px; overflow-y: auto; }
     #diary-list article h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
     #diary-list article p { color: var(--text-2); line-height: 1.55; white-space: pre-wrap; }
@@ -169,6 +172,7 @@
     <button class="item" data-page="voce"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg> Voce</button>
     <button class="item" data-page="microfono"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg> Microfono</button>
     <div class="group">Avatar</div>
+    <button class="item" data-page="movimenti"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="2"/><path d="M8 21l3-6 3 2v4M11 15l1-6 4 3h3M12 9l-4 2-1 3"/></svg> Movimenti</button>
     <button class="item" data-page="live2d"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M5 20c.8-3.6 3.6-6 7-6s6.2 2.4 7 6"/><path d="M8.5 7.5c1.5-2 5.5-2 7 0"/></svg> Live2D</button>
   </nav>
   <main>
@@ -422,6 +426,18 @@
           (scheda Voce). Si installa dopo XTTS (circa 1,8 GB) e, mentre il microfono è acceso, occupa circa
           2,5 GB della scheda video. Il servizio resta acceso finché il microfono è acceso, anche se a parlare è Kokoro.
         </p>
+      </div>
+    </section>
+   </div>
+
+   <div class="page hidden" id="page-movimenti">
+    <h1>Movimenti</h1>
+    <p class="sub">I movimenti nuovi generati con Kimodo, dal più recente. Dagli un nome per ritrovarli nel menu "Prova", provali sull'avatar o eliminali.</p>
+    <section>
+      <div class="box">
+        <div id="motions-list"></div>
+        <p class="muted" id="motions-empty">Ancora nessun movimento generato. Accendi Kimodo in Generale e chiedi in chat un movimento che non c'è, per esempio "fai una ruota".</p>
+        <p class="state" id="motions-state" role="status"></p>
       </div>
     </section>
    </div>

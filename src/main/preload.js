@@ -116,6 +116,11 @@ contextBridge.exposeInMainWorld('companion', {
   // ─── Config (API keys, provider attivo) ────────────────────────────────────
   getConfig:   ()            => ipcRenderer.invoke('config:get'),
   testModel:   (input)       => ipcRenderer.invoke('ai:test-model', input),
+  // Movimenti generati con Kimodo (Blocco 7d).
+  motionsList:    ()         => ipcRenderer.invoke('motions:list'),
+  motionsRename:  (key, name) => ipcRenderer.invoke('motions:rename', String(key || ''), String(name || '')),
+  motionsRemove:  (key)      => ipcRenderer.invoke('motions:remove', String(key || '')),
+  motionsPreview: (key)      => ipcRenderer.invoke('motions:preview', String(key || '')),
   // Ollama dall'app (Blocco 7a).
   ollamaSignin:   ()         => ipcRenderer.invoke('ollama:signin'),
   ollamaPull:     (name)     => ipcRenderer.invoke('ollama:pull', String(name || '')),

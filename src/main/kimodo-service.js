@@ -38,6 +38,9 @@ const MAX_CACHE = 100
 const MAX_PROMPT = 200
 const KEY_RE = /^[a-f0-9]{32}\.vrma$/
 const INDEX_FILE = 'index.json'
+// I nomi dati dall'utente (Blocco 7d), accanto all'indice delle frasi.
+const NAMES_FILE = 'names.json'
+const MAX_NAME = 60
 
 /**
  * La descrizione del movimento proposta dal modello, ripulita: una riga di
@@ -143,18 +146,51 @@ class KimodoService {
     } catch (_) { return {} }
   }
 
+  /** @returns {Record<string, string>} chiave -> nome dato dall'utente */
+  readNames() {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(this.cacheDir, NAMES_FILE), 'utf8'))
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+    } catch (_) { return {} }
+  }
+
+  /** Dà un nome a un movimento; vuoto lo toglie. false se non esiste. */
+  async rename(key, name) {
+    if (!this.resolve(key)) return false
+    const names = this.readNames()
+    const clean = String(name || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME)
+    if (clean) names[key] = clean
+    else delete names[key]
+    await writeAtomic(path.join(this.cacheDir, NAMES_FILE), JSON.stringify(names))
+    return true
+  }
+
+  /** Elimina un movimento: il file, la frase e il nome. false se non esiste. */
+  async remove(key) {
+    const full = this.resolve(key)
+    if (!full) return false
+    await fs.promises.rm(full, { force: true })
+    const index = this.readIndex()
+    const names = this.readNames()
+    if (key in index) { delete index[key]; await writeAtomic(path.join(this.cacheDir, INDEX_FILE), JSON.stringify(index)) }
+    if (key in names) { delete names[key]; await writeAtomic(path.join(this.cacheDir, NAMES_FILE), JSON.stringify(names)) }
+    return true
+  }
+
   /**
    * I movimenti in cache, dal piu' recente. prompt e' null per quelli salvati
-   * prima dell'indice.
-   * @returns {Promise<{ key: string, prompt: string | null, time: number }[]>}
+   * prima dell'indice; name e' null se l'utente non gliene ha dato uno.
+   * @returns {Promise<{ key: string, prompt: string | null, name: string | null, time: number }[]>}
    */
   async list() {
     let files = []
     try { files = (await fs.promises.readdir(this.cacheDir)).filter(f => KEY_RE.test(f)) } catch (_) { return [] }
     const index = this.readIndex()
+    const names = this.readNames()
     const out = await Promise.all(files.map(async key => ({
       key,
       prompt: typeof index[key] === 'string' ? index[key] : null,
+      name: typeof names[key] === 'string' ? names[key] : null,
       time: (await fs.promises.stat(path.join(this.cacheDir, key))).mtimeMs,
     })))
     return out.sort((a, b) => b.time - a.time)

@@ -1033,6 +1033,17 @@ handle('vision:capture', async () => {
   }
 })
 
+// Movimenti generati con Kimodo (Blocco 7d): elenco, nome, prova, eliminazione.
+handle('motions:list', () => (kimodo ? kimodo.list() : []))
+handle('motions:rename', (_e, key, name) => (kimodo && typeof key === 'string' ? kimodo.rename(key, typeof name === 'string' ? name : '') : false))
+handle('motions:remove', (_e, key) => (kimodo && typeof key === 'string' ? kimodo.remove(key) : false))
+handle('motions:preview', async (_e, key) => {
+  if (!kimodo || typeof key !== 'string' || !kimodo.resolve(key)) return false
+  const g = (await kimodo.list()).find(m => m.key === key)
+  sendCompanion('menu-command', { cmd: 'preview-clip', url: 'motion://generated/' + key, name: (g && (g.name || g.prompt)) || 'movimento generato' })
+  return true
+})
+
 // Prova il modello (Blocco 7a): una richiesta minima, senza scorte ne'
 // nuovi tentativi, con la chiave del campo (non ancora salvata) o quella salvata.
 handle('ai:test-model', async (_e, input) => {
@@ -2703,7 +2714,7 @@ async function previewMenu(command) {
     const text = g.prompt || 'senza frase, del ' + new Date(g.time).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })
     return {
       label: (text.length > 70 ? text.slice(0, 69) + '…' : text).replace(/&/g, '&&'),
-      click: () => command({ cmd: 'preview-clip', url: 'motion://generated/' + g.key, name: g.prompt || 'movimento generato ' + (i + 1) }),
+      click: () => command({ cmd: 'preview-clip', url: 'motion://generated/' + g.key, name: g.name || g.prompt || 'movimento generato ' + (i + 1) }),
     }
   })
   return [

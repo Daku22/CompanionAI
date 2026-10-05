@@ -134,6 +134,46 @@
     }))
     $('diary-empty').classList.toggle('hidden', entries.length > 0)
   }
+  // Movimenti generati con Kimodo (Blocco 7d): nome, prova, eliminazione.
+  async function showMotions() {
+    const list = await api.motionsList().catch(() => [])
+    $('motions-empty').classList.toggle('hidden', list.length > 0)
+    $('motions-list').replaceChildren(...list.map((m, i) => {
+      const row = document.createElement('div')
+      row.className = 'motion'
+      const name = document.createElement('input')
+      name.className = 'pf-input'
+      name.maxLength = 60
+      name.value = m.name || ''
+      name.placeholder = m.prompt || 'movimento generato ' + (i + 1)
+      name.setAttribute('aria-label', 'Nome del movimento')
+      name.addEventListener('change', async () => {
+        const ok = await api.motionsRename(m.key, name.value).catch(() => false)
+        $('motions-state').textContent = ok ? 'Nome salvato.' : 'Non riuscito.'
+      })
+      name.addEventListener('keydown', (e) => { if (e.key === 'Enter') name.blur() })
+      const play = document.createElement('button')
+      play.textContent = 'Prova'
+      play.addEventListener('click', () => api.motionsPreview(m.key))
+      const del = document.createElement('button')
+      del.className = 'danger'
+      del.textContent = 'Elimina'
+      del.addEventListener('click', async (e) => {
+        if (!confirmClick(e.currentTarget, 'Clicca di nuovo per eliminare questo movimento.')) return
+        const ok = await api.motionsRemove(m.key).catch(() => false)
+        $('motions-state').textContent = ok ? 'Movimento eliminato.' : 'Non riuscito.'
+        showMotions()
+      })
+      const prompt = document.createElement('div')
+      prompt.className = 'prompt'
+      prompt.textContent = m.prompt ? '“' + m.prompt + '”' : ''
+      row.append(name, play, del, prompt)
+      return row
+    }))
+  }
+  showMotions()
+  for (const t of tabs) if (t.dataset.page === 'movimenti') t.addEventListener('click', showMotions)
+
   // Memoria della persona scelta (Blocco 6e): riassunto da correggere e
   // ricordi da eliminare, i piu' recenti in alto.
   async function showMemory(id) {

@@ -108,6 +108,8 @@
   context, never saved in memory. Windows whose title contains a word from
   an editable list (password managers, private browsing by default) are
   never read.
+- Settings → Movimenti: the movements generated with Kimodo can be named
+  (the name shows in the "Prova" menu too), tried on the avatar and deleted.
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.

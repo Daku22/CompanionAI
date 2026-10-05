@@ -210,6 +210,23 @@ async function main() {
     assert.deepEqual(await new KimodoService({ dir: fakeInstall(), cacheDir: path.join(cacheDir, 'nessuna'), spawn: fakeSpawn().spawn }).list(), [])
   })
 
+  await test('movimenti: nome ed eliminazione (Blocco 7d)', async () => {
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-'))
+    const k = new KimodoService({ dir: fakeInstall(), cacheDir, spawn: fakeSpawn().spawn })
+    const key = cacheKey('a person does a cartwheel', 4)
+    await k.store(key, new Uint8Array([1]), 'a person does a cartwheel')
+    assert.equal(await k.rename(key, '  La  ruota\n '), true)
+    assert.equal((await k.list())[0].name, 'La ruota')
+    assert.equal(await k.rename(key, ''), true)
+    assert.equal((await k.list())[0].name, null, 'un nome vuoto lo toglie')
+    assert.equal(await k.rename('../index.json', 'x'), false)
+    await k.rename(key, 'La ruota')
+    assert.equal(await k.remove(key), true)
+    assert.deepEqual(await k.list(), [])
+    assert.ok(!(key in k.readIndex()) && !(key in k.readNames()), 'frase e nome escono con il file')
+    assert.equal(await k.remove(key), false)
+  })
+
   console.log('\n=== ' + passed + ' test superati ===')
 }
 
