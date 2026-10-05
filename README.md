@@ -10,8 +10,11 @@ conversations from one day to the next.
 - **Desktop or room:** it lives on your desktop, or in its own room, a bigger
   window with a 3D scene whose light follows the time of day (and, if you
   want, the real weather).
-- **Seven AI providers behind one router:** OpenRouter (free models), Claude,
-  ChatGPT, Grok, Gemini, Mistral and local Ollama.
+- **Four AI providers behind one router:** OpenRouter (free and paid models),
+  Claude, OpenAI and Ollama (local or cloud), with live model lists.
+- **Senses and connectors:** it can look at your screen when you ask, know
+  which app you are using (optional), and use MCP connectors like Claude's
+  (web search, Notion, Todoist, GitHub, your own folders…).
 - **Persistent local memory:** old conversations fade into a summary, and the
   originals are kept in a lossless archive on your disk.
 - **Restricted system actions:** checked before you are asked to approve them.
@@ -35,7 +38,10 @@ yourself from source if you prefer (see below).
    chat opens on the setup screen.
 2. Pick a provider. **OpenRouter** is the quickest start: create a free
    account, then a key. The "Come ottengo una chiave?" link opens the right
-   page. **Ollama** needs no key at all, just `ollama serve` running.
+   page. **Claude** and **OpenAI** work with your own key. **Ollama** needs
+   no key: if it is installed, the app starts it by itself, and you can
+   download models or use Ollama's cloud models from the same page.
+   "Prova il modello" checks that the chosen model answers properly.
 3. Paste the key, choose a model, and start chatting. Double-click the avatar,
    or use the 💬 button that appears when the mouse is over it, to open and
    close the chat. The 🔄 button switches avatar.
@@ -99,7 +105,9 @@ the desktop.
 
 **Settings.** Right-click the avatar (or the tray icon) → "Impostazioni…", or
 ⚙ in the chat. Tabs: Modello (provider, model and key), Generale (start
-with Windows, idle life, weather), Persone, Voce, Microfono and Live2D.
+with Windows, idle life, weather, the active app), Persone, Voce, Microfono,
+Live2D, Movimenti (the movements generated with Kimodo: rename, try, delete)
+and Connettori.
 
 **Personas and your relationship.** In Settings → Persone each persona has a
 name, a personality you write, a voice (with "Prova" to hear it), and its own
@@ -151,6 +159,26 @@ use in the same tab (Windows' default one unless you choose). The audio is
 transcribed on your graphics card in the same local service as XTTS (about
 2.5 GB of video memory while the microphone is on) and never leaves your
 computer.
+
+**Senses.** The 👁 button in the chat (or "guarda il mio schermo") takes a
+screenshot of the companion's monitor and shows it as a preview: it is sent
+with your next message only, to a model that sees images, and never saved.
+"Sa quale app stai usando" in Settings → Generale (off by default) lets it
+know the title of the window you are using. In the room, 📷 opens the photo
+mode: pick a pose and an expression, then "Scatta" saves a PNG.
+
+**Connectors (MCP).** Settings → Connettori works like Claude's connectors.
+"Sfoglia i connettori" lists the most used ones: some work at once with no
+account (Exa web search, Hugging Face, Microsoft Learn, Context7, DeepWiki,
+Cloudflare Docs), others sign in to your account in the browser with one
+click (Notion, Todoist, Linear, Jira and Confluence, Airtable, monday.com,
+Canva, Zapier, Sentry, Vercel, Netlify, Webflow, Wix), GitHub takes a
+personal token. "Aggiungi connettore personalizzato" takes the name and URL
+of any MCP server. "File di una cartella" lets it read (and, if you allow
+it, change) the files of one folder; it needs Node.js. Under "Cosa può fare"
+you choose which actions each connector may use. **Every use asks your
+permission**, except read-only actions you chose to trust. Bigger models
+handle connectors much better than small free ones.
 
 Ask things like "open my Documents folder", "search the news about AI" or just
 chat. Anything that touches your system shows a confirmation dialog first.
@@ -216,8 +244,9 @@ Windows' own key store. There is no telemetry. Details in
 
 The AI can only propose a short list of actions: open an `http(s)` link, open
 a file or folder (never an executable), open an item on your Desktop, or start
-Notepad, Calculator, Paint or Explorer. Each proposal is validated, then shown
-to you for approval. See [SECURITY.md](SECURITY.md) for the details and for
+Notepad, Calculator, Paint or Explorer, take a screenshot you then confirm,
+or use an action of a connector you added and allowed. Each proposal is
+validated, then shown to you for approval. See [SECURITY.md](SECURITY.md) for the details and for
 how to report a vulnerability.
 
 ## Build from source

@@ -151,3 +151,24 @@ Nuovi:
   volta, l'app attiva è spenta di base.
 - **Sicurezza MCP:** i server sono comandi locali scelti dall'utente. Non si avvia nulla da
   solo, ogni chiamata si conferma, e solo gli strumenti spuntati sono visibili al modello.
+
+## Com'è andata (chiusura, 5 ottobre)
+Il piano sopra è quello approvato; queste sono le scelte reali, che valgono su di esso.
+- **7a Provider:** non due ma quattro. Prima solo OpenRouter e Ollama, poi l'utente ha
+  chiesto di rimettere Claude e OpenAI diretti (elenchi dal vivo; senza chiave dal catalogo
+  di OpenRouter). Grok, Gemini e Mistral diretti tolti. Ollama con i modelli cloud gratuiti,
+  "Scarica un modello" e l'avvio automatico del server; il link "Modelli cloud" tolto
+  (doppione).
+- **7b Visione:** su tutti e quattro i provider. Su OpenRouter un gratuito occupato passa
+  ad altri gratuiti che vedono.
+- **7c App attiva:** come da piano.
+- **7d Movimenti:** come da piano; dopo la prova il nome si vede anche nel menu "Prova i
+  movimenti di Kimodo", e c'è il tasto verde "Salva".
+- **7e Foto:** **niente sfondo trasparente** (tolto su richiesta dell'utente).
+- **7f MCP:** oltre la versione base, su richiesta dell'utente, i **connettori come quelli
+  di Claude**: personalizzati con nome e URL (Streamable HTTP, OAuth con PKCE e
+  registrazione dinamica), un catalogo dei più usati provati uno per uno, i file di una
+  cartella, e il server locale in "Opzioni avanzate". Nessuna dipendenza nuova: niente
+  `@modelcontextprotocol/sdk`, il client è scritto a mano. Fino a 3 strumenti per messaggio,
+  le chiamate sbagliate tornano al modello. Ogni uso chiede il permesso, salvo le sole
+  letture scelte come fidate.

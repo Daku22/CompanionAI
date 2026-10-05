@@ -109,7 +109,30 @@
   an editable list (password managers, private browsing by default) are
   never read.
 - Settings → Movimenti: the movements generated with Kimodo can be named
-  (the name shows in the "Prova" menu too), tried on the avatar and deleted.
+  (the name shows in the "Prova i movimenti di Kimodo" menu too, saved with
+  the green "Salva" button or Enter), tried on the avatar and deleted.
+- Connectors (MCP), like Claude's, in Settings → Connettori:
+  - a custom connector takes just a name and the URL of an MCP server (an
+    optional token is under "Opzioni avanzate"); if the server asks for
+    access, the sign-in page opens in the browser (OAuth with PKCE and
+    automatic app registration) and the token renews by itself;
+  - a catalog of the most used ones, each checked: Exa (web search), Hugging
+    Face, Microsoft Learn, Context7, DeepWiki and Cloudflare Docs with no
+    account; Notion, Todoist, Linear, Jira and Confluence, Airtable,
+    monday.com, Canva, Zapier, Sentry, Vercel, Netlify, Webflow and Wix with
+    one-click sign-in; GitHub with a personal token. Services that move money
+    are left out on purpose;
+  - "File di una cartella" (read-only unless you allow writing) and any local
+    MCP server under "Opzioni avanzate";
+  - "Cosa può fare" lists each connector's actions, split into "Legge" and
+    "Modifica", to allow or forbid one by one;
+  - every use shows a permission dialog with the connector, the action and its
+    arguments; read-only actions can be set to "Non chiedermelo più";
+  - the model can take up to 3 steps per message (for example search, then
+    open the link), and a wrong call goes back to it to be fixed instead of
+    being dropped silently;
+  - tokens are encrypted with Windows' key store, apart from the settings.
+- Leftover JSON (`},"emotion":…`) no longer shows at the end of a reply.
 - Photo mode in the room (📷 in the title bar): the interface hides, a small
   panel picks a pose and an expression, and "Scatta" saves a PNG of the scene
   with the avatar where you choose. 3D avatars only for now.

@@ -9,8 +9,12 @@ everything the app sends out and everything it stores.
 |---|---|---|
 | The AI provider you chose | Every message you send, and when memory is summarized | Your message, the recent conversation, the memory summary and the app's instructions for the model. Your API key authenticates the request |
 | The AI provider you chose | Once a day per persona for the diary (only after a day you talked), and up to 6 times a day when the companion writes first ("Scrive per primo", on by default) | For the diary: that day's conversation (at most the last 6000 characters) and the persona's personality. For a message it writes first: the same as a normal reply, with a line saying why it writes (greeting, welcome back, long silence) instead of your message |
-| `openrouter.ai` | When you open the settings with OpenRouter selected | A request for the list of free models. No key, no conversation |
-| The Ollama server | Only if you use Ollama | Same as any AI provider. By default Ollama runs on your own computer (`127.0.0.1`) |
+| The AI provider you chose | Only when you press 👁 (or the model asks to look) **and you send it** | A screenshot of the companion's monitor, at most 1568 px, with your next message. It is never saved: the memory keeps only "[immagine dello schermo]" |
+| The AI provider you chose | Only with "Sa quale app stai usando" on (off by default) | The title of the window you were last using, as part of the message. Windows matching the ignore list (password managers, private browsing) are never read |
+| `openrouter.ai`, `api.anthropic.com`, `api.openai.com` | When the model list of that provider is shown, or with "Prova il modello" | A request for the list of models (with your key for Claude and OpenAI), or a tiny test message. No conversation |
+| The Ollama server and `ollama.com` | Only if you use Ollama | Same as any AI provider. Local models run on your own computer (`127.0.0.1`); cloud models (names ending in `-cloud`) go through Ollama to ollama.com, under your Ollama account. The list of cloud models comes from ollama.com |
+| A connector (MCP) you added | Only when the model proposes one of its actions **and you allow it** (or for read-only actions you chose to trust) | The action's arguments (for example a search query or a page name), and your sign-in token for that service. Adding a connector also asks it for its list of actions. What the service does with the data is governed by its own policy |
+| A connector's sign-in page | When you press "Collega" or "Accedi di nuovo" | The page opens in your browser; the app registers itself there as "CompanionAI" and receives the token through `127.0.0.1`. Your password never passes through the app |
 | A website | Only if the AI proposes opening a link **and you approve it** | The link opens in your default browser |
 | `open-meteo.com` | Only if you turn on "Meteo vero nella stanza" (off by default), while the room is open, at most every 30 minutes | The city you typed (to the geocoding service), then its coordinates (to the weather service). No key, no account |
 | `huggingface.co` and `cdn.jsdelivr.net` | Only when you press "Scarica" in the voice settings | Plain downloads of the voice files (about 180 MB). Nothing about you or your conversations |
@@ -57,7 +61,9 @@ personal data.
 | Personas | `%USERPROFILE%\.desktop-companion\memory\personas.json` (names, personalities, avatar and voice of each), and for every persona its mood, relationship (`rapport.json`) and diary (`diary.jsonl`). The first persona keeps them in `memory\`, the others in `memory\personas\<id>\` |
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
 | Imported animations | `%APPDATA%\CompanionAI\animations\` |
-| Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, and the sentence each one came from in `index.json` |
+| Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, the sentence each one came from in `index.json`, and the names you gave them in `names.json` |
+| Connectors | The list (names, addresses, commands, allowed actions) in `config.json`. Environment variables of local connectors are stored there **in plain text**: put secrets in a token instead. Sign-in tokens are encrypted with `safeStorage` in `%USERPROFILE%\.desktop-companion\mcp-secrets.json`; removing a connector deletes its token |
+| Photos | Only where you save them with "Scatta" |
 | Voice files | `%APPDATA%\CompanionAI\voice\`: Kokoro's model and phonemizer, XTTS (`xtts\`: Python, packages and model) and the microphone's Whisper model (`xtts\whisper\`). "Elimina i file" and the two "Disinstalla" buttons in the voice settings remove them |
 | Your voice sample | `%APPDATA%\CompanionAI\voice\samples\`: the sample you imported, converted to WAV (at most 30 seconds), and its voice features (`.latents.pt`). Importing a new one replaces it |
 | Live2D Cubism Core | `%APPDATA%\CompanionAI\live2d\`: the Core and its license. "Disinstalla" in Settings → Live2D removes them |

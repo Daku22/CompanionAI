@@ -5,8 +5,9 @@ cammina sullo schermo, esegue azioni reali sul sistema (chiedendo sempre
 conferma) e ricorda le conversazioni tra un avvio e l'altro.
 
 Avatar 3D in formato VRM su Three.js, oppure 2D a strip animate su PixiJS.
-Sette provider AI dietro un router unico. Tutto dentro Electron e Node: nessun
-processo esterno, nessun sidecar, nessuna inferenza locale obbligatoria.
+Quattro provider AI (OpenRouter, Claude, OpenAI, Ollama) dietro un router
+unico, e connettori MCP per gli strumenti esterni. Tutto dentro Electron e
+Node: nessun sidecar, nessuna inferenza locale obbligatoria.
 
 Questa è la documentazione tecnica, in italiano. Per installare e usare l'app
 parti dal [README in inglese](README.md).
@@ -15,8 +16,8 @@ parti dal [README in inglese](README.md).
 
 Serve Node.js 22 o superiore, su Windows, e una chiave API. OpenRouter ha
 modelli gratuiti ed è il provider predefinito, quindi è il modo più rapido per
-partire. Con Ollama non serve nessuna chiave: basta che `ollama serve` sia in
-esecuzione.
+partire. Con Ollama non serve nessuna chiave: se è installato, l'app lo avvia
+da sola.
 
 ```bash
 npm install
@@ -297,14 +298,27 @@ si decifra. In quel caso:
   `publicConfig`).
 
 
+I provider sono quattro (Blocco 7a): **OpenRouter** (predefinito, con i
+modelli gratuiti e quelli a pagamento in due gruppi), **Claude** e **OpenAI**
+con la propria chiave, e **Ollama** (modelli installati più i modelli cloud di
+ollama.com, con "Scarica un modello" e l'avvio automatico del server). Grok,
+Gemini e Mistral diretti sono stati tolti: passano da OpenRouter. Una config
+che punta a un provider tolto passa da sola a OpenRouter.
+
+Gli elenchi dei modelli arrivano tutti dal vivo (`listModels`): OpenRouter dal
+suo catalogo, Claude e OpenAI dalle loro API con la chiave (senza chiave dal
+catalogo di OpenRouter), Ollama da `/api/tags` più il catalogo cloud. Per ogni
+modello si sa se vede le immagini (`modelCaps`). "Prova il modello" nella
+scheda Modello manda una richiesta minima e dice se risponde nel formato
+giusto, e in quanto tempo, oppure perché no.
+
 Un provider nuovo si aggiunge con una voce in `PROVIDERS` e un `case` in
 `route()`, dentro `src/main/ai-router.js`. Nient'altro cambia.
 
 Il formato della risposta non è affidato alla buona volontà del modello. Dove
 l'API lo permette viene imposto:
-- schema JSON su Anthropic;
-- modalità JSON su OpenAI, Grok e Mistral;
-- `responseMimeType` su Gemini;
+- schema JSON su Claude;
+- modalità JSON su OpenAI (`callOpenAICompatible`, la strada comune);
 - `format: json` su Ollama;
 - su OpenRouter, secondo ciò che il modello dichiara nei suoi
   `supported_parameters`: schema JSON se ha `structured_outputs`, modalità JSON
@@ -326,9 +340,10 @@ dice da che strada è arrivata la risposta (`via`: `schema`, `json`, `tool`,
 `prompt`, `fallback`). Con `fallback` il main scrive nel log l'inizio del testo
 grezzo, e la chat avvisa una volta per modello che le animazioni non partono.
 
-Gli elenchi di OpenRouter (solo modelli gratuiti) e di Ollama (modelli
-installati) si chiedono al servizio, con un'ora di cache. Quelli scritti in
-`PROVIDERS` restano come ripiego. I modelli che ragionano prima di rispondere
+Gli elenchi si chiedono al servizio con un'ora di cache; quelli scritti in
+`PROVIDERS` restano solo come ripiego offline. Su OpenRouter un modello
+gratuito occupato (429) passa ad altri gratuiti, e con un'immagine solo a
+quelli che vedono. I modelli che ragionano prima di rispondere
 ricevono almeno 8192 token e 90 secondi (`requestBudget`). Gli errori dei
 provider diventano messaggi che dicono cosa fare (`describeError`).
 
@@ -869,10 +884,66 @@ il microfono, con il microfono finto di Chromium che dice una frase italiana
 premuto 🎙 il testo arriva in chat e al modello, e premuto mentre il companion
 racconta una storia lo zittisce.
 
+## Sensi e connettori (Blocco 7)
+
+**Lo schermo.** Il pulsante 👁 nella chat, o l'azione `look` quando chiedi
+"guarda il mio schermo", fa una schermata del monitor del companion con le
+finestre dell'app nascoste per un istante (`desktopCapturer`). La schermata
+compare come anteprima e parte solo col messaggio dopo, ridotta a 1568 px in
+JPEG, e solo verso un modello che vede le immagini (`withImage` la traduce per
+Claude, OpenAI/OpenRouter e Ollama). In memoria resta il testo più
+"[immagine dello schermo]": l'immagine non si salva mai.
+
+**L'app attiva** (spenta di base, `src/main/active-app.js`): il titolo
+dell'ultima finestra in primo piano che non sia dell'app entra come riga di
+contesto, mai in memoria. Le finestre il cui titolo contiene una parola
+dell'elenco da ignorare (password manager, navigazione privata) non si leggono.
+
+**Modalità foto** (📷 nella barra della stanza): l'interfaccia sparisce, un
+pannellino sceglie posa ed espressione, "Scatta" salva un PNG
+(`webContents.capturePage`). Solo avatar 3D. Lo sfondo trasparente è stato
+tolto su richiesta.
+
+**Movimenti Kimodo** (Impostazioni → Movimenti): nome, prova ed eliminazione.
+I nomi stanno in `generated-motions/names.json` e si vedono anche nel menu
+"Prova i movimenti di Kimodo". Il tasto verde "Salva" si accende quando il
+nome cambia.
+
+**Connettori MCP** (Impostazioni → Connettori), come quelli di Claude:
+- *personalizzato*: nome e URL di un server MCP remoto (Streamable HTTP,
+  `src/main/mcp-http.js`), più un token facoltativo. Se il server risponde
+  401, l'accesso parte da solo: OAuth 2.1 con PKCE, metadati RFC 9728 e
+  RFC 8414, registrazione dinamica dell'app (RFC 7591), ritorno su
+  `http://127.0.0.1:<porta>/callback`, rinnovo del token
+  (`src/main/mcp-oauth.js`);
+- *catalogo* (`src/main/connectors.js`, provato il 5 ottobre 2026): senza
+  account Exa, Hugging Face, Microsoft Learn, Context7, DeepWiki, Cloudflare
+  Docs; con l'account Notion, Todoist, Linear, Jira e Confluence, Airtable,
+  monday.com, Canva, Zapier, Sentry, Vercel, Netlify, Webflow, Wix; GitHub con
+  un token personale. Fuori apposta: chi muove soldi (PayPal, Square,
+  Stripe), Figma (rifiuta la registrazione) e chi non permette la
+  registrazione dinamica (Asana, Box, HubSpot);
+- *sul PC*: "File di una cartella" (il server filesystem ufficiale via `npx`,
+  di base solo lettura) e un server stdio qualsiasi in "Opzioni avanzate"
+  (`src/main/mcp.js`).
+
+I token stanno cifrati con `safeStorage` in
+`~/.desktop-companion/mcp-secrets.json`, uno per connettore; togliere il
+connettore li cancella. Gli strumenti spuntati entrano nel prompt con i loro
+argomenti (obbligatori e valori ammessi). Il modello propone l'azione `tool`
+(`server`, `tool`, `args`); `checkToolAction` la controlla contro gli
+strumenti ammessi e lo schema, e se il server è sbagliato ma lo strumento sta
+in un server solo vale quello. **Ogni uso chiede il permesso**, salvo le sole
+letture per cui hai scelto "Non chiedermelo più". Il risultato (al massimo
+4000 caratteri) torna al modello in un altro giro; una chiamata rifiutata
+torna come errore da correggere. Al massimo 3 strumenti per messaggio.
+
 ## Azioni sul sistema
 
 | Tipo | Vincolo |
 |---|---|
+| `look` | Solo una schermata in anteprima: parte col messaggio dopo, se confermi |
+| `tool` | Solo strumenti spuntati di connettori accesi, argomenti controllati sullo schema, sempre con il dialogo di permesso (vedi sopra) |
 | `open-desktop-item` | Solo dentro il Desktop, nome ridotto al basename, niente `../`. Scorciatoie `.lnk`/`.url` ammesse, eseguibili e script no |
 | `open-url` | Solo `http` e `https` |
 | `open-path` | Solo percorsi assoluti che esistono e non sono eseguibili, script o scorciatoie |

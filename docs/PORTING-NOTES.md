@@ -1074,6 +1074,45 @@ sono stati tolti dal blocco su richiesta dell'utente.
 file d'archivio su disco). Per le persone non attive si apre un
 `MemoryManager` solo per l'occasione.
 
+## Blocco 7: sensi e strumenti (2026-10-04/05)
+
+**Provider.** Gli elenchi scritti a mano invecchiavano: ora tutti dal vivo.
+Restano OpenRouter, Claude, OpenAI e Ollama; Grok, Gemini e Mistral diretti
+tolti (passano da OpenRouter). L'utente non ha credito sui provider diretti:
+Claude e OpenAI senza chiave mostrano il catalogo di OpenRouter. Ollama si
+avvia da solo (`src/main/ollama.js`); ECONNREFUSED si distingue dagli altri
+errori, prima diceva sempre "non raggiungibile". Nei test l'avvio si spegne
+con `COMPANION_NO_OLLAMA_START`.
+
+**Visione.** OpenRouter con un'immagine dava spesso 429 sui gratuiti: il
+ripiego va solo ai gratuiti che vedono. Il main aggiungeva un secondo
+"[immagine dello schermo]" oltre a quello del renderer: tolto.
+
+**Foto.** Lo sfondo trasparente annullava la nebbia della scena e dava un
+errore a ogni fotogramma (`fog.color` di null): tolto su richiesta
+dell'utente. L'audit lascia di nuovo la scena di prima dopo il controllo.
+
+**Connettori MCP.** Niente SDK: il client stdio e quello Streamable HTTP
+sono pochi metodi JSON-RPC, scritti a mano (`mcp.js`, `mcp-http.js`). OAuth
+(`mcp-oauth.js`) segue la specifica MCP: 401 → metadati della risorsa →
+metadati del server di autorizzazione → registrazione dinamica → PKCE →
+ritorno su 127.0.0.1. Trappole:
+- su Windows `npx` e gli script `.cmd` partono solo con la shell; con la
+  shell `kill` chiude solo cmd.exe, quindi `taskkill /T /F`;
+- un accesso annullato rifiutava la promessa prima dell'`await`: errore non
+  gestito; ora `result.catch(() => {})` subito;
+- Figma rifiuta la registrazione dinamica (403), Asana, Box e HubSpot non la
+  offrono: fuori dal catalogo;
+- prova dal vivo con modelli gratuiti piccoli e 64 strumenti (48 di Canva):
+  argomenti obbligatori dimenticati, valori inventati (`OWNED`), server
+  sbagliato, risposte vuote. Prima una chiamata sbagliata si scartava in
+  silenzio; ora torna al modello come errore, i valori ammessi (`enum`)
+  stanno nel prompt, il server si deduce se lo strumento e' unico, e ci sono
+  fino a 3 passi per messaggio (cerca, poi apri il link);
+- uno script Python in un heredoc ha messo un a capo vero dentro una stringa
+  di `main.js`, e i test non caricano `main.js`: ora `npm test` comincia con
+  `node --check src/main/main.js`.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

@@ -30,6 +30,15 @@ click on "Approve".
 | `open-path` | Existing absolute paths. Executables, scripts and shortcuts are refused |
 | `open-desktop-item` | Items inside your Desktop folder. Shortcuts (`.lnk`, `.url`) yes, executables and scripts no |
 | `run-command` | Only `notepad`, `calc`, `mspaint` and `explorer`, by bare name. `explorer` only opens folders |
+| `look` | A screenshot shown as a preview; it is sent only with your next message |
+| `tool` | Only the actions you ticked, of connectors you added and turned on. Arguments are checked against the tool's schema, and a permission dialog shows the connector, the action and its arguments. Only read-only actions can be set to "don't ask again" |
+
+**Connectors (MCP).** A connector is a server you add yourself: a remote URL
+(https only, plain http only on `localhost`) or a local command. Nothing is
+added or started on its own. Sign-in tokens are encrypted with `safeStorage`
+in `~/.desktop-companion/mcp-secrets.json` and never reach the renderer.
+What a connector's tools return is data for the model, never an action by
+itself. The built-in catalog leaves out services that move money.
 
 `run-command` can be widened with `"allowUnsafeCommands": true` in
 `~/.desktop-companion/config.json`. This is **not recommended**: it lets the
