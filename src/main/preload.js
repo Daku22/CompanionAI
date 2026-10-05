@@ -110,6 +110,8 @@ contextBridge.exposeInMainWorld('companion', {
 
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),
+  // Guarda lo schermo (Blocco 7b): la schermata torna qui come anteprima.
+  visionCapture: ()          => ipcRenderer.invoke('vision:capture'),
 
   // ─── Config (API keys, provider attivo) ────────────────────────────────────
   getConfig:   ()            => ipcRenderer.invoke('config:get'),

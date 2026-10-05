@@ -96,6 +96,13 @@
   automatically on first use, after "Accedi a Ollama"), "Scarica un modello"
   with progress, a link to the model library, and Ollama started by itself
   when it is off.
+- It can look at your screen: the 👁 button in the chat (or asking "guarda il
+  mio schermo") takes a screenshot of the companion's monitor, with the app's
+  windows hidden for an instant, and shows it as a preview; it is sent only
+  with your next message, only to a model that sees images, and it is never
+  saved (the memory keeps "[immagine dello schermo]"). Works with all four
+  providers; on OpenRouter a busy free model falls back to other free models
+  that see images.
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.

@@ -230,6 +230,26 @@ sendBtn.addEventListener('click', sendMessage)
 let sending = false
 const warnedModels = new Set()
 /** @param {string} [spoken] il testo detto nel microfono, al posto di quello scritto */
+// ── Guarda lo schermo (Blocco 7b) ───────────────────────────────────────────
+// La schermata resta un'anteprima finche' non invii: ✕ la toglie.
+const attachEl = document.getElementById('attach')
+const lookBtn = document.getElementById('look-btn')
+let pendingImage = null
+function setAttachment(image) {
+  pendingImage = image
+  attachEl.classList.toggle('hidden', !image)
+  document.getElementById('attach-img').src = image || ''
+}
+async function lookAtScreen() {
+  lookBtn.disabled = true
+  const r = await api.visionCapture().catch(e => ({ ok: false, error: e.message }))
+  lookBtn.disabled = false
+  if (r && r.ok) { setAttachment(r.image); inputEl.focus() }
+  else addMessage('error', 'Schermata non riuscita: ' + ((r && r.error) || 'errore sconosciuto'))
+}
+lookBtn.addEventListener('click', lookAtScreen)
+document.getElementById('attach-cancel').addEventListener('click', () => setAttachment(null))
+
 async function sendMessage(spoken) {
   const fromMic = typeof spoken === 'string'
   if (sending) {
@@ -237,7 +257,8 @@ async function sendMessage(spoken) {
     if (fromMic) inputEl.value = (inputEl.value.trim() + ' ' + spoken).trim()
     return
   }
-  const text = fromMic ? spoken.trim() : inputEl.value.trim()
+  const image = pendingImage
+  const text = (fromMic ? spoken.trim() : inputEl.value.trim()) || (image ? 'Cosa vedi sul mio schermo?' : '')
   if (!text) return
 
   // Controllo key (eccetto ollama) — con try per non bloccare mai la UI
@@ -258,8 +279,10 @@ async function sendMessage(spoken) {
     inputEl.style.height = 'auto'
   }
 
-  addMessage('user', text)
-  conversationHistory.push({ role: 'user', content: text.slice(0, 8000) })
+  addMessage('user', image ? text + ' 🖼' : text)
+  setAttachment(null)
+  // Nella conversazione resta il testo: la schermata va solo con questo messaggio.
+  conversationHistory.push({ role: 'user', content: (image ? text + ' [immagine dello schermo]' : text).slice(0, 8000) })
   // Cap history: ultime 40 voci per evitare payload enormi / 400 provider
   if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
 
@@ -271,7 +294,7 @@ async function sendMessage(spoken) {
 
   let resp
   try {
-    resp = await api.sendMessage({ history: conversationHistory })
+    resp = await api.sendMessage(image ? { history: conversationHistory, image } : { history: conversationHistory })
   } catch (e) {
     setTyping(false)
     sending = false
@@ -306,6 +329,12 @@ async function sendMessage(spoken) {
   // Esegui azione OS + animazione
   const action = result.action || { type: 'none', animation: 'idle' }
 
+  // "Guarda qui": si prepara la schermata, da confermare con Invia (Blocco 7b).
+  if (action.type === 'look') {
+    lookAtScreen()
+    api.executeAction({ type: 'none', animation: action.animation || 'think' })
+    return
+  }
   if (action.type !== 'none') {
     api.toggleChat() // chiude la chat durante l'animazione
     setTimeout(() => api.executeAction(action), 150)

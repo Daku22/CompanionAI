@@ -11,7 +11,7 @@ const {
   prepare, sanitizeHistory, parseResponse, PROVIDERS, ANIMATIONS, ACTION_TYPES, EMOTIONS,
   COMPANION_SCHEMA, SYSTEM_PROMPT, MOTION_PROMPT, route, fetchJSON, requestBudget,
   describeError, ollamaFailure, parseOpenRouterModels, parseAnthropicModels, parseOpenAIModels, parseOllamaTags,
-  directFromOpenRouter, cloudName, mergeOllamaModels,
+  directFromOpenRouter, cloudName, mergeOllamaModels, withImage, validImage,
   capsFromParams, outputMode, openRouterBody, readChoice, openRouterUrl, DIRECTIONS, DISTANCES,
 } = require('../src/main/ai-router')
 
@@ -273,6 +273,30 @@ test('Claude e OpenAI: elenchi dal vivo, solo chat, con visione e opzioni note',
   assert.equal(openai.find(m => m.id === 'o4-mini').reasoning, true)
   assert.deepEqual(openai.map(m => m.vision), [true, true, false])
   assert.deepEqual(parseAnthropicModels(null), [])
+})
+
+test('schermata: solo sui messaggi dell\'utente, solo JPEG/PNG validi', () => {
+  const img = 'data:image/jpeg;base64,QUJD'
+  const clean = sanitizeHistory([
+    { role: 'user', content: 'guarda', image: img },
+    { role: 'assistant', content: 'ok', image: img },
+    { role: 'user', content: 'e questa?', image: 'data:text/html;base64,PGI+' },
+    { role: 'user', content: 'e questa?', image: 'https://evil.example/x.png' },
+  ])
+  assert.equal(clean[0].image, img)
+  assert.ok(!('image' in clean[1]) && !('image' in clean[2]) && !('image' in clean[3]))
+  assert.equal(validImage('data:image/png;base64,' + 'A'.repeat(9 * 1024 * 1024)), false, 'troppo grande')
+})
+
+test('schermata nel formato di ogni API', () => {
+  const m = { role: 'user', content: 'cosa vedi?', image: 'data:image/jpeg;base64,QUJD' }
+  assert.deepEqual(withImage(m, 'openai').content, [{ type: 'text', text: 'cosa vedi?' }, { type: 'image_url', image_url: { url: m.image } }])
+  assert.deepEqual(withImage(m, 'claude').content[0], { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' } })
+  assert.deepEqual(withImage(m, 'ollama'), { role: 'user', content: 'cosa vedi?', images: ['QUJD'] })
+  const plain = { role: 'user', content: 'ciao' }
+  assert.equal(withImage(plain, 'openai'), plain)
+  // Due messaggi dell'utente di fila: la schermata resta nel messaggio unito.
+  assert.equal(prepare([{ role: 'user', content: 'a' }, m], 'S').messages[0].image, m.image)
 })
 
 test('Claude e ChatGPT senza chiave: elenco dal catalogo di OpenRouter', () => {

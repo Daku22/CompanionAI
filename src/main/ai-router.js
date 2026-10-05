@@ -87,7 +87,9 @@ const ANIMATIONS = [
   'click', 'happy', 'scroll', 'open-file', 'search',
   'stretch', 'yawn', 'doze', 'dance', 'highfive',
 ]
-const ACTION_TYPES = ['none', 'open-desktop-item', 'open-url', 'open-path', 'run-command']
+// look (Blocco 7b): l'utente chiede di guardare lo schermo; la chat prepara la
+// schermata e la manda solo se l'utente conferma.
+const ACTION_TYPES = ['none', 'open-desktop-item', 'open-url', 'open-path', 'run-command', 'look']
 // Emozioni che il modello puo' dichiarare: le stesse che mood.js sa gestire.
 const EMOTIONS = REPLY_EMOTIONS
 // Verso e distanza di walk-to / run-to. Senza, la meta' era sempre a caso e
@@ -154,6 +156,7 @@ Esempi:
 - "cosa puoi fare?" -> type: "none", animation: "idle", emotion: "curiosity"
 - "oggi è andata male" -> type: "none", animation: "idle", emotion: "sadness"
 - "cammina verso destra" -> type: "none", animation: "walk-to", direction: "right", distance: "medium"
+- "guarda il mio schermo" / "cosa vedi qui?" -> type: "look", animation: "think"
 - "corri fino al bordo sinistro" -> type: "none", animation: "run-to", direction: "left", distance: "edge"
 - "vieni qui" / "vieni dal mouse" -> type: "none", animation: "walk-to", direction: "toward-cursor"
 - "siediti" / "siediti qui" -> type: "none", animation: "sit"
@@ -420,6 +423,12 @@ async function modelCaps(provider, model) {
     }
     if (openRouterCaps.has(model)) return openRouterCaps.get(model)
   }
+  if (provider === 'ollama') {
+    const { host, port } = ollamaAddress()
+    const res = await requestJSON('http://' + host + ':' + port + '/api/show', {}, { model }, 5000).catch(() => null)
+    const list = res && res.status === 200 && Array.isArray(res.body && res.body.capabilities) ? res.body.capabilities : []
+    return { schema: false, json: true, tools: list.includes('tools'), reasoning: list.includes('thinking'), vision: list.includes('vision') }
+  }
   const entry = PROVIDERS[provider] && PROVIDERS[provider].models.find(m => m.id === model)
   if (!entry && provider !== 'claude' && provider !== 'openai') return null
   return { schema: false, json: true, tools: false, reasoning: !!(entry && entry.reasoning), vision: visionOf(provider, model) }
@@ -520,11 +529,19 @@ async function listModels(provider, apiKey = '') {
 
 const MAX_DIALOG_MESSAGES = 40
 
+// Schermata allegata a un messaggio dell'utente (Blocco 7b): solo JPEG o PNG
+// in base64, al massimo 8 MB.
+const IMAGE_RE = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+=*$/
+const MAX_IMAGE_CHARS = 8 * 1024 * 1024
+const validImage = (v) => typeof v === 'string' && v.length <= MAX_IMAGE_CHARS && IMAGE_RE.test(v)
+
 function sanitizeHistory(history) {
   if (!Array.isArray(history)) return []
   const clean = history
     .filter(m => m && typeof m.content === 'string' && ['user', 'assistant', 'system'].includes(m.role))
-    .map(m => ({ role: m.role, content: m.content.slice(0, 8000) }))
+    .map(m => (m.role === 'user' && validImage(m.image)
+      ? { role: m.role, content: m.content.slice(0, 8000), image: m.image }
+      : { role: m.role, content: m.content.slice(0, 8000) }))
   // Il limite vale solo per il dialogo. La memoria arriva come messaggi di
   // sistema in testa alla lista: uno slice sull'intera history la scarterebbe
   // per prima, proprio nelle conversazioni lunghe dove serve di piu'.
@@ -542,8 +559,10 @@ function normalizeDialog(messages) {
   for (const m of messages) {
     if (!out.length && m.role === 'assistant') continue
     const last = out[out.length - 1]
-    if (last && last.role === m.role) last.content += '\n\n' + m.content
-    else out.push({ ...m })
+    if (last && last.role === m.role) {
+      last.content += '\n\n' + m.content
+      if (m.image) last.image = m.image
+    } else out.push({ ...m })
   }
   return out
 }
@@ -557,6 +576,18 @@ function prepare(history, baseSystem) {
   const messages = normalizeDialog(clean.filter(m => m.role !== 'system'))
   const system = extra.length ? baseSystem + '\n\n' + extra.join('\n\n') : baseSystem
   return { system, messages }
+}
+
+/**
+ * Un messaggio con la schermata nel formato di ciascuna API (Blocco 7b):
+ * 'openai' (OpenAI e OpenRouter), 'claude', 'ollama'. Senza immagine resta com'e'.
+ */
+function withImage(m, style) {
+  if (!m.image) return m
+  const [, mime, data] = m.image.match(/^data:(image\/\w+);base64,(.*)$/)
+  if (style === 'claude') return { role: m.role, content: [{ type: 'image', source: { type: 'base64', media_type: mime, data } }, { type: 'text', text: m.content }] }
+  if (style === 'ollama') return { role: m.role, content: m.content, images: [data] }
+  return { role: m.role, content: [{ type: 'text', text: m.content }, { type: 'image_url', image_url: { url: m.image } }] }
 }
 
 function openaiPayload(model, messages, maxTokens, jsonMode) {
@@ -625,7 +656,7 @@ function recoverReply(raw) {
 
 async function callClaude(apiKey, model, history, opts) {
   const { system, messages } = prepare(history, opts.systemPrompt)
-  const body = { model, max_tokens: opts.maxTokens, system, messages }
+  const body = { model, max_tokens: opts.maxTokens, system, messages: messages.map(m => withImage(m, 'claude')) }
   // Structured outputs: e' l'API a garantire JSON conforme, non la speranza nel prompt.
   if (opts.jsonMode) body.output_config = { format: { type: 'json_schema', schema: COMPANION_SCHEMA } }
   if (opts.effort) body.output_config = { ...(body.output_config || {}), effort: opts.effort }
@@ -645,7 +676,7 @@ async function callClaude(apiKey, model, history, opts) {
 
 async function callOpenAICompatible(url, headers, model, history, opts, label) {
   const { system, messages } = prepare(history, opts.systemPrompt)
-  const payload = openaiPayload(model, [{ role: 'system', content: system }, ...messages], opts.maxTokens, opts.jsonMode)
+  const payload = openaiPayload(model, [{ role: 'system', content: system }, ...messages.map(m => withImage(m, 'openai'))], opts.maxTokens, opts.jsonMode)
   const res = await requestJSON(url, { headers }, payload, opts.timeoutMs)
   if (res.status !== 200) throw httpError(label, res)
   return parseResponse(res.body.choices?.[0]?.message?.content || '', opts.jsonMode)
@@ -674,7 +705,7 @@ function ollamaFailure(err) {
 async function callOllama(model, history, opts) {
   const { system, messages } = prepare(history, opts.systemPrompt)
   const { host, port } = ollamaAddress()
-  const body = { model, messages: [{ role: 'system', content: system }, ...messages], stream: false }
+  const body = { model, messages: [{ role: 'system', content: system }, ...messages.map(m => withImage(m, 'ollama'))], stream: false }
   if (opts.jsonMode) body.format = 'json'
 
   const chat = () => requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs))
@@ -790,11 +821,13 @@ async function callOpenRouter(apiKey, model, history, opts) {
   // I modelli free sono spesso saturi: il modello scelto viene ritentato con
   // backoff, poi si passa agli altri della lista come scorta. Senza scorta
   // (fallback: false) si misura un modello solo: lo usa bench-models.js.
-  const candidates = opts.fallback === false
-    ? [model]
-    : [model, ...PROVIDERS.openrouter.models.map(m => m.id).filter(id => id !== model)]
   const { system, messages } = prepare(history, opts.systemPrompt)
-  const chat = [{ role: 'system', content: system }, ...messages]
+  // Con una schermata (Blocco 7b) le scorte sono solo i gratuiti che vedono le immagini.
+  const needsVision = messages.some(m => m.image)
+  let spares = opts.fallback === false ? [] : (needsVision ? (await listModels('openrouter')).models.filter(m => m.free && m.caps && m.caps.vision).map(m => m.id) : PROVIDERS.openrouter.models.map(m => m.id))
+  spares = spares.filter(id => id !== model).slice(0, 4)
+  const candidates = [model, ...spares]
+  const chat = [{ role: 'system', content: system }, ...messages.map(m => withImage(m, 'openai'))]
   let lastRes = null
 
   for (const candidate of candidates) {
@@ -921,5 +954,7 @@ module.exports = {
   MOTION_PROMPT,
   parseResponse,
   sanitizeHistory,
+  withImage,
+  validImage,
   fetchJSON,
 }

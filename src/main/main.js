@@ -3,7 +3,7 @@ const path  = require('path')
 const { spawn } = require('child_process')
 const fs    = require('fs')
 const os    = require('os')
-const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT, modelCaps: modelCapsOf } = require('./ai-router')
+const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT, modelCaps: modelCapsOf, validImage } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
 const { SceneLibrary } = require('./SceneLibrary')
@@ -1002,6 +1002,31 @@ handle('ollama:open-page', (_e, which) => {
   if (OLLAMA_PAGES[which]) shell.openExternal(OLLAMA_PAGES[which]).catch(() => {})
 })
 
+// Guarda lo schermo (Blocco 7b): schermata del monitor del companion, con le
+// finestre dell'app trasparenti per un istante. Va alla chat come anteprima:
+// al modello arriva solo se l'utente la invia.
+const VISION_LONG_SIDE = 1568
+handle('vision:capture', async () => {
+  const anchor = companionWindow && !companionWindow.isDestroyed() ? companionWindow : chatWindow
+  if (!anchor || anchor.isDestroyed()) return { ok: false, error: 'Nessuna finestra' }
+  const display = screen.getDisplayMatching(anchor.getBounds())
+  const wins = [companionWindow, chatWindow, settingsWindow].filter(w => w && !w.isDestroyed() && w.isVisible())
+  const scale = VISION_LONG_SIDE / Math.max(display.size.width, display.size.height)
+  try {
+    for (const w of wins) w.setOpacity(0)
+    await new Promise(r => setTimeout(r, 250))
+    const sources = await desktopCapturer.getSources({ types: ['screen'],
+      thumbnailSize: { width: Math.round(display.size.width * scale), height: Math.round(display.size.height * scale) } })
+    const source = sources.find(s => s.display_id === String(display.id)) || sources[0]
+    if (!source) return { ok: false, error: 'Schermo non trovato' }
+    return { ok: true, image: 'data:image/jpeg;base64,' + source.thumbnail.toJPEG(80).toString('base64') }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  } finally {
+    for (const w of wins) if (!w.isDestroyed()) w.setOpacity(1)
+  }
+})
+
 // Prova il modello (Blocco 7a): una richiesta minima, senza scorte ne'
 // nuovi tentativi, con la chiave del campo (non ancora salvata) o quella salvata.
 handle('ai:test-model', async (_e, input) => {
@@ -1024,12 +1049,22 @@ handle('ai:test-model', async (_e, input) => {
 })
 
 // AI Router
-handle('ai:send-message', async (_e, { history }) => {
+handle('ai:send-message', async (_e, { history, image }) => {
   const cfg = loadConfig()
   const apiKey = cfg.keys?.[cfg.provider] || ''
-  const safeHistory = Array.isArray(history) ? history.filter(m => m && typeof m.content === 'string').slice(-40) : []
+  const safeHistory = Array.isArray(history) ? history.filter(m => m && typeof m.content === 'string').slice(-40).map(m => ({ role: m.role, content: m.content })) : []
   if (safeHistory.length === 0) return { ok: false, error: 'history vuota o non valida' }
   if (cfg.provider !== 'ollama' && !apiKey) return { ok: false, error: `Manca API key per ${cfg.provider}` }
+  // Schermata (Blocco 7b): solo sull'ultimo messaggio dell'utente, solo a un
+  // modello che vede le immagini, e mai in memoria.
+  if (image !== undefined) {
+    if (!validImage(image)) return { ok: false, error: 'Immagine non valida.' }
+    const caps = await modelCapsOf(cfg.provider, cfg.model).catch(() => null)
+    if (!caps || !caps.vision) return { ok: false, error: 'Il modello scelto non vede le immagini: scegline uno che le vede nelle impostazioni (⚙, "Prova il modello" te lo dice).' }
+    const last = safeHistory[safeHistory.length - 1]
+    if (!last || last.role !== 'user') return { ok: false, error: 'history vuota o non valida' }
+    last.image = image
+  }
   console.log('[Main] Ricevuta richiesta sendMessage, provider:', cfg.provider)
 
   // Un messaggio nuovo zittisce la risposta di prima.
@@ -1046,6 +1081,7 @@ handle('ai:send-message', async (_e, { history }) => {
   try {
     const lastUser = [...(history || [])].reverse().find(m => m.role === 'user')
     if (lastUser?.content && mm) {
+      // Con una schermata il testo ha gia' "[immagine dello schermo]" (lo mette la chat).
       await mm.addTurn(lastUser.content, 'user').catch(() => {})
     }
 
