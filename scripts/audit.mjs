@@ -277,7 +277,7 @@ const occlusionArgs = ['--disable-backgrounding-occluded-windows', '--disable-re
 
 const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA, ...occlusionArgs, ...micArgs], {
   cwd: ROOT, stdio: 'ignore',
-  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, COMPANION_ONLY_USER_CLIPS: "1", COMPANION_TEST_HOOKS: '1' },
+  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, COMPANION_ONLY_USER_CLIPS: "1", COMPANION_TEST_HOOKS: '1', COMPANION_NO_OLLAMA_START: '1' },
 })
 
 // ── Protocollo DevTools ──────────────────────────────────────────────────────

@@ -134,6 +134,8 @@ select.pf-input { cursor: pointer; }
   transition: color 0.2s var(--ease), text-decoration-color 0.2s var(--ease);
 }
 .pf-link:hover { color: var(--text); text-decoration-color: var(--accent); }
+.pf-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 6px 0; }
+.pf-row .pf-input { flex: 1; min-width: 180px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }

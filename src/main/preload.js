@@ -113,6 +113,16 @@ contextBridge.exposeInMainWorld('companion', {
 
   // ─── Config (API keys, provider attivo) ────────────────────────────────────
   getConfig:   ()            => ipcRenderer.invoke('config:get'),
+  testModel:   (input)       => ipcRenderer.invoke('ai:test-model', input),
+  // Ollama dall'app (Blocco 7a).
+  ollamaSignin:   ()         => ipcRenderer.invoke('ollama:signin'),
+  ollamaPull:     (name)     => ipcRenderer.invoke('ollama:pull', String(name || '')),
+  ollamaOpenPage: (which)    => ipcRenderer.invoke('ollama:open-page', String(which || '')),
+  onOllamaPullProgress: (cb) => {
+    const handler = (_e, p) => cb(p)
+    ipcRenderer.on('ollama-pull-progress', handler)
+    return () => ipcRenderer.removeListener('ollama-pull-progress', handler)
+  },
   setConfig:   (cfg)         => ipcRenderer.invoke('config:set', cfg),
   listModels:  (provider)    => ipcRenderer.invoke('models:list', provider),
   // Solo il nome del provider: l'URL della pagina lo sceglie il main.

@@ -3,7 +3,7 @@ const path  = require('path')
 const { spawn } = require('child_process')
 const fs    = require('fs')
 const os    = require('os')
-const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT } = require('./ai-router')
+const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT, modelCaps: modelCapsOf } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
 const { SceneLibrary } = require('./SceneLibrary')
@@ -53,9 +53,6 @@ const CONFIG_PATH = path.join(os.homedir(), '.desktop-companion', 'config.json')
 const ENV_KEY_MAP = {
   claude:     'ANTHROPIC_API_KEY',
   openai:     'OPENAI_API_KEY',
-  grok:       'XAI_API_KEY',
-  gemini:     'GEMINI_API_KEY',
-  mistral:    'MISTRAL_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
 }
 
@@ -125,6 +122,10 @@ function loadConfig() {
   // cartella dati di Electron, o dopo che la sua chiave principale e' cambiata.
   // Restano da parte, non si perdono, e la chat chiede di reinserirle.
   cfg.unreadableKeys = {}
+  if (cfg.keys && typeof cfg.keys === 'object') {
+    // Provider tolti nel Blocco 7a: la loro chiave non serve piu'.
+    for (const name of Object.keys(cfg.keys)) if (!PROVIDERS[name]) delete cfg.keys[name]
+  }
   if (cfg.keysEncrypted && cfg.keys && typeof cfg.keys === 'object') {
     for (const [provider, value] of Object.entries(cfg.keys)) {
       try { cfg.keys[provider] = safeStorage.decryptString(Buffer.from(value, 'base64')) } catch (e) {
@@ -985,6 +986,43 @@ handle('config:set', async (_e, newCfg) => {
   return publicConfig(merged)
 })
 
+// Ollama dall'app (Blocco 7a): avviare il server, accedere per i modelli cloud,
+// scaricare un modello, aprire le pagine dei modelli. Comandi e indirizzi fissi.
+const ollamaTools = require('./ollama')
+const OLLAMA_PAGES = { models: 'https://ollama.com/search' }
+handle('ollama:signin', async () => {
+  const r = await ollamaTools.signin()
+  if (r.url) shell.openExternal(r.url).catch(() => {})
+  return r
+})
+handle('ollama:pull', (e, name) => ollamaTools.pull(String(name || '').trim(), (progress) => {
+  try { e.sender.send('ollama-pull-progress', progress) } catch (_) {}
+}))
+handle('ollama:open-page', (_e, which) => {
+  if (OLLAMA_PAGES[which]) shell.openExternal(OLLAMA_PAGES[which]).catch(() => {})
+})
+
+// Prova il modello (Blocco 7a): una richiesta minima, senza scorte ne'
+// nuovi tentativi, con la chiave del campo (non ancora salvata) o quella salvata.
+handle('ai:test-model', async (_e, input) => {
+  const provider = input && typeof input.provider === 'string' ? input.provider : ''
+  const model = input && typeof input.model === 'string' ? input.model.slice(0, 200) : ''
+  if (!PROVIDERS[provider] || !model) return { ok: false, error: 'Scegli un provider e un modello.' }
+  const typed = input && typeof input.key === 'string' ? input.key.trim().slice(0, 300) : ''
+  const apiKey = typed || loadConfig().keys?.[provider] || ''
+  const started = Date.now()
+  try {
+    const result = await route({
+      provider, model, apiKey, fallback: false, retries: 0,
+      history: [{ role: 'user', content: 'Ciao! Rispondi con una parola.' }],
+    })
+    const caps = await modelCapsOf(provider, model)
+    return { ok: true, ms: Date.now() - started, format: result.via !== 'fallback', vision: !!(caps && caps.vision) }
+  } catch (err) {
+    return { ok: false, error: describeError(err, provider) }
+  }
+})
+
 // AI Router
 handle('ai:send-message', async (_e, { history }) => {
   const cfg = loadConfig()
@@ -1263,10 +1301,10 @@ handle('voice:import-sample', async () => {
   return { ok: true, seconds, config: publicConfig(cfg) }
 })
 
-// Elenco modelli: dal vivo per OpenRouter e Ollama, statico per gli altri.
+// Elenco modelli, dal vivo per tutti; Claude e OpenAI con la chiave salvata.
 handle('models:list', (_e, provider) => {
   if (typeof provider !== 'string' || !PROVIDERS[provider]) return { models: [], live: false }
-  return listModels(provider)
+  return listModels(provider, loadConfig().keys?.[provider] || '')
 })
 
 // Pagina dove si ottiene la chiave. L'URL lo sceglie il main da PROVIDERS: il

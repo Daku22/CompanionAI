@@ -10,7 +10,8 @@ const http = require('http')
 const {
   prepare, sanitizeHistory, parseResponse, PROVIDERS, ANIMATIONS, ACTION_TYPES, EMOTIONS,
   COMPANION_SCHEMA, SYSTEM_PROMPT, MOTION_PROMPT, route, fetchJSON, requestBudget,
-  describeError, ollamaFailure, parseOpenRouterModels, parseOllamaTags,
+  describeError, ollamaFailure, parseOpenRouterModels, parseAnthropicModels, parseOpenAIModels, parseOllamaTags,
+  directFromOpenRouter, cloudName, mergeOllamaModels,
   capsFromParams, outputMode, openRouterBody, readChoice, openRouterUrl, DIRECTIONS, DISTANCES,
 } = require('../src/main/ai-router')
 
@@ -194,7 +195,7 @@ test('ogni provider ha almeno un modello e un placeholder coerente', () => {
 test('i modelli che ragionano ricevono spazio e tempo in piu-`', () => {
   // Il ragionamento consuma lo stesso budget della risposta: con 1024 token
   // o3 e Opus 5 rispondevano vuoto o con il JSON troncato.
-  for (const [provider, model] of [['openai', 'o3'], ['claude', 'claude-opus-5'], ['gemini', 'gemini-2.5-pro']]) {
+  for (const [provider, model] of [['openai', 'o3'], ['claude', 'claude-opus-5-5']]) {
     const b = requestBudget(provider, model, 1024)
     assert.ok(b.maxTokens >= 8192, provider + '/' + model + ' ha solo ' + b.maxTokens + ' token')
     assert.ok(b.timeoutMs > 20000, provider + '/' + model + ' ha un timeout troppo corto')
@@ -208,7 +209,7 @@ test('i modelli normali restano con il budget richiesto', () => {
 
 test('effort solo dove l-API lo accetta', () => {
   // Haiku 4.5 risponde con un errore se riceve effort.
-  assert.equal(requestBudget('claude', 'claude-sonnet-5', 1024).effort, 'low')
+  assert.equal(requestBudget('claude', 'claude-sonnet-5-5', 1024).effort, 'low')
   assert.equal(requestBudget('claude', 'claude-haiku-4-5', 1024).effort, null)
   for (const [provider, p] of Object.entries(PROVIDERS)) {
     for (const m of p.models) {
@@ -240,15 +241,71 @@ test('ogni provider dice dove si ottiene la chiave', () => {
   }
 })
 
-test('dall-elenco di OpenRouter restano solo i modelli gratuiti', () => {
+test('da OpenRouter tutti i modelli, prima i gratuiti (Blocco 7a)', () => {
   const models = parseOpenRouterModels({ data: [
-    { id: 'a/paid', name: 'Paid' },
+    { id: 'anthropic/claude-x', name: 'Claude X' },
     { id: 'b/zeta:free', name: 'Zeta (free)' },
     { id: 'c/alfa:free', name: 'Alfa' },
     { name: 'senza id' },
   ] })
-  assert.deepEqual(models.map(({ id, label }) => ({ id, label })), [{ id: 'c/alfa:free', label: 'Alfa (free)' }, { id: 'b/zeta:free', label: 'Zeta (free)' }])
+  assert.deepEqual(models.map(({ id, label, free }) => ({ id, label, free })), [
+    { id: 'c/alfa:free', label: 'Alfa (free)', free: true },
+    { id: 'b/zeta:free', label: 'Zeta (free)', free: true },
+    { id: 'anthropic/claude-x', label: 'Claude X', free: false },
+  ])
   assert.deepEqual(parseOpenRouterModels(null), [])
+})
+
+test('Claude e OpenAI: elenchi dal vivo, solo chat, con visione e opzioni note', () => {
+  const claude = parseAnthropicModels({ data: [
+    { id: 'claude-sonnet-5-5', display_name: 'Claude Sonnet 5.5' },
+    { id: 'claude-nuovo-9', display_name: 'Claude Nuovo 9' },
+    { id: 'non-claude' },
+  ] })
+  assert.deepEqual(claude.map(m => m.id), ['claude-sonnet-5-5', 'claude-nuovo-9'])
+  assert.equal(claude[0].effort, true, 'le opzioni note restano')
+  assert.ok(claude.every(m => m.vision))
+  const openai = parseOpenAIModels({ data: [
+    { id: 'gpt-4.1' }, { id: 'gpt-4o-mini-tts' }, { id: 'text-embedding-3-large' },
+    { id: 'o4-mini' }, { id: 'gpt-realtime' }, { id: 'dall-e-3' }, { id: 'gpt-3.5-turbo' },
+  ] })
+  assert.deepEqual(openai.map(m => m.id), ['o4-mini', 'gpt-4.1', 'gpt-3.5-turbo'])
+  assert.equal(openai.find(m => m.id === 'o4-mini').reasoning, true)
+  assert.deepEqual(openai.map(m => m.vision), [true, true, false])
+  assert.deepEqual(parseAnthropicModels(null), [])
+})
+
+test('Claude e ChatGPT senza chiave: elenco dal catalogo di OpenRouter', () => {
+  const catalog = [
+    { id: 'anthropic/claude-sonnet-4.5', label: 'Anthropic: Claude Sonnet 4.5' },
+    { id: 'anthropic/claude-3.7-sonnet:thinking', label: 'Anthropic: Claude 3.7 Sonnet (thinking)' },
+    { id: 'openai/gpt-4.1', label: 'OpenAI: GPT-4.1' },
+    { id: 'openai/gpt-4o-mini-tts', label: 'OpenAI: TTS' },
+    { id: 'google/gemma-4-31b-it:free', label: 'Gemma' },
+  ]
+  assert.deepEqual(directFromOpenRouter('claude', catalog).map(({ id, label }) => ({ id, label })),
+    [{ id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' }])
+  assert.deepEqual(directFromOpenRouter('openai', catalog).map(m => m.id), ['gpt-4.1'])
+  assert.equal(directFromOpenRouter('openai', catalog)[0].vision, true)
+})
+
+test('Ollama: installati, poi i modelli cloud del catalogo', () => {
+  assert.equal(cloudName('gpt-oss:120b'), 'gpt-oss:120b-cloud')
+  assert.equal(cloudName('kimi-k3'), 'kimi-k3:cloud')
+  const models = mergeOllamaModels(
+    [{ id: 'gpt-oss:120b-cloud', label: 'gpt-oss:120b-cloud' }, { id: 'mistral', label: 'mistral' }],
+    ['gpt-oss:120b', 'kimi-k3'])
+  assert.deepEqual(models.map(m => [m.id, m.cloud]), [['mistral', false], ['gpt-oss:120b-cloud', true], ['kimi-k3:cloud', true]])
+  assert.ok(models[0].group.startsWith('Installati') && models[2].group.startsWith('Cloud'))
+  assert.deepEqual(mergeOllamaModels([{ id: 'qwen3', label: 'qwen3' }], []).map(m => m.id), ['qwen3'])
+})
+
+test('Ollama: per i modelli cloud l\'errore dice di fare l\'accesso', () => {
+  const e = Object.assign(new Error('unauthorized'), { status: 401 })
+  assert.match(describeError(e, 'ollama'), /Accedi a Ollama/)
+  const { NAME_RE } = require('../src/main/ollama')
+  for (const ok of ['qwen3', 'gpt-oss:20b-cloud', 'utente/modello:q4_K_M']) assert.ok(NAME_RE.test(ok), ok)
+  for (const bad of ['', '-x', 'a b', 'x;rm', '../x', 'a:b:c']) assert.ok(!NAME_RE.test(bad), bad)
 })
 
 test('da Ollama arrivano i modelli scaricati, senza :latest', () => {
@@ -272,9 +329,11 @@ test('nessun id di modello Anthropic con suffisso di data', () => {
 const LAGUNA_PARAMS = ['include_reasoning', 'max_tokens', 'reasoning', 'temperature', 'tool_choice', 'tools']
 
 test('le capacita-` si leggono dai supported_parameters di OpenRouter', () => {
-  assert.deepEqual(capsFromParams(LAGUNA_PARAMS), { schema: false, json: false, tools: true, reasoning: true })
-  assert.deepEqual(capsFromParams(['response_format', 'structured_outputs']), { schema: true, json: true, tools: false, reasoning: false })
-  assert.deepEqual(capsFromParams(undefined), { schema: false, json: false, tools: false, reasoning: false })
+  assert.deepEqual(capsFromParams(LAGUNA_PARAMS), { schema: false, json: false, tools: true, reasoning: true, vision: false })
+  assert.deepEqual(capsFromParams(['response_format', 'structured_outputs']), { schema: true, json: true, tools: false, reasoning: false, vision: false })
+  assert.deepEqual(capsFromParams(undefined), { schema: false, json: false, tools: false, reasoning: false, vision: false })
+  // La visione dalle modalita' d'ingresso (Blocco 7b).
+  assert.equal(capsFromParams([], { input_modalities: ['text', 'image'] }).vision, true)
   const models = parseOpenRouterModels({ data: [{ id: 'poolside/laguna-s-2.1:free', name: 'Laguna', supported_parameters: LAGUNA_PARAMS }] })
   assert.equal(models[0].caps.tools, true)
 })
@@ -541,12 +600,14 @@ async function main() {
     await new Promise(r => server.close(() => r(null)))
     const previous = process.env.OLLAMA_PORT
     process.env.OLLAMA_PORT = String(port)
+    process.env.COMPANION_NO_OLLAMA_START = '1'
     try {
       await assert.rejects(
         () => route({ provider: 'ollama', model: 'x', history: [{ role: 'user', content: 'a' }] }),
-        /Ollama non raggiungibile/)
+        /Ollama non si avvia/)
     } finally {
       if (previous === undefined) delete process.env.OLLAMA_PORT; else process.env.OLLAMA_PORT = previous
+      delete process.env.COMPANION_NO_OLLAMA_START
     }
   })
 
@@ -554,9 +615,13 @@ async function main() {
     // Al primo messaggio carica il modello: prima il timeout diceva "non raggiungibile".
     const slow = ollamaFailure(new Error('Timeout dopo 120000ms'))
     assert.match(slow.message, /non ha risposto in 120 s/)
-    assert.doesNotMatch(slow.message, /non raggiungibile/)
+    assert.doesNotMatch(slow.message, /non si avvia/)
     const off = ollamaFailure(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }))
-    assert.match(off.message, /non raggiungibile/)
+    assert.match(off.message, /non si avvia/)
+    // Una risposta interrotta con Ollama acceso tiene il motivo vero.
+    const reset = ollamaFailure(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }))
+    assert.doesNotMatch(reset.message, /non si avvia/)
+    assert.match(reset.message, /ECONNRESET/)
   })
 
   await testAsync('route pretende una key tranne che per ollama', async () => {

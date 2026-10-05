@@ -21,12 +21,16 @@ const { REPLY_EMOTIONS } = require('./mood')
 //   - OpenRouter: verificati contro GET https://openrouter.ai/api/v1/models.
 //   - Gli altri elenchi non sono verificabili senza una key valida: vedi README.
 
+// Blocco 7a: quattro provider. OpenRouter (predefinito, da cui passano anche
+// Gemini, Grok, Mistral e i modelli gratuiti), Claude e OpenAI diretti, Ollama
+// in locale. Gli elenchi qui sotto sono solo il ripiego: quelli veri arrivano
+// dal vivo (listModels), cosi' non invecchiano.
 const PROVIDERS = {
   claude: {
     name: 'Claude (Anthropic)',
     models: [
-      { id: 'claude-opus-5',   label: 'Claude Opus 5',   reasoning: true, effort: true },
-      { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', reasoning: true, effort: true },
+      { id: 'claude-opus-5-5',   label: 'Claude Opus 5.5',   reasoning: true, effort: true },
+      { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', reasoning: true, effort: true },
       { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
     ],
     keyPrefix: 'sk-ant-',
@@ -45,37 +49,6 @@ const PROVIDERS = {
     keyPlaceholder: 'sk-...',
     keyUrl: 'https://platform.openai.com/api-keys',
   },
-  grok: {
-    name: 'Grok (xAI)',
-    models: [
-      { id: 'grok-3',      label: 'Grok 3'      },
-      { id: 'grok-3-mini', label: 'Grok 3 Mini', reasoning: true },
-    ],
-    keyPrefix: 'xai-',
-    keyPlaceholder: 'xai-...',
-    keyUrl: 'https://console.x.ai',
-  },
-  gemini: {
-    name: 'Gemini (Google)',
-    models: [
-      { id: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro',   reasoning: true },
-      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', reasoning: true },
-    ],
-    keyPrefix: 'AIza',
-    keyPlaceholder: 'AIza...',
-    keyUrl: 'https://aistudio.google.com/apikey',
-  },
-  mistral: {
-    name: 'Mistral AI',
-    models: [
-      { id: 'mistral-large-latest', label: 'Mistral Large' },
-      { id: 'mistral-small-latest', label: 'Mistral Small' },
-      { id: 'open-mixtral-8x22b',   label: 'Mixtral 8x22B' },
-    ],
-    keyPrefix: '',
-    keyPlaceholder: 'API key Mistral...',
-    keyUrl: 'https://console.mistral.ai/api-keys',
-  },
   ollama: {
     name: 'Ollama (locale)',
     models: [
@@ -91,7 +64,7 @@ const PROVIDERS = {
     keyUrl: 'https://ollama.com/download',
   },
   openrouter: {
-    name: 'OpenRouter (gratuito)',
+    name: 'OpenRouter',
     models: [
       { id: 'google/gemma-4-31b-it:free',             label: 'Gemma 4 31B (free)'      },
       { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super (free)' },
@@ -318,6 +291,7 @@ function describeError(err, provider) {
   const detail = (err && err.message) || String(err)
   let message = null
   if (err && err.daily) message = 'Hai finito le richieste gratuite di oggi su ' + name + ': riprova domani, oppure aggiungi credito o scegli un altro provider nelle impostazioni (⚙).'
+  else if (provider === 'ollama' && (status === 401 || status === 403)) message = 'Per i modelli cloud di Ollama serve l\'accesso a ollama.com: premi «Accedi a Ollama» nella scheda Modello.'
   else if (status === 401) message = name + ' ha rifiutato la chiave API: controlla che sia giusta e attiva nelle impostazioni (⚙).'
   // 403 non e' la chiave sbagliata: la chiave vale, ma quel modello non e'
   // permesso (Inkling di OpenRouter si usa solo dagli "agentic harness").
@@ -351,27 +325,84 @@ let openRouterCapsAt = 0
  * @param {unknown} params
  * @returns {{ schema: boolean, json: boolean, tools: boolean, reasoning: boolean }}
  */
-function capsFromParams(params) {
+function capsFromParams(params, architecture) {
   const list = Array.isArray(params) ? params : []
+  const inputs = architecture && Array.isArray(architecture.input_modalities) ? architecture.input_modalities : []
   return {
     schema: list.includes('structured_outputs'),
     json: list.includes('response_format'),
     tools: list.includes('tools'),
     reasoning: list.includes('reasoning'),
+    // Vede le immagini (Blocco 7b): lo dice l'elenco dei modelli.
+    vision: inputs.includes('image'),
   }
+}
+
+// Visione per i modelli diretti, dal nome: tutti i Claude attuali, e i GPT e o
+// che accettano immagini. Ollama lo dira' /api/show (Blocco 7b).
+// ponytail: tabella di prefissi, va aggiornata se OpenAI cambia famiglie.
+function visionOf(provider, id) {
+  if (provider === 'claude') return true
+  if (provider === 'openai') return /^(gpt-4o|gpt-4\.1|gpt-5|o3|o4|chatgpt-4o)/.test(id)
+  return false
+}
+
+// Elenchi dal vivo di Anthropic e OpenAI: solo i modelli di chat. Le opzioni
+// note (reasoning, effort) vengono dall'elenco di ripiego quando l'id coincide.
+function withKnown(provider, list) {
+  const known = PROVIDERS[provider].models
+  return list.map(m => ({ ...(known.find(k => k.id === m.id) || {}), ...m, vision: visionOf(provider, m.id) }))
+}
+
+/**
+ * Senza chiave Anthropic e OpenAI non danno l'elenco: lo si ricava dal catalogo
+ * pubblico di OpenRouter ("anthropic/claude-sonnet-4.5" -> "claude-sonnet-4-5",
+ * "openai/gpt-4.1" -> "gpt-4.1"). Con la chiave vale quello ufficiale.
+ */
+function directFromOpenRouter(provider, list) {
+  const prefix = provider === 'claude' ? 'anthropic/' : 'openai/'
+  const picked = (list || [])
+    .filter(m => m && typeof m.id === 'string' && m.id.startsWith(prefix) && !m.id.slice(prefix.length).includes(':'))
+    .map(m => {
+      const rest = m.id.slice(prefix.length)
+      return { id: provider === 'claude' ? rest.replace(/\./g, '-') : rest, label: String(m.label || rest).replace(/^[^:]+:\s*/, '') }
+    })
+    .filter(m => provider === 'claude' ? m.id.startsWith('claude-') : /^(gpt-|o\d|chatgpt-)/.test(m.id) && !OPENAI_NOT_CHAT.test(m.id))
+  return withKnown(provider, provider === 'openai' ? picked.sort((a, b) => b.id.localeCompare(a.id)) : picked)
+}
+
+function parseAnthropicModels(body) {
+  const data = body && Array.isArray(body.data) ? body.data : []
+  return withKnown('claude', data
+    .filter(m => m && typeof m.id === 'string' && m.id.startsWith('claude-'))
+    .map(m => ({ id: m.id, label: String(m.display_name || m.id) })))
+}
+
+const OPENAI_NOT_CHAT = /(audio|realtime|tts|transcribe|whisper|image|dall-e|embedding|search|moderation|instruct|codex|computer-use)/
+function parseOpenAIModels(body) {
+  const data = body && Array.isArray(body.data) ? body.data : []
+  return withKnown('openai', data
+    .filter(m => m && typeof m.id === 'string' && /^(gpt-|o\d|chatgpt-)/.test(m.id) && !OPENAI_NOT_CHAT.test(m.id))
+    .map(m => ({ id: m.id, label: m.id }))
+    .sort((a, b) => b.id.localeCompare(a.id)))
 }
 
 function parseOpenRouterModels(body) {
   const data = body && Array.isArray(body.data) ? body.data : []
   return data
-    .filter(m => m && typeof m.id === 'string' && m.id.endsWith(':free'))
-    .map(m => ({ id: m.id, label: String(m.name || m.id).replace(/\s*\(free\)\s*$/i, '') + ' (free)', caps: capsFromParams(m.supported_parameters) }))
-    .sort((a, b) => a.label.localeCompare(b.label))
+    .filter(m => m && typeof m.id === 'string')
+    .map(m => {
+      const free = m.id.endsWith(':free')
+      const name = String(m.name || m.id).replace(/\s*\(free\)\s*$/i, '')
+      return { id: m.id, label: free ? name + ' (free)' : name, free, group: free ? 'Gratuiti' : 'A pagamento (serve credito su OpenRouter)', caps: capsFromParams(m.supported_parameters, m.architecture) }
+    })
+    // Prima i gratuiti, poi quelli a pagamento (Claude, GPT, Gemini...): servono credito.
+    .sort((a, b) => (b.free - a.free) || a.label.localeCompare(b.label))
 }
 
 function rememberOpenRouterCaps(body) {
   const data = body && Array.isArray(body.data) ? body.data : []
-  for (const m of data) if (m && typeof m.id === 'string') openRouterCaps.set(m.id, capsFromParams(m.supported_parameters))
+  for (const m of data) if (m && typeof m.id === 'string') openRouterCaps.set(m.id, capsFromParams(m.supported_parameters, m.architecture))
   if (data.length) openRouterCapsAt = Date.now()
 }
 
@@ -390,7 +421,37 @@ async function modelCaps(provider, model) {
     if (openRouterCaps.has(model)) return openRouterCaps.get(model)
   }
   const entry = PROVIDERS[provider] && PROVIDERS[provider].models.find(m => m.id === model)
-  return entry ? { schema: false, json: true, tools: false, reasoning: !!entry.reasoning } : null
+  if (!entry && provider !== 'claude' && provider !== 'openai') return null
+  return { schema: false, json: true, tools: false, reasoning: !!(entry && entry.reasoning), vision: visionOf(provider, model) }
+}
+
+/** Il nome locale di un modello del catalogo cloud: "gpt-oss:120b" -> "gpt-oss:120b-cloud", "kimi-k3" -> "kimi-k3:cloud". */
+function cloudName(name) {
+  return name.includes(':') ? name + '-cloud' : name + ':cloud'
+}
+const isCloudName = (id) => /(-|:)cloud$/.test(id)
+
+/** Installati, poi i cloud del catalogo non ancora preparati. */
+function mergeOllamaModels(installed, catalog) {
+  const local = installed.map(m => ({ ...m, group: isCloudName(m.id) ? 'Cloud (serve l\'accesso a ollama.com)' : 'Installati su questo PC', cloud: isCloudName(m.id) }))
+  const have = new Set(local.map(m => m.id))
+  const cloud = (catalog || [])
+    .map(name => cloudName(name))
+    .filter(id => !have.has(id))
+    .map(id => ({ id, label: id, group: 'Cloud (serve l\'accesso a ollama.com)', cloud: true }))
+  return [...local.filter(m => !m.cloud), ...local.filter(m => m.cloud), ...cloud]
+}
+
+let ollamaCatalog = { at: 0, names: [] }
+async function ollamaCloudCatalog() {
+  if (Date.now() - ollamaCatalog.at < MODEL_CACHE_MS) return ollamaCatalog.names
+  try {
+    const res = await requestJSON('https://ollama.com/api/tags', { method: 'GET' }, null, 8000)
+    const list = res.status === 200 && Array.isArray(res.body && res.body.models) ? res.body.models : []
+    const names = list.map(m => m && m.name).filter(n => typeof n === 'string' && /^[a-z0-9][a-z0-9._/:-]{0,100}$/i.test(n))
+    if (names.length) ollamaCatalog = { at: Date.now(), names }
+  } catch (_) {}
+  return ollamaCatalog.names
 }
 
 function parseOllamaTags(body) {
@@ -408,10 +469,17 @@ function ollamaAddress() {
  * @param {string} provider
  * @returns {Promise<{models: {id: string, label: string}[], live: boolean}>}
  */
-async function listModels(provider) {
+async function listModels(provider, apiKey = '') {
   const fallback = (PROVIDERS[provider] && PROVIDERS[provider].models) || []
-  if (provider !== 'openrouter' && provider !== 'ollama') return { models: fallback, live: false }
-  const cached = modelCache.get(provider)
+  if (!PROVIDERS[provider]) return { models: [], live: false }
+  const direct = provider === 'claude' || provider === 'openai'
+  if (direct && !apiKey) {
+    const viaOpenRouter = await listModels('openrouter')
+    const models = viaOpenRouter.live ? directFromOpenRouter(provider, viaOpenRouter.models) : []
+    return models.length ? { models, live: true, source: 'openrouter' } : { models: fallback, live: false }
+  }
+  // Ollama non va in cache: un modello appena scaricato deve comparire subito.
+  const cached = provider === 'ollama' ? null : modelCache.get(provider)
   if (cached && Date.now() - cached.at < MODEL_CACHE_MS) return { models: cached.models, live: true }
   try {
     let models
@@ -420,11 +488,25 @@ async function listModels(provider) {
       if (res.status !== 200) throw httpError('OpenRouter', res)
       rememberOpenRouterCaps(res.body)
       models = parseOpenRouterModels(res.body)
+    } else if (provider === 'claude') {
+      const res = await requestJSON('https://api.anthropic.com/v1/models?limit=100',
+        { method: 'GET', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' } }, null, 10000)
+      if (res.status !== 200) throw httpError('Claude', res)
+      models = parseAnthropicModels(res.body)
+    } else if (provider === 'openai') {
+      const res = await requestJSON('https://api.openai.com/v1/models', { method: 'GET', headers: { Authorization: 'Bearer ' + apiKey } }, null, 10000)
+      if (res.status !== 200) throw httpError('OpenAI', res)
+      models = parseOpenAIModels(res.body)
     } else {
       const { host, port } = ollamaAddress()
-      const res = await requestJSON('http://' + host + ':' + port + '/api/tags', { method: 'GET' }, null, 3000)
+      const tags = () => requestJSON('http://' + host + ':' + port + '/api/tags', { method: 'GET' }, null, 3000)
+      let res = await tags().catch(e => e)
+      if (res instanceof Error) {
+        if (res.code !== 'ECONNREFUSED' || !(await require('./ollama').start()).ok) throw res
+        res = await tags()
+      }
       if (res.status !== 200) throw httpError('Ollama', res)
-      models = parseOllamaTags(res.body)
+      models = mergeOllamaModels(parseOllamaTags(res.body), await ollamaCloudCatalog())
     }
     if (!models.length) return { models: fallback, live: false }
     modelCache.set(provider, { at: Date.now(), models })
@@ -573,36 +655,6 @@ const callOpenAI = (apiKey, model, history, opts) => callOpenAICompatible(
   'https://api.openai.com/v1/chat/completions',
   { Authorization: 'Bearer ' + apiKey }, model, history, opts, 'OpenAI')
 
-const callGrok = (apiKey, model, history, opts) => callOpenAICompatible(
-  'https://api.x.ai/v1/chat/completions',
-  { Authorization: 'Bearer ' + apiKey }, model, history, opts, 'Grok')
-
-const callMistral = (apiKey, model, history, opts) => callOpenAICompatible(
-  'https://api.mistral.ai/v1/chat/completions',
-  { Authorization: 'Bearer ' + apiKey }, model, history, opts, 'Mistral')
-
-async function callGemini(apiKey, model, history, opts) {
-  const { system, messages } = prepare(history, opts.systemPrompt)
-  const contents = messages.map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }))
-  const generationConfig = { maxOutputTokens: opts.maxTokens }
-  if (opts.jsonMode) generationConfig.responseMimeType = 'application/json'
-
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/'
-    + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey)
-  const res = await requestJSON(url, {}, {
-    system_instruction: { parts: [{ text: system }] },
-    contents,
-    generationConfig,
-  }, opts.timeoutMs)
-
-  if (res.status !== 200) throw httpError('Gemini', res)
-  const text = (res.body.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('')
-  return parseResponse(text, opts.jsonMode)
-}
-
 // Al primo messaggio Ollama carica il modello in memoria: mistral 7B su una
 // RTX 3060 ha risposto dopo 48 s. Con il vecchio limite di 30 s l'attesa finiva
 // in "Ollama non raggiungibile", con Ollama acceso.
@@ -613,7 +665,10 @@ function ollamaFailure(err) {
   if (err && /^Timeout/.test(err.message)) {
     return new Error('Ollama non ha risposto in ' + Math.round(OLLAMA_TIMEOUT_MS / 1000) + ' s: forse sta ancora caricando il modello. Riprova tra poco.')
   }
-  return new Error('Ollama non raggiungibile. Avvialo con: ollama serve')
+  // Solo una connessione rifiutata vuol dire Ollama spento; gli altri errori
+  // (risposta interrotta, modello cloud che cade) tengono il motivo vero.
+  if (!err || err.code === 'ECONNREFUSED') return new Error('Ollama non si avvia: controlla che sia installato (ollama.com/download).')
+  return new Error('Ollama ha interrotto la risposta: riprova. (' + String(err.code || err.message).slice(0, 120) + ')')
 }
 
 async function callOllama(model, history, opts) {
@@ -622,11 +677,18 @@ async function callOllama(model, history, opts) {
   const body = { model, messages: [{ role: 'system', content: system }, ...messages], stream: false }
   if (opts.jsonMode) body.format = 'json'
 
+  const chat = () => requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs))
   let res
   try {
-    res = await requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs))
+    res = await chat()
   } catch (err) {
-    throw ollamaFailure(err)
+    // Ollama spento: lo si avvia da soli (Blocco 7a) e si riprova una volta.
+    if (!err || err.code !== 'ECONNREFUSED' || !(await require('./ollama').start()).ok) throw ollamaFailure(err)
+    try { res = await chat() } catch (again) { throw ollamaFailure(again) }
+  }
+  if (res.status === 404 && isCloudName(model)) {
+    const pulled = await requestJSON('http://' + host + ':' + port + '/api/pull', {}, { model, stream: false }, 60000).catch(() => null)
+    if (pulled && pulled.status === 200) res = await requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs)).catch(err => { throw ollamaFailure(err) })
   }
   if (res.status !== 200) throw httpError('Ollama', res)
   return parseResponse(res.body.message?.content || '', opts.jsonMode)
@@ -821,9 +883,6 @@ async function route({ provider, model, apiKey, history, systemPrompt, jsonMode 
   switch (provider) {
     case 'claude':     return callClaude(apiKey, model, clean, opts)
     case 'openai':     return callOpenAI(apiKey, model, clean, opts)
-    case 'grok':       return callGrok(apiKey, model, clean, opts)
-    case 'gemini':     return callGemini(apiKey, model, clean, opts)
-    case 'mistral':    return callMistral(apiKey, model, clean, opts)
     case 'ollama':     return callOllama(model, clean, opts)
     case 'openrouter': return callOpenRouter(apiKey, model, clean, opts)
     default:           throw new Error('Provider "' + provider + '" non supportato')
@@ -839,6 +898,11 @@ module.exports = {
   ollamaFailure,
   listModels,
   parseOpenRouterModels,
+  directFromOpenRouter,
+  cloudName,
+  mergeOllamaModels,
+  parseAnthropicModels,
+  parseOpenAIModels,
   parseOllamaTags,
   capsFromParams,
   outputMode,

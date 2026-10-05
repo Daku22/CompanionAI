@@ -85,6 +85,17 @@
 - Readable memory, in "Persone" for each persona: the summary can be
   corrected by hand, and every remembered message (recent or archived) can
   be read and deleted, from the files on disk too.
+- Providers reworked: OpenRouter (default), Claude, OpenAI and Ollama. Grok,
+  Gemini and Mistral direct are gone (use them through OpenRouter). Every
+  model list is live: OpenRouter shows free and paid models in two groups;
+  Claude and OpenAI use the official list with a saved key, or OpenRouter's
+  public catalog without one. "Prova il modello" sends one real request and
+  says whether the model works, in the companion's format, and whether it
+  sees images.
+- Ollama from the app: installed models plus Ollama's cloud models (prepared
+  automatically on first use, after "Accedi a Ollama"), "Scarica un modello"
+  with progress, a link to the model library, and Ollama started by itself
+  when it is off.
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.

@@ -295,8 +295,9 @@ test('la chiave in chiaro del vecchio formato va al provider del suo prefisso', 
   assert.equal(legacyKeyProvider('sk-ant-1', {}), 'claude', '"sk-ant-" prima di "sk-"')
   assert.equal(legacyKeyProvider('sk-or-1', {}), 'openrouter')
   assert.equal(legacyKeyProvider('sk-proj-1', {}), 'openai')
-  assert.equal(legacyKeyProvider(' AIza1 ', {}), 'gemini')
-  assert.equal(legacyKeyProvider('senzaprefisso', {}), 'mistral', 'Mistral non ha un prefisso')
+  // Gemini e Mistral diretti non ci sono piu' (Blocco 7a): quelle chiavi non vanno da nessuna parte.
+  assert.equal(legacyKeyProvider(' AIza1 ', {}), null)
+  assert.equal(legacyKeyProvider('senzaprefisso', {}), null)
   // Una chiave leggibile per lo stesso provider vince: quella vecchia si toglie.
   assert.equal(legacyKeyProvider('sk-ant-vecchia', { claude: 'sk-ant-nuova' }), null)
   assert.equal(legacyKeyProvider('', {}), null)
