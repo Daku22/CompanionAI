@@ -269,6 +269,14 @@
           <input type="checkbox" id="initiative-voice">
         </label>
         <label class="toggle">
+          <span class="what"><b>Sa quale app stai usando</b><span>Il titolo della finestra in primo piano entra nella conversazione, così può capire di cosa parli. Non si salva in memoria. Le finestre il cui titolo contiene una parola dell'elenco qui sotto non si leggono.</span></span>
+          <input type="checkbox" id="active-app">
+        </label>
+        <div class="hidden" id="active-app-section">
+          <input class="pf-input" id="active-app-ignore" type="text" maxlength="2400" autocomplete="off" spellcheck="false" aria-label="Finestre da non leggere">
+          <p class="pf-note">Parole che, nel titolo, fanno ignorare la finestra, separate da virgole: password manager, navigazione privata, la tua banca…</p>
+        </div>
+        <label class="toggle">
           <span class="what"><b>Balla con la musica</b><span>Quando un'app dell'elenco suona, ne ascolta il ritmo e balla a tempo. L'audio si analizza sul tuo PC, non si registra e non si invia.</span></span>
           <input type="checkbox" id="dance-music">
         </label>

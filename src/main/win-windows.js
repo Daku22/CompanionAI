@@ -133,6 +133,16 @@ function foregroundWindow() {
   try { return Number(api.GetForegroundWindow()) } catch (_) { return 0 }
 }
 
+/** Titolo e processo di una finestra (Blocco 7c, l'app attiva); null se non si sa. */
+function windowInfo(hwnd) {
+  if (!load() || !hwnd) return null
+  try {
+    const pid = [0]
+    api.GetWindowThreadProcessId(hwnd, pid)
+    return { title: readText(api.GetWindowTextW, hwnd), pid: pid[0] }
+  } catch (_) { return null }
+}
+
 /**
  * Stato di una finestra sola, per seguirla senza rileggere tutte le altre.
  * null se non esiste piu'.
@@ -206,4 +216,4 @@ function isKeyDown(vk) {
   return (api.GetAsyncKeyState(vk) & 0x8000) !== 0
 }
 
-module.exports = { available, unavailableReason, listWindows, foregroundWindow, windowState, placeAbove, handleOf, isKeyDown }
+module.exports = { available, unavailableReason, listWindows, foregroundWindow, windowInfo, windowState, placeAbove, handleOf, isKeyDown }

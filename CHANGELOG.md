@@ -103,6 +103,11 @@
   saved (the memory keeps "[immagine dello schermo]"). Works with all four
   providers; on OpenRouter a busy free model falls back to other free models
   that see images.
+- "Sa quale app stai usando" (off by default): the title of the last window
+  you had in the foreground (not the app's own) joins the conversation as
+  context, never saved in memory. Windows whose title contains a word from
+  an editable list (password managers, private browsing by default) are
+  never read.
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.

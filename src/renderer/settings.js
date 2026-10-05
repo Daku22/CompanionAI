@@ -253,6 +253,9 @@
     idleLife.checked = cfg.idleLife !== false
     touchReactions.checked = cfg.touchReactions !== false
     $('initiative').checked = cfg.initiative !== false
+    $('active-app').checked = cfg.activeApp === true
+    $('active-app-section').classList.toggle('hidden', cfg.activeApp !== true)
+    if (document.activeElement !== $('active-app-ignore')) $('active-app-ignore').value = (cfg.activeAppIgnore || []).join(', ')
     $('initiative-voice').checked = cfg.initiativeVoice === true
     danceMusic.checked = cfg.danceMusic === true
     $('dance-section').classList.toggle('hidden', !danceMusic.checked)
@@ -279,6 +282,12 @@
   idleLife.addEventListener('change', () => saveGeneral({ idleLife: idleLife.checked }))
   touchReactions.addEventListener('change', () => saveGeneral({ touchReactions: touchReactions.checked }))
   $('initiative').addEventListener('change', (e) => saveGeneral({ initiative: e.target.checked }))
+  $('active-app').addEventListener('change', (e) => {
+    $('active-app-section').classList.toggle('hidden', !e.target.checked)
+    saveGeneral({ activeApp: e.target.checked })
+  })
+  $('active-app-ignore').addEventListener('change', (e) => saveGeneral({ activeAppIgnore: e.target.value.split(/[,;\n]+/) }))
+  $('active-app-ignore').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur() })
   $('initiative-voice').addEventListener('change', (e) => saveGeneral({ initiativeVoice: e.target.checked }))
   danceMusic.addEventListener('change', () => saveGeneral({ danceMusic: danceMusic.checked }))
   danceApps.addEventListener('change', () => saveGeneral({ danceApps: danceApps.value.split(/[,;\n]+/) }))

@@ -30,6 +30,7 @@ const Personas = require('./personas')
 const Rapport = require('./rapport')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
+const ActiveApp = require('./active-app')
 const { writeAtomic } = require('./write-atomic')
 const touchReact = require('./touch-react')
 const { decideIdle } = require('./idle-life')
@@ -151,6 +152,9 @@ function loadConfig() {
   // Iniziativa (Blocco 6d): accesa di base; letta ad alta voce solo se chiesto.
   cfg.initiative = cfg.initiative !== false
   cfg.initiativeVoice = cfg.initiativeVoice === true
+  // App attiva (Blocco 7c): spenta di base, con l'elenco delle finestre da non leggere.
+  cfg.activeApp = cfg.activeApp === true
+  cfg.activeAppIgnore = ActiveApp.cleanIgnore(cfg.activeAppIgnore) || ActiveApp.IGNORE_DEFAULT
   cfg.danceApps = danceApps(cfg.danceApps) || DANCE_APPS_DEFAULT
   cfg.chibiAvatars = chibiAvatars(cfg.chibiAvatars) || []
   cfg.view = cfg.view === 'room' ? 'room' : 'desktop'
@@ -500,7 +504,9 @@ async function buildHistoryWithMemory(rendererHistory) {
 // sistema subito dopo la memoria: prepare() nel router li unisce in ordine.
 function withMoodLine(history) {
   const touched = touchReact.touchPromptText(lastTouch, Date.now())
-  const line = { role: 'system', content: moodLib.promptLine(mood) + ' ' + Rapport.promptLine(rapport) + (touched ? ' ' + touched : '') }
+  const cfg = loadConfig()
+  const app = cfg.activeApp ? ActiveApp.activeAppLine(lastForeign, cfg.activeAppIgnore, process.pid) : null
+  const line = { role: 'system', content: moodLib.promptLine(mood) + ' ' + Rapport.promptLine(rapport) + (touched ? ' ' + touched : '') + (app ? ' ' + app : '') }
   const firstDialog = history.findIndex(m => m.role !== 'system')
   if (firstDialog === -1) return [...history, line]
   return [...history.slice(0, firstDialog), line, ...history.slice(firstDialog)]
@@ -1750,6 +1756,20 @@ function startInitiative() {
     const timer = setInterval(initiativeTick, INITIATIVE_TICK_MS)
     if (timer.unref) timer.unref()
   }, INITIATIVE_FIRST_MS).unref?.()
+}
+
+// ─── App attiva (Blocco 7c) ──────────────────────────────────────────────────
+// Mentre scrivi, in primo piano c'e' la chat: si ricorda l'ultima finestra in
+// primo piano che non e' dell'app, controllando ogni 2 s solo se l'opzione e'
+// accesa. Il titolo resta in RAM e entra nel prompt (active-app.js), mai in memoria.
+let lastForeign = null
+function startActiveApp() {
+  const timer = setInterval(() => {
+    if (!loadConfig().activeApp) { lastForeign = null; return }
+    const info = winWindows.windowInfo(winWindows.foregroundWindow())
+    if (info && info.title && info.pid !== process.pid) lastForeign = info
+  }, 2000)
+  if (timer.unref) timer.unref()
 }
 
 function startIdleLife() {
@@ -3064,6 +3084,7 @@ app.whenReady().then(() => {
   initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
   startIdleLife()
   startInitiative()
+  startActiveApp()
   startCursorFeed()
   startWeatherFeed()
 })
