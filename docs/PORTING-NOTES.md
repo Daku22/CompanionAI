@@ -1113,6 +1113,38 @@ ritorno su 127.0.0.1. Trappole:
   di `main.js`, e i test non caricano `main.js`: ora `npm test` comincia con
   `node --check src/main/main.js`.
 
+## Blocco 8: più companion (2026-10-13)
+
+**Rifacimento.** Tutto quello che era di "il" companion (110 usi di
+`companionWindow` e una ventina di variabili globali) è passato in
+`companion.js`, un'istanza per persona; `main.js` è sceso da 3430 a circa
+2200 righe. Fatto in un sotto-blocco senza cambi visibili (8a), chiuso con
+smoke e audit verdi prima di aprire il secondo companion. Trappole:
+- l'interfaccia dell'istanza era fatta con `Object.assign(c, { get win() … })`:
+  `Object.assign` copia il *valore* dei getter, cioè `null` alla creazione, e
+  `test:peek` cadeva su `c.win.getBounds()`. Ora `Object.defineProperties` con
+  `Object.getOwnPropertyDescriptors`. Lo smoke era verde lo stesso: lo ha
+  trovato solo l'audit;
+- una sola coda per la voce va bene (parla uno alla volta), ma `stop()` arriva
+  solo alla finestra di chi parla adesso: un messaggio nuovo manda lo stop a
+  tutte;
+- con più finestre `companion.html`, smoke e audit cercano `?slot=0`.
+
+**Scelte dell'utente.** Tutti alla pari, chat di gruppo, tutti nella stanza,
+6 messaggi spontanei al giorno a testa. Dopo la prova l'utente ha voluto i
+commenti fra companion più frequenti, con un saluto quando ne arriva uno: un
+conto a parte (12 al giorno, 15 minuti fra due commenti) per non togliere
+messaggi all'utente.
+
+**Stanza.** Gli ospiti sono avatar caricati nella scena del companion di casa,
+con un `createVRMAnimator` e un `createClipLayer` ciascuno: le due fabbriche
+erano già per istanza. Le pose globali di `vrm-animation.js` (batti cinque,
+sbirciata, ballo) restano del companion di casa; gli ospiti non le usano.
+
+**Script.** Gli heredoc di bash con Python continuano a mangiare gli escape
+(`\\'`, `\n` dentro stringhe JS): per le sostituzioni lunghe si usa un JSON
+scritto con lo strumento di scrittura e un piccolo `rep.py` che lo applica.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

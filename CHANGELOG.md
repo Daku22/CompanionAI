@@ -136,6 +136,20 @@
 - Settings → Memoria: a page of its own for the memory and the diary of each
   persona, picked from its own menu; Persone keeps only who the persona is
   (name, voice, personality). Settings pages now open by name for every tab.
+- More companions, up to 3 on the desktop ("Sul desktop" in Settings →
+  Persone, or "Companion sul desktop" in the menus), each with its own avatar,
+  voice, memory, mood and idle life:
+  - they don't overlap: a new one appears in a free spot, walking stops
+    before another, one dropped on another slides aside, a window or taskbar
+    seat is for one at a time; who was on the desktop and where is remembered;
+  - group chat: chips to write to everyone or to one; whoever is called by
+    name answers, otherwise one and sometimes a second reacting to the first;
+    replies show the speaker's name and colour, and everyone remembers them;
+  - they look at whoever is speaking and glance at each other; a companion
+    you add greets the others; now and then one comments on another, who can
+    answer once (12 such messages a day each, apart from the 6 to you);
+  - the room fits everyone: the other 3D companions join the scene as guests,
+    with gestures, expressions, lip sync and touches.
 - Photo mode in the room (📷 in the title bar): the interface hides, a small
   panel picks a pose and an expression, and "Scatta" saves a PNG of the scene
   with the avatar where you choose. 3D avatars only for now.

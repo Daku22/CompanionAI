@@ -212,3 +212,14 @@ dal vivo; port; installer; push; release.
   Va scritto nelle impostazioni.
 - **Prestazioni:** con 3 finestre WebGL sul desktop e 3 avatar nella stanza, la memoria
   video su una RTX 3060 va misurata.
+
+## Com'è andata (chiusura, 13 ottobre)
+- **Prima del blocco:** su richiesta dell'utente, una pagina **Memoria** nelle impostazioni
+  (memoria e diario di ogni persona); in Persone restano nome, voce e personalità.
+- **8a–8e** come da piano: un companion per persona in `companion.js`, fino a 3 sul desktop
+  senza sovrapporsi, chat di gruppo, sguardi e commenti, tutti nella stanza come ospiti.
+- **8d, dopo la prova:** commenti fra companion più frequenti (circa ogni 8 minuti, con un
+  conto a parte di 12 al giorno e 15 minuti fra due commenti dello stesso), e il saluto di chi
+  arriva sul desktop, con la risposta di uno degli altri.
+- **8e:** gli ospiti non camminano, non si prendono in braccio e non si siedono; Live2D e 2D
+  restano sul desktop.

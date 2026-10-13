@@ -251,6 +251,56 @@ ogni ricordo (recente o in archivio, fino agli ultimi 200) si elimina, anche
 dai file d'archivio su disco. Un ricordo archiviato eliminato resta nel
 riassunto finché non lo si corregge lì.
 
+## Più companion (Blocco 8)
+
+Piano in `docs/blocco-8.md`. Fino a 3 companion sul desktop, uno per persona,
+tutti alla pari.
+
+**Com'è fatto.** Ogni companion è un'istanza di `src/main/companion.js`
+(`createCompanion`): finestra, umore, rapporto, memoria, diario, vita a riposo,
+camminata, presa in braccio, sbirciata, seduta, tocchi, batti cinque, chibi,
+stanza e menu. `main.js` tiene le parti comuni (config, chat, impostazioni,
+voce, microfono, connettori, librerie, Kimodo) e le passa in un `ctx`.
+- `companionOf(event)` riconosce dalla finestra chi manda un messaggio IPC;
+  `chatTarget()` è il companion della persona attiva.
+- L'avatar scelto da un companion va nella sua persona (`Personas.setAvatar`);
+  la voce di chi parla è quella della sua persona (`voiceFor`), e l'audio va
+  alla sua finestra, per il labiale.
+- `src/main/companions.js` (puro): chi aprire (`cleanOpen`, al massimo 3),
+  dove nasce uno nuovo (`freeSpot`), il posto salvato (`onSomeArea`), la
+  camminata che si ferma prima di un altro (`blockedWalk`), il rilascio sopra
+  un altro (`nudgeAside`), la testa da guardare (`headPoint`). Un posto su
+  una finestra o sulla taskbar già occupato si rifiuta in `tryPerch`.
+- In `config.json`: `openPersonas` (chi è sul desktop) e `companionSpots`
+  (dove, per persona).
+
+**Chat di gruppo** (`src/main/group-chat.js`, puro). `pickResponders`:
+la pastiglia scelta, se no chi è chiamato per nome (parola intera, senza
+accenti), se no uno (di solito l'ultimo che ha parlato) e a volte un secondo
+(`SECOND_CHANCE` 0,35); al massimo 2. `historyFor` riscrive le risposte
+degli altri come `[Nome ha detto: …]` (ruolo `user`), così nessuno crede di
+averle dette lui; `groupLine` gli dice chi altro c'è. La prima risposta torna
+subito alla chat, la seconda arriva con `group-reply` quando la voce del primo
+ha finito (`speechEndsAt`, stimato dai pezzi audio). Tutti quelli sul desktop
+mettono in memoria il messaggio dell'utente e le risposte degli altri.
+
+**Sguardo e iniziativa.** Chi ascolta guarda la testa di chi parla, e a riposo
+ogni tanto un vicino (`GLANCE_CHANCE`): main lo manda sul canale `cursor` al
+posto del mouse. L'iniziativa (`initiative.js`) ha uno stato per persona
+(`initiative.json` nella sua cartella): 6 messaggi al giorno all'utente, e un
+conto a parte fra companion (`MAX_PEER_PER_DAY` 12, `PEER_GAP_MS` 15 minuti).
+Occasioni nuove: `peer` (un commento su un altro: cosa fa, cosa ha detto
+nell'ultima mezz'ora), `peer-reply` (la risposta, una sola) e `hello` (chi
+arriva saluta, uno gli risponde). Fra i messaggi spontanei di companion
+diversi passano almeno 10 minuti.
+
+**Tutti nella stanza.** La stanza resta la finestra di un companion; gli
+altri 3D nascondono la loro e diventano ospiti della scena (`room-guest`):
+posto da `room.guestSpot`, animatore e clip propri, gesti, umore, labiale
+(`voice-audio` con `speaker`) e tocchi (`companion:touch` con `guest`).
+Camminare, presa e seduta restano al companion di casa; Live2D e 2D restano
+sul desktop.
+
 ## Umore e vita a riposo
 
 **Umore** (`src/main/mood.js`). Sei emozioni fra 0 e 1, ognuna con la propria

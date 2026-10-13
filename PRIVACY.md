@@ -8,7 +8,8 @@ everything the app sends out and everything it stores.
 | Destination | When | What |
 |---|---|---|
 | The AI provider you chose | Every message you send, and when memory is summarized | Your message, the recent conversation, the memory summary and the app's instructions for the model. Your API key authenticates the request |
-| The AI provider you chose | Once a day per persona for the diary (only after a day you talked), and up to 6 times a day when the companion writes first ("Scrive per primo", on by default) | For the diary: that day's conversation (at most the last 6000 characters) and the persona's personality. For a message it writes first: the same as a normal reply, with a line saying why it writes (greeting, welcome back, long silence) instead of your message |
+| The AI provider you chose | Once a day per persona for the diary (only after a day you talked), and up to 6 times a day per companion when it writes first ("Scrive per primo", on by default) | For the diary: that day's conversation (at most the last 6000 characters) and the persona's personality. For a message it writes first: the same as a normal reply, with a line saying why it writes (greeting, welcome back, long silence) instead of your message |
+| The AI provider you chose | Only with more than one companion on the desktop: up to 2 replies per message in the group chat, and up to 12 messages a day per companion between companions (greetings, comments and answers) | The same as a normal reply of that companion, plus the names of the others and what they just said |
 | The AI provider you chose | Only when you press 👁 (or the model asks to look) **and you send it** | A screenshot of the companion's monitor, at most 1568 px, with your next message. It is never saved: the memory keeps only "[immagine dello schermo]" |
 | The AI provider you chose | Only with "Sa quale app stai usando" on (off by default) | The title of the window you were last using, as part of the message. Windows matching the ignore list (password managers, private browsing) are never read |
 | `openrouter.ai`, `api.anthropic.com`, `api.openai.com` | When the model list of that provider is shown, or with "Prova il modello" | A request for the list of models (with your key for Claude and OpenAI), or a tiny test message. No conversation |
@@ -58,7 +59,8 @@ personal data.
 |---|---|
 | Settings and API keys | `%USERPROFILE%\.desktop-companion\config.json`. Keys are encrypted with Windows' own key store (Electron `safeStorage`) |
 | Conversation memory | `%USERPROFILE%\.desktop-companion\memory\`: recent turns, summary, and the lossless archive of summarized turns |
-| Personas | `%USERPROFILE%\.desktop-companion\memory\personas.json` (names, personalities, avatar and voice of each), and for every persona its mood, relationship (`rapport.json`) and diary (`diary.jsonl`). The first persona keeps them in `memory\`, the others in `memory\personas\<id>\` |
+| Personas | `%USERPROFILE%\.desktop-companion\memory\personas.json` (names, personalities, avatar and voice of each), and for every persona its mood, relationship (`rapport.json`), diary (`diary.jsonl`) and spontaneous-message counters (`initiative.json`). The first persona keeps them in `memory\`, the others in `memory\personas\<id>\`. With several companions on the desktop, each one's memory also keeps what you wrote to the group and what the others said |
+| Companions on the desktop | `config.json`: which personas are on the desktop (`openPersonas`) and where (`companionSpots`) |
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
 | Imported animations | `%APPDATA%\CompanionAI\animations\` |
 | Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, the sentence each one came from in `index.json`, and the names you gave them in `names.json` |

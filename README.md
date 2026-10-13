@@ -129,6 +129,27 @@ the mood in the chat.
   delete any remembered message. "Compatta" in the chat summarises everything
   but the last few messages.
 
+**More companions (up to 3).** Turn on "Sul desktop" for a persona in
+Settings → Persone, or use "Companion sul desktop" in the right-click or tray
+menu. Each one has its own avatar, voice, memory, mood and idle life, and they
+don't step on each other: a new one appears in a free spot, walking stops
+before another, one dropped on top of another slides aside, and a seat on a
+window or the taskbar belongs to one at a time. The app remembers who was on
+the desktop and where.
+- **Group chat:** with more than one on the desktop, chips under the chat
+  header pick "Tutti" or a single companion. Call one by name and that one
+  answers; otherwise one answers and sometimes a second reacts (at most two
+  replies, each with its name and colour). Everyone hears the conversation
+  and remembers it.
+- **They look at each other and talk:** listeners look at whoever speaks, and
+  now and then glance at a neighbour. A companion you add greets the others,
+  and every so often one comments on another (what it is doing, what it said),
+  who can answer once. These have their own budget (12 a day each), apart from
+  the 6 messages a day each one writes to you.
+- **The room fits everyone:** opening the room, the other 3D companions join
+  the scene as guests, with their gestures, expressions, voice and touches.
+  Live2D and 2D companions stay on the desktop.
+
 **Voice (optional, off by default).** In Settings → Voce turn on "Legge ad alta voce le risposte", press "Scarica" once (about 180 MB:
 the Kokoro-82M model with two Italian voices, Sara and Nicola, and the eSpeak NG
 phonemizer), and the companion reads its replies aloud while its mouth follows
