@@ -74,7 +74,7 @@ try {
     if (list.some(t => t.url.includes('companion.html'))) break
     await sleep(500)
   }
-  const comp = await connect(list.find(t => t.url.includes('companion.html')))
+  const comp = await connect(list.find(t => t.url.includes('companion.html?slot=0')))
   await sleep(3000)
   await comp.evaluate('window.__companionTest = true; true')
   await comp.evaluate(`document.getElementById('switch-zone').click(); true`)

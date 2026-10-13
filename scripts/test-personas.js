@@ -81,4 +81,12 @@ test('cartella: default resta dov\'era, le altre in personas/<id>', () => {
   assert.equal(P.personaDir('/m', 'bob'), path.join('/m', 'personas', 'bob'))
 })
 
+test('avatar del companion: va alla sua persona, le altre restano', () => {
+  let s = P.normalize({ activeId: 'a', list: [{ id: 'a', name: 'A', avatarModel: 'x' }, { id: 'b', name: 'B', avatarModel: 'y' }] })
+  s = P.setAvatar(s, 'b', 'neko')
+  assert.equal(s.list.find(p => p.id === 'b').avatarModel, 'neko')
+  assert.equal(s.list.find(p => p.id === 'a').avatarModel, 'x')
+  assert.equal(P.setAvatar(s, 'b', 42), s, 'un valore non valido non cambia nulla')
+})
+
 console.log(`=== ${passed} test superati ===`)

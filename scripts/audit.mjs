@@ -484,7 +484,7 @@ try {
     if (list.some(t => t.url.includes('companion.html')) && list.some(t => t.url.includes('chat.html'))) break
     await sleep(500)
   }
-  comp = await connect(list.find(t => t.url.includes('companion.html')))
+  comp = await connect(list.find(t => t.url.includes('companion.html?slot=0')))
   chat = await connect(list.find(t => t.url.includes('chat.html')))
   for (const c of [comp, chat]) { await c.send('Runtime.enable'); await c.send('Log.enable'); await c.send('Page.enable') }
   await sleep(3500)

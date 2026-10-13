@@ -46,7 +46,7 @@ async function pages() {
   for (let i = 0; i < 60; i++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
-      const comp = list.find(t => t.url.includes('companion.html'))
+      const comp = list.find(t => t.url.includes('companion.html?slot=0'))
       const chat = list.find(t => t.url.includes('chat.html'))
       if (comp && chat) return { comp, chat }
     } catch (_) {}

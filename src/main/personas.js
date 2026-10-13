@@ -97,6 +97,12 @@ function snapshot(state, { avatarModel, voice } = {}) {
   return { ...state, list: state.list.map(p => (p.id === state.activeId ? { ...p, avatarModel: avatarModel || '', voice: pickVoice(voice) } : p)) }
 }
 
+/** L'avatar scelto per la persona id (dal suo companion, Blocco 8). */
+function setAvatar(state, id, avatarModel) {
+  if (typeof avatarModel !== 'string' || avatarModel.length > 200) return state
+  return { ...state, list: state.list.map(p => (p.id === id ? { ...p, avatarModel } : p)) }
+}
+
 function activate(state, id) {
   return state.list.some(p => p.id === id) ? { ...state, activeId: id } : null
 }
@@ -117,4 +123,4 @@ function load(file, current) {
 
 const save = (file, state) => writeAtomic(file, JSON.stringify(state, null, 2))
 
-module.exports = { ID_RE, MAX_PROMPT, MAX_PERSONAS, normalize, active, create, update, remove, snapshot, activate, systemPrompt, personaDir, load, save }
+module.exports = { ID_RE, MAX_PROMPT, MAX_PERSONAS, normalize, active, create, update, remove, snapshot, setAvatar, activate, systemPrompt, personaDir, load, save }

@@ -34,12 +34,10 @@ const ActiveApp = require('./active-app')
 const Mcp = require('./mcp')
 const { writeAtomic } = require('./write-atomic')
 const touchReact = require('./touch-react')
-const { decideIdle } = require('./idle-life')
+const { createCompanion } = require('./companion')
 
-let companionWindow = null
 let chatWindow      = null
 let tray            = null
-let memoryManager   = null
 let avatarLibrary   = null
 let sceneLibrary    = null
 let animationLibrary = null
@@ -239,63 +237,6 @@ function memoryModelFrom(cfg) {
   }
 }
 
-// ─── Umore ───────────────────────────────────────────────────────────────────
-// Lo stato d'animo vive accanto alla memoria e sparisce con "Dimentica tutto".
-// Le regole stanno in mood.js; qui si carica, si salva e si avvisano le finestre.
-
-// L'umore e' della persona attiva (Blocco 6a): "default" lo tiene dov'era.
-const moodPath = () => path.join(Personas.personaDir(MEMORY_PATH, personas ? personas.activeId : 'default'), 'mood.json')
-let mood = moodLib.createMood()
-let moodSave = Promise.resolve()
-
-async function initMood() {
-  mood = await moodLib.loadMood(moodPath())
-  rapport = await Rapport.loadRapport(rapportPath())
-  broadcastMood()
-}
-
-// ─── Rapporto (Blocco 6b) ────────────────────────────────────────────────────
-// Anche questo della persona attiva, accanto al suo umore (rapport.js).
-const rapportPath = () => path.join(Personas.personaDir(MEMORY_PATH, personas ? personas.activeId : 'default'), 'rapport.json')
-let rapport = Rapport.createRapport()
-let rapportSave = Promise.resolve()
-
-/** Come updateMood. Salire di livello fa piacere: un gesto contento. */
-function updateRapport(change) {
-  const before = rapport
-  rapport = change(rapport)
-  if (rapport === before) return
-  const snapshot = rapport
-  const file = rapportPath()
-  rapportSave = rapportSave.then(() => Rapport.saveRapport(file, snapshot))
-    .catch(e => console.error('[rapporto] salvataggio fallito:', e.message))
-  if (rapport.level !== before.level) {
-    console.log('[rapporto] livello ' + Rapport.LEVELS[before.level] + ' -> ' + Rapport.LEVELS[rapport.level])
-    if (rapport.level > before.level) animateCompanion({ type: 'none', animation: 'happy', bubble: '💞' })
-  }
-  broadcastMood()
-}
-
-const bond = () => Rapport.reactionScale(rapport.level)
-
-function broadcastMood() {
-  const data = { ...moodLib.publicMood(mood), rapport: Rapport.publicRapport(rapport) }
-  for (const win of [companionWindow, chatWindow]) {
-    if (win && !win.isDestroyed()) try { win.webContents.send('mood-changed', data) } catch (_) {}
-  }
-}
-
-/** Applica una trasformazione pura all'umore, poi salva e avvisa. */
-function updateMood(change) {
-  mood = change(mood)
-  // In coda: due salvataggi ravvicinati non devono superarsi a vicenda.
-  const snapshot = mood
-  const file = moodPath()
-  moodSave = moodSave.then(() => moodLib.saveMood(file, snapshot))
-    .catch(e => console.error('[mood] salvataggio fallito:', e.message))
-  broadcastMood()
-}
-
 // ─── Persone (Blocco 6a) ─────────────────────────────────────────────────────
 // Ognuna ha memoria, umore, personalita', avatar e voce. Le regole stanno in
 // personas.js; qui si carica, si salva e si cambia persona.
@@ -330,27 +271,27 @@ function personasPublic() {
 
 /** Lascia la persona attiva (ricordando avatar e voce) e passa a id. */
 async function switchPersona(id) {
-  if (!personas || id === personas.activeId || awaitingReply) return false
+  const c = chatTarget()
+  if (!personas || id === personas.activeId || (c && c.busy)) return false
   const cfg = loadConfig()
   const next = Personas.activate(Personas.snapshot(personas, { avatarModel: cfg.avatarModel, voice: cfg.voice }), id)
   if (!next) return false
-  await moodSave
-  await rapportSave
+  if (c) await c.moodSaved()
   personas = next
   savePersonas()
   const p = activePersona()
   const merged = mergeConfig(cfg, { voice: p.voice || {} })
   merged.avatarModel = p.avatarModel || ''
   saveConfig(merged)
-  initMemory()
-  await initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
+  // Finche' il companion e' uno solo, cambia persona lui.
+  if (c) await c.setPersona(id)
   // L'avatar lo cambia il companion, come dal menu ('' = il predefinito).
   let avatarId = p.avatarModel
   if (!avatarId && avatarLibrary) {
     const avatars = await avatarLibrary.list().catch(() => [])
     avatarId = (avatars.find(a => a.default) || avatars[0] || {}).id
   }
-  if (avatarId) sendCompanion('menu-command', { cmd: 'avatar', id: avatarId })
+  if (avatarId && c) c.send('menu-command', { cmd: 'avatar', id: avatarId })
   syncVoice(merged)
   sendChatConfig(merged)
   console.log('[persone] attiva:', p.id)
@@ -401,251 +342,91 @@ handle('personas:change', async (_e, input) => {
 // accesa a cavallo della mezzanotte). Senza chiave o con un errore si salta:
 // riprova la volta dopo.
 const diaryPath = (id) => path.join(Personas.personaDir(MEMORY_PATH, id), 'diary.jsonl')
-let diaryBusy = false
-
-async function maybeWriteDiary() {
-  const mm = memoryManager
-  const persona = activePersona()
-  if (diaryBusy || !mm || !persona) return
-  diaryBusy = true
-  try {
-    const turns = [...mm.getArchive(), ...mm.getRawTurns()]
-    const file = diaryPath(persona.id)
-    const day = Diary.dayToWrite(turns, await Diary.loadDiary(file))
-    if (!day) return
-    const cfg = loadConfig()
-    const apiKey = cfg.keys?.[cfg.provider] || ''
-    if (cfg.provider !== 'ollama' && !apiKey) return
-    const result = await route({
-      provider: cfg.provider, model: cfg.model, apiKey,
-      jsonMode: false, maxTokens: Diary.MAX_TOKENS,
-      systemPrompt: Diary.systemPrompt(persona),
-      history: [{ role: 'user', content: 'Il dialogo del ' + day + ':\n' + Diary.transcript(turns, day, persona.name) }],
-    })
-    const text = Diary.cleanEntry(result && result.reply)
-    if (!text) return
-    await Diary.appendDiary(file, { day, text })
-    console.log('[diario] scritta la voce del ' + day + ' per ' + persona.id)
-    sendSettings('diary-changed', persona.id)
-  } catch (e) {
-    console.error('[diario] non scritto:', e.message)
-  } finally { diaryBusy = false }
-}
 
 handle('personas:diary', async (_e, id) => {
   if (!personas || !personas.list.some(p => p.id === id)) return []
   return (await Diary.loadDiary(diaryPath(id))).slice(0, Diary.MAX_ENTRIES_SHOWN)
 })
 
-function initMemory() {
-  if (!personas) loadPersonas()
-  memoryManager = new MemoryManager(personas.activeId, MEMORY_PATH, memoryModelFrom(loadConfig()))
+// ─── Companion (Blocco 8) ────────────────────────────────────────────────────
+// Ogni companion sul desktop e' un'istanza di companion.js, abitata da una
+// persona, con la sua finestra, il suo umore, la sua memoria e la sua vita.
+// Qui il registro, chi parla con la chat, e quello che condividono (ctx).
+/** @type {any[]} */
+const companions = []
 
-  // Carica subito lo stato su disco: senza questo la memoria del boot precedente
-  // arriverebbe solo al primo turno, in ritardo rispetto alla prima domanda.
-  memoryManager.loadState()
-    .then(loaded => { console.log('[memory] stato caricato:', loaded ? 'si' : 'nessuno su disco'); maybeWriteDiary() })
-    .catch(e => console.error('[memory] loadState fallito:', e.message))
-
-  // Auto-compaction: i turni piu' vecchi di 7 giorni sfumano in summary
-  // (fading memory, ispirato a companion-emergence). Ogni 60 minuti.
-  if (global.__memoryTimer) clearInterval(global.__memoryTimer)
-  global.__memoryTimer = setInterval(() => {
-    if (!memoryManager) return
-    memoryManager.compact(7).then(did => {
-      if (did) console.log('[memory] auto-compaction completata')
-    }).catch(() => {})
-    maybeWriteDiary()
-  }, 60 * 60 * 1000)
-  if (global.__memoryTimer.unref) global.__memoryTimer.unref()
+/** Il companion con cui parla la chat: quello della persona attiva, o il primo. */
+function chatTarget() {
+  return companions.find(c => personas && c.personaId === personas.activeId) || companions[0] || null
+}
+/** Il companion che ha mandato un messaggio, riconosciuto dalla sua finestra. */
+function companionOf(event) {
+  const w = event && event.sender ? BrowserWindow.fromWebContents(event.sender) : null
+  return (w && companions.find(c => c.win === w)) || null
+}
+/** Il companion nella stanza, se c'e'. */
+const roomHost = () => companions.find(c => c.viewMode === 'room') || null
+/** Un messaggio al companion con cui parla la chat. */
+function sendCompanion(channel, data) {
+  const c = chatTarget()
+  if (c) c.send(channel, data)
+}
+/** Un messaggio a tutti i companion. */
+function sendAll(channel, data) {
+  for (const c of companions) c.send(channel, data)
+}
+/** La finestra a cui appoggiare un dialogo: il companion della chat, se c'e'. */
+function dialogParent() {
+  const c = chatTarget()
+  return c && c.alive() ? c.win : null
 }
 
-// Costruisce la history effettiva unendo memoria di lungo periodo e chat corrente.
-//
-// Senza questo passaggio il MemoryManager sarebbe solo un logger: la chat manda
-// unicamente il proprio array in RAM, azzerato a ogni riavvio, e il companion
-// ricomincerebbe da zero ogni volta. Qui il riassunto entra come messaggio di
-// sistema e i turni piu' vecchi non ancora presenti nella chat vengono anteposti.
-async function buildHistoryWithMemory(rendererHistory) {
-  const history = Array.isArray(rendererHistory) ? rendererHistory : []
-  if (!memoryManager) return history
+// Le preferenze di comportamento, uguali per tutti (applyWindowOptions).
+const prefs = { idleLife: true, touch: true, followMouse: true, perch: true }
+// Solo per audit.mjs: un cursore finto per la sbirciata.
+let testCursor = null
 
-  let context = []
-  try {
-    context = await memoryManager.getContext(MEMORY_CONTEXT_TOKENS)
-  } catch (e) {
-    console.error('[memory] getContext fallito, procedo senza memoria:', e.message)
-    return history
-  }
-
-  const known = new Set(history.map(m => (m.content || '').trim()))
-  const preface = []
-
-  const summary = context.find(c => c.speaker === 'summary')
-  if (summary?.content) {
-    preface.push({
-      role: 'system',
-      content:
-        'MEMORIA A LUNGO TERMINE (tue conversazioni passate con questo utente, ' +
-        'gia\' riassunte). Usala per dare continuita\', non citarla alla lettera:\n' +
-        summary.content,
-    })
-  }
-
-  for (const item of context) {
-    if (item.speaker === 'summary') continue
-    const content = (item.content || '').trim()
-    if (!content || known.has(content)) continue // gia' nella chat corrente
-    known.add(content)
-    preface.push({ role: item.speaker === 'assistant' ? 'assistant' : 'user', content })
-  }
-
-  if (preface.length) console.log('[memory] iniettati', preface.length, 'elementi di contesto')
-  return [...preface, ...history]
+const companionCtx = {
+  MEMORY_PATH, MEMORY_CONTEXT_TOKENS, prefs,
+  loadConfig, saveConfig, sendSettings,
+  memoryModel: () => memoryModelFrom(loadConfig()),
+  diaryPath: (id) => diaryPath(id),
+  persona: (id) => (personas ? personas.list.find(p => p.id === id) || null : null),
+  chat: () => (chatWindow && !chatWindow.isDestroyed() ? chatWindow : null),
+  isChatTarget: (c) => chatTarget() === c,
+  lastForeign: () => lastForeign,
+  testCursor: () => testCursor,
+  listening: () => micBusy || !!micHold,
+  voiceOn: () => voiceConfig(loadConfig()).enabled,
+  speak: (c, text) => speakReply(c, text),
+  avatarLibrary: () => avatarLibrary,
+  kimodo: () => kimodo,
+  motionsEnabled: (avatarId) => motionsEnabled(avatarId),
+  expectMotion: (prompt, seconds) => {
+    const key = cacheKey(prompt, seconds)
+    expectedMotions.set(key, prompt)
+    return key
+  },
+  refreshWeather: () => { refreshWeather().catch(() => {}) },
+  onViewChanged: () => buildTrayMenu(),
+  toggleChat: () => toggleChat(),
+  openSettings: (page) => openSettings(page),
+  setOption: (partial) => setOption(partial),
+  sceneMenu: (cfg, command) => sceneMenu(cfg, command),
+  previewMenu: (command) => previewMenu(command),
+  openAnimationsFolder: () => openAnimationsFolder(),
+  quit: () => app.quit(),
 }
 
-// Umore, ora del giorno e tempo dall'ultimo messaggio entrano come messaggio di
-// sistema subito dopo la memoria: prepare() nel router li unisce in ordine.
-function withMoodLine(history) {
-  const touched = touchReact.touchPromptText(lastTouch, Date.now())
-  const cfg = loadConfig()
-  const app = cfg.activeApp ? ActiveApp.activeAppLine(lastForeign, cfg.activeAppIgnore, process.pid) : null
-  const line = { role: 'system', content: moodLib.promptLine(mood) + ' ' + Rapport.promptLine(rapport) + (touched ? ' ' + touched : '') + (app ? ' ' + app : '') }
-  const firstDialog = history.findIndex(m => m.role !== 'system')
-  if (firstDialog === -1) return [...history, line]
-  return [...history.slice(0, firstDialog), line, ...history.slice(firstDialog)]
-}
-
-// ─── Companion Window ────────────────────────────────────────────────────────
-
-function createCompanionWindow() {
-  // workArea e non workAreaSize: con la taskbar in alto o a sinistra l'area
-  // utile non parte da 0,0 e l'avatar nasceva spostato di quanto e' larga.
-  const area = screen.getPrimaryDisplay().workArea
-  const cfg = loadConfig()
-  const size = WINDOW_SCALES[cfg.scale]
-
-  companionWindow = new BrowserWindow({
-    width: size.width, height: size.height,
-    x: area.x + area.width - size.width - 40, y: area.y + area.height - size.height,
-    transparent: true,
-    frame: false,
-    alwaysOnTop: cfg.alwaysOnTop,
-    skipTaskbar: true,
-    // Le dimensioni si scelgono dal menu: con i clic che attraversano i pixel
-    // vuoti i bordi non si possono afferrare comunque.
-    resizable: false,
-    minWidth: 140,
-    minHeight: 200,
-    hasShadow: false,
-    // Nella stanza la finestra compare nella barra delle applicazioni.
-    icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      preload: path.join(__dirname, 'preload.js'),
-      // La voce parla quando arriva una risposta, non dopo un clic sulla pagina.
-      autoplayPolicy: 'no-user-gesture-required',
-    },
-  })
-
-  companionWindow.loadFile(path.join(__dirname, '../renderer/companion.html'))
-  if (cfg.alwaysOnTop) companionWindow.setAlwaysOnTop(true, 'screen-saver')
-  // I clic sui pixel vuoti passano alle finestre sotto. forward: true lascia
-  // arrivare i movimenti del mouse alla pagina, che decide quando catturarli
-  // (companion-input.js).
-  companionWindow.setIgnoreMouseEvents(true, { forward: true })
-  // Nella stanza la chat segue la finestra, e la stanza si ricorda dov'era.
-  companionWindow.on('move', () => onRoomMoved())
-  companionWindow.on('resize', () => onRoomMoved())
-  // Aperta l'ultima volta nella stanza: si riapre li'. La pagina deve essere
-  // pronta, o non saprebbe della modalita'.
-  companionWindow.webContents.once('did-finish-load', () => {
-    if (cfg.view === 'room') setView('room')
-    else sendViewMode()
-  })
-
-  if (process.argv.includes('--dev')) {
-    companionWindow.webContents.openDevTools({ mode: 'detach' })
-  }
-}
-
-// ─── Camminata sul desktop ───────────────────────────────────────────────────
-// L'avatar vive sul desktop, quindi "walk-to" deve spostare la finestra, non solo
-// far scorrere lo sprite dentro un riquadro di 180x260. Il movimento sta nel main
-// perche' solo qui si conosce l'area di lavoro reale dello schermo.
-
-const WALK_TICK_MS  = 33          // ~30 fps, abbastanza fluido e leggero sulla CPU
-const WALK_SPEED    = 55          // px al secondo
-const RUN_SPEED     = 150
-
-let walkTimer = null
-
-function stopWalk() {
-  if (walkTimer) { clearInterval(walkTimer); walkTimer = null }
-}
-
-// Area di lavoro dello schermo su cui sta il companion. Con lo schermo
-// principale fisso, su un secondo monitor la camminata riportava la finestra
-// dentro i limiti orizzontali del primo e l'avatar saltava di schermo.
-function companionWorkArea() {
-  if (companionWindow && !companionWindow.isDestroyed()) {
-    return screen.getDisplayMatching(companionWindow.getBounds()).workArea
-  }
-  return screen.getPrimaryDisplay().workArea
-}
-
-// Il ciclo di passo nel renderer dura finche' il main non manda idle: ogni
-// uscita di startWalk che non avvia il timer deve mandarlo, o l'avatar
-// camminerebbe sul posto per sempre.
-function sendIdle() {
-  try { companionWindow.webContents.send('trigger-animation', { type: 'none', animation: 'idle' }) } catch (_) {}
-}
-
-// La meta' la sceglie walk-target.js: verso e distanza chiesti dal modello, o
-// a caso. maxDistance limita i gesti a riposo a due passi.
-/** @param {{ run?: boolean, direction?: string, distance?: string, maxDistance?: number }} [opts] */
-function startWalk({ run = false, direction, distance, maxDistance = Infinity } = {}) {
-  if (!companionWindow || companionWindow.isDestroyed()) return
-  stopWalk()
-  // Una camminata chiesta mentre sbircia parte da dentro lo schermo.
-  endPeek('walk', 'jump')
-  stopSlide()
-  // In braccio non si cammina: la finestra la sta muovendo l'utente. Nella
-  // stanza nemmeno: la finestra e' la stanza.
-  if (drag || viewMode === 'room') { sendIdle(); return }
-
-  const area = companionWorkArea()
-  const [x, y] = companionWindow.getPosition()
-  const [w]    = companionWindow.getSize()
-  const cursorX = direction === 'toward-cursor' ? screen.getCursorScreenPoint().x : undefined
-  const targetX = walkTarget({ x, width: w, area, direction, distance, cursorX, maxDistance })
-  if (targetX === null) { sendIdle(); return }
-  const minX = Math.min(x, targetX)
-  const maxX = Math.max(x, targetX)
-
-  const dir   = targetX > x ? 1 : -1
-  const speed = run ? RUN_SPEED : WALK_SPEED
-  const step  = (speed * WALK_TICK_MS) / 1000
-
-  try { companionWindow.webContents.send('companion-facing', { dir }) } catch (_) {}
-
-  let current = x
-  walkTimer = setInterval(() => {
-    if (!companionWindow || companionWindow.isDestroyed()) { stopWalk(); return }
-    current += step * dir
-    const done = dir > 0 ? current >= targetX : current <= targetX
-    const next = done ? targetX : Math.round(current)
-    try {
-      moveCompanion(Math.max(minX, Math.min(maxX, next)), y)
-    } catch (_) { stopWalk(); return }
-    if (done) {
-      stopWalk()
-      sendIdle()
-    }
-  }, WALK_TICK_MS)
-  if (walkTimer.unref) walkTimer.unref()
+/** Apre il companion della persona id. */
+function openCompanion(id) {
+  if (companions.some(c => c.personaId === id)) return null
+  const c = createCompanion(companionCtx, id, { slot: companions.length })
+  companions.push(c)
+  c.initMemory()
+  c.createWindow()
+  c.initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
+  return c
 }
 
 // ─── Chat Window ─────────────────────────────────────────────────────────────
@@ -674,8 +455,8 @@ function createChatWindow() {
   chatWindow.loadFile(path.join(__dirname, '../renderer/chat.html'))
   chatWindow.setAlwaysOnTop(true, 'screen-saver')
   // Nella stanza la scena lascia alla chat il lato destro solo se si vede.
-  chatWindow.on('show', () => sendViewMode())
-  chatWindow.on('hide', () => sendViewMode())
+  chatWindow.on('show', () => { const h = roomHost(); if (h) h.sendViewMode() })
+  chatWindow.on('hide', () => { const h = roomHost(); if (h) h.sendViewMode() })
 
   if (process.argv.includes('--dev')) {
     chatWindow.webContents.openDevTools({ mode: 'detach' })
@@ -767,7 +548,8 @@ function initVoice() {
         kill: () => child.kill(),
       }
     },
-    play: (msg) => sendCompanion('voice-audio', msg),
+    // L'audio va al companion che parla: e' lui a muovere la bocca.
+    play: (msg) => { const c = speakingCompanion && speakingCompanion.alive() ? speakingCompanion : chatTarget(); if (c) c.send('voice-audio', msg) },
     onStatus: (status) => sendSettings('voice-status', status),
   })
   syncVoice(loadConfig())
@@ -860,10 +642,26 @@ function speakOptions(voice) {
   return { engine: voice.engine, voice: voice.kokoroVoice, speaker: xttsSpeaker(voice), speed: voice.speed, volume: voice.volume }
 }
 
-/** Legge ad alta voce una risposta, se la voce e' accesa. */
-function speakReply(text) {
-  const voice = voiceConfig(loadConfig())
+/**
+ * La voce di un companion: quella della sua persona. Per la persona attiva e'
+ * quella della scheda Voce (switchPersona ce la copia); accensione, volume e
+ * microfono sono dell'app.
+ */
+function voiceFor(c) {
+  const base = voiceConfig(loadConfig())
+  const p = c && c.persona()
+  if (!p || !p.voice || (personas && p.id === personas.activeId)) return base
+  return { ...base, ...p.voice }
+}
+
+// Chi sta parlando adesso: l'audio va alla sua finestra (una voce alla volta).
+let speakingCompanion = null
+
+/** Legge ad alta voce una risposta del companion c, se la voce e' accesa. */
+function speakReply(c, text) {
+  const voice = voiceFor(c)
   if (!voice.enabled || !voiceService) return
+  speakingCompanion = c
   voiceService.speak(text, speakOptions(voice))
     .catch(e => console.error('[voce] ' + e.message))
 }
@@ -902,12 +700,13 @@ function createTray() {
 // Il menu della tray cambia con la modalita': si ricostruisce a ogni cambio.
 function buildTrayMenu() {
   if (!tray) return
+  const host = roomHost()
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Mostra companion',  click: () => { if (companionWindow) companionWindow.show() } },
+    { label: 'Mostra companion',  click: () => { for (const c of companions) if (c.alive()) c.win.show() } },
     { label: 'Apri chat',         click: () => toggleChat() },
-    viewMode === 'room'
-      ? { label: 'Torna sul desktop', click: () => setView('desktop') }
-      : { label: 'Apri la stanza', click: () => setView('room') },
+    host
+      ? { label: 'Torna sul desktop', click: () => host.setView('desktop') }
+      : { label: 'Apri la stanza', click: () => { const c = chatTarget(); if (c) c.setView('room') } },
     { label: 'Impostazioni…', click: () => openSettings() },
     { type: 'separator' },
     { label: 'Apri cartella dei log', click: () => shell.openPath(path.join(app.getPath('userData'), 'logs')).catch(() => {}) },
@@ -922,17 +721,18 @@ function toggleChat() {
   if (!chatWindow || chatWindow.isDestroyed()) return
   if (chatWindow.isVisible()) {
     chatWindow.hide()
-  } else if (viewMode === 'room') {
+  } else if (roomHost()) {
     // Nella stanza la chat ha il suo posto, a destra.
-    dockChat()
+    roomHost().dockChat()
     chatWindow.show()
     chatWindow.focus()
   } else {
     try {
       // In alto a sinistra del companion, ma dentro lo schermo su cui si trova:
       // con il companion vicino al bordo la chat finiva in parte fuori vista.
-      const pos = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow.getPosition() : [100, 100]
-      const area = companionWorkArea()
+      const c = chatTarget()
+      const pos = c && c.alive() ? c.win.getPosition() : [100, 100]
+      const area = c ? c.workArea() : screen.getPrimaryDisplay().workArea
       const [w, h] = chatWindow.getSize()
       const x = Math.max(area.x, Math.min(pos[0] - 210, area.x + area.width - w))
       const y = Math.max(area.y, Math.min(pos[1] - 270, area.y + area.height - h))
@@ -971,11 +771,28 @@ function on(channel, fn) {
 on('toggle-chat', () => toggleChat())
 
 // Config
-handle('config:get', () => {
-  return publicConfig(loadConfig())
-})
+// Un companion vede come avatar quello della sua persona.
+function configFor(e, cfg) {
+  const c = companionOf(e)
+  const pub = publicConfig(cfg)
+  if (c) pub.avatarModel = c.avatarId() || (c === chatTarget() ? cfg.avatarModel : '')
+  return pub
+}
 
-handle('config:set', async (_e, newCfg) => {
+handle('config:get', (e) => configFor(e, loadConfig()))
+
+handle('config:set', async (e, newCfg) => {
+  // L'avatar scelto da un companion e' della sua persona; nella config resta
+  // quello della persona attiva (Impostazioni e chat lo leggono da li').
+  const from = companionOf(e)
+  if (from && newCfg && typeof newCfg.avatarModel === 'string' && personas) {
+    personas = Personas.setAvatar(personas, from.personaId, newCfg.avatarModel)
+    savePersonas()
+    if (from !== chatTarget()) {
+      const { avatarModel, ...rest } = newCfg
+      newCfg = rest
+    }
+  }
   const current = loadConfig()
   const merged  = mergeConfig(current, newCfg || {})
   saveConfig(merged)
@@ -986,14 +803,14 @@ handle('config:set', async (_e, newCfg) => {
   }
   // La chiave inserita adesso deve servire anche ai riassunti, non solo dal
   // prossimo avvio. loadConfig riapplica il fallback sulle variabili d'ambiente.
-  if (memoryManager) memoryManager.setModel(memoryModelFrom(loadConfig()))
+  for (const c of companions) if (c.memory) c.memory.setModel(memoryModelFrom(loadConfig()))
   applyWindowOptions(merged)
   syncVoice(merged)
   // Chat e Impostazioni si aggiornano a vicenda: provider e modello per
   // l'intestazione della chat, il microfono per il suo pulsante, gli
   // interruttori di Generale. La finestra che ha salvato riceve la stessa config.
   sendChatConfig(merged)
-  return publicConfig(merged)
+  return configFor(e, merged)
 })
 
 // Ollama dall'app (Blocco 7a): avviare il server, accedere per i modelli cloud,
@@ -1017,10 +834,10 @@ handle('ollama:open-page', (_e, which) => {
 // al modello arriva solo se l'utente la invia.
 const VISION_LONG_SIDE = 1568
 handle('vision:capture', async () => {
-  const anchor = companionWindow && !companionWindow.isDestroyed() ? companionWindow : chatWindow
+  const anchor = dialogParent() || chatWindow
   if (!anchor || anchor.isDestroyed()) return { ok: false, error: 'Nessuna finestra' }
   const display = screen.getDisplayMatching(anchor.getBounds())
-  const wins = [companionWindow, chatWindow, settingsWindow].filter(w => w && !w.isDestroyed() && w.isVisible())
+  const wins = [...companions.map(c => c.win), chatWindow, settingsWindow].filter(w => w && !w.isDestroyed() && w.isVisible())
   const scale = VISION_LONG_SIDE / Math.max(display.size.width, display.size.height)
   try {
     for (const w of wins) w.setOpacity(0)
@@ -1054,7 +871,7 @@ handle('photo:save', async (_e, dataUrl) => {
   const m = typeof dataUrl === 'string' && dataUrl.length <= 60 * 1024 * 1024 ? dataUrl.match(PHOTO_RE) : null
   if (!m) return { ok: false, error: 'Immagine non valida.' }
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
-  const parent = companionWindow && !companionWindow.isDestroyed() ? companionWindow : undefined
+  const parent = dialogParent() || undefined
   const picked = await dialog.showSaveDialog(parent, {
     title: 'Salva la foto',
     defaultPath: path.join(app.getPath('pictures'), 'CompanionAI-' + stamp + '.png'),
@@ -1142,7 +959,8 @@ async function withMcpAuth(server, fn, { interactive = false } = {}) {
 
 const MAX_TOOL_STEPS = 3
 
-async function useTool(action) {
+/** @param {any} action @param {any} c il companion che chiede lo strumento */
+async function useTool(action, c) {
   const checked = Mcp.checkToolAction(action, loadConfig().mcpServers)
   // Una chiamata sbagliata torna al modello, che puo' correggerla.
   if ('error' in checked) {
@@ -1152,7 +970,7 @@ async function useTool(action) {
   const { server, tool, args } = checked
   const label = Mcp.toolLabel(tool.name)
   if (!server.trusted.includes(tool.name)) {
-    const who = (activePersona() && activePersona().name) || 'Il companion'
+    const who = (c && c.persona() && c.persona().name) || 'Il companion'
     const options = {
       type: /** @type {const} */ ('question'), buttons: ['Non consentire', 'Consenti'], defaultId: 1, cancelId: 0,
       title: 'Permesso per un connettore',
@@ -1161,7 +979,7 @@ async function useTool(action) {
         '\n\n' + Mcp.argsText(args) + (tool.description ? '\n\nCosa fa: ' + tool.description : ''),
       checkboxLabel: tool.readOnly ? 'Non chiedermelo più per questa azione' : undefined,
     }
-    const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+    const parent = c && c.alive() ? c.win : null
     const answer = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
     if (answer.response !== 1) return { notice: 'Non hai dato il permesso: il connettore non è stato usato.' }
     if (answer.checkboxChecked && tool.readOnly) {
@@ -1363,17 +1181,19 @@ handle('ai:send-message', async (_e, { history, image }) => {
   }
   console.log('[Main] Ricevuta richiesta sendMessage, provider:', cfg.provider)
 
+  // Risponde il companion della chat; la risposta resta sua (switchPersona
+  // aspetta comunque la fine della risposta).
+  const c = chatTarget()
+  if (!c) return { ok: false, error: 'Nessun companion aperto.' }
   // Un messaggio nuovo zittisce la risposta di prima.
   if (voiceService) voiceService.stop()
   // Mentre si aspetta la risposta il companion non fa gesti per conto suo.
-  awaitingReply = true
-  markActivity()
-  updateMood(m => moodLib.onUserMessage(m))
-  updateRapport(r => Rapport.onDay(r))
+  c.busy = true
+  c.markActivity()
+  c.updateMood(m => moodLib.onUserMessage(m))
+  c.updateRapport(r => Rapport.onDay(r))
   lastChatAt = Date.now()
-  // La risposta resta della persona che l'ha chiesta (switchPersona aspetta
-  // comunque la fine della risposta).
-  const mm = memoryManager
+  const mm = c.memory
   try {
     const lastUser = [...(history || [])].reverse().find(m => m.role === 'user')
     if (lastUser?.content && mm) {
@@ -1381,18 +1201,18 @@ handle('ai:send-message', async (_e, { history, image }) => {
       await mm.addTurn(lastUser.content, 'user').catch(() => {})
     }
 
-    const historyWithMemory = withMoodLine(await buildHistoryWithMemory(safeHistory))
+    const historyWithMemory = c.withMoodLine(await c.buildHistoryWithMemory(safeHistory))
 
     console.log('[Main] Chiamata route...')
     // Il campo motion si spiega al modello solo quando si puo' usare; gli
     // strumenti MCP solo se ce ne sono di ammessi.
-    const basePrompt = ((await motionsEnabled(cfg)) ? SYSTEM_PROMPT + MOTION_PROMPT : SYSTEM_PROMPT) + Mcp.toolsPrompt(cfg.mcpServers)
+    const basePrompt = ((await motionsEnabled(c.avatarId())) ? SYSTEM_PROMPT + MOTION_PROMPT : SYSTEM_PROMPT) + Mcp.toolsPrompt(cfg.mcpServers)
     let result = await route({
       provider: cfg.provider,
       model:    cfg.model,
       apiKey,
       history: historyWithMemory,
-      systemPrompt: Personas.systemPrompt(activePersona(), basePrompt),
+      systemPrompt: Personas.systemPrompt(c.persona(), basePrompt),
     })
     console.log('[Main] route() completato, reply length:', result?.reply?.length)
 
@@ -1404,10 +1224,10 @@ handle('ai:send-message', async (_e, { history, image }) => {
 
     // Il campo arriva da un modello: solo i valori del contratto passano.
     if (result && !EMOTIONS.includes(result.emotion)) delete result.emotion
-    if (result?.emotion) updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
+    if (result?.emotion) c.updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
     // rapport: solo interi da -2 a +2 (onReply scarta il resto), mai alla chat.
     if (result && 'rapport' in result) {
-      updateRapport(r => Rapport.onReply(r, result.rapport))
+      c.updateRapport(r => Rapport.onReply(r, result.rapport))
       delete result.rapport
     }
 
@@ -1419,7 +1239,7 @@ handle('ai:send-message', async (_e, { history, image }) => {
     const turns = []
     for (let step = 0; result?.action?.type === 'tool'; step++) {
       if (step >= MAX_TOOL_STEPS) { result.action = { type: 'none', animation: 'idle' }; break }
-      const used = await useTool(result.action)
+      const used = await useTool(result.action, c)
       result.action = { type: 'none', animation: 'idle' }
       if (used.notice) { result.notice = used.notice; break }
       if (used.note) notes.push(used.note)
@@ -1428,7 +1248,7 @@ handle('ai:send-message', async (_e, { history, image }) => {
       const next = await route({
         provider: cfg.provider, model: cfg.model, apiKey,
         history: [...historyWithMemory, ...turns],
-        systemPrompt: Personas.systemPrompt(activePersona(), basePrompt),
+        systemPrompt: Personas.systemPrompt(c.persona(), basePrompt),
       }).catch(err => { console.error('[mcp] giro dopo lo strumento fallito:', err.message); return null })
       if (!next || !next.reply) { result.notice = 'Lo strumento ha risposto, ma il modello non ha scritto la risposta: riprova.'; break }
       result.reply = next.reply
@@ -1446,15 +1266,15 @@ handle('ai:send-message', async (_e, { history, image }) => {
     }
 
     // Una risposta lo fa uscire dal bordo, se stava sbirciando.
-    if (result?.reply) endPeek('message')
-    if (result?.reply) speakReply(result.reply)
+    if (result?.reply) c.endPeek('message')
+    if (result?.reply) speakReply(c, result.reply)
     return { ok: true, result }
   } catch(err) {
     console.error('[Main] Errore in route():', err)
     return { ok: false, error: describeError(err, cfg.provider) }
   } finally {
-    awaitingReply = false
-    markActivity()
+    c.busy = false
+    c.markActivity()
   }
 })
 
@@ -1471,6 +1291,7 @@ handle('voice:test', async (_e, opts) => {
   if (!voiceService) return { ok: false, error: 'voce non pronta' }
   const saved = voiceConfig(loadConfig())
   const pick = mergeConfig({ voice: saved }, { voice: opts || {} }).voice
+  speakingCompanion = chatTarget()
   const ok = await voiceService.speak('Ciao! Questa è la mia voce. Ti piace come parlo?', speakOptions(pick))
   if (ok) return { ok: true }
   const status = voiceService.status()
@@ -1531,7 +1352,8 @@ on('mic:state', (_e, state) => {
   micBusy = state === 'listening' || state === 'transcribing'
   if (state === 'listening') {
     if (voiceService) voiceService.stop()
-    markActivity()
+    const c = chatTarget()
+    if (c) c.markActivity()
     sendCompanion('companion-bubble', { text: '🎙 Ti ascolto…', ms: 65000 })
   } else if (state === 'transcribing') {
     endMicHold(null)
@@ -1583,60 +1405,41 @@ handle('live2d:remove', () => {
 })
 // Il modello Live2D in vista: gruppi ed espressioni li conosce il companion,
 // che li riporta al caricamento; le Impostazioni ci costruiscono la tabella
-// degli abbinamenti, e le scelte (live2dChoices, per avatar) tornano al
-// companion. Il main ricontrolla i nomi contro quelli riportati.
-let live2dModel = null   // { id, name, groups, expressions }
+// degli abbinamenti, e le scelte (live2dChoices, per avatar) tornano ai
+// companion. Il main ricontrolla i nomi contro quelli riportati. Le
+// Impostazioni mostrano quello del companion della chat.
 const cleanNames = (list) => (Array.isArray(list) ? list : []).filter(n => typeof n === 'string' && n.length <= 64).slice(0, 200)
-on('live2d:report-model', (_e, m) => {
-  if (!m || typeof m.id !== 'string') return
-  live2dModel = { id: m.id, name: typeof m.name === 'string' ? m.name.slice(0, 64) : m.id, groups: cleanNames(m.groups), expressions: cleanNames(m.expressions) }
-  sendSettings('live2d-model', { model: live2dModel, choices: (loadConfig().live2dChoices || {})[live2dModel.id] || {} })
+const live2dView = (c) => (c && c.live2dModel ? { model: c.live2dModel, choices: (loadConfig().live2dChoices || {})[c.live2dModel.id] || {} } : null)
+on('live2d:report-model', (e, m) => {
+  const c = companionOf(e)
+  if (!c || !m || typeof m.id !== 'string') return
+  c.live2dModel = { id: m.id, name: typeof m.name === 'string' ? m.name.slice(0, 64) : m.id, groups: cleanNames(m.groups), expressions: cleanNames(m.expressions) }
+  if (c === chatTarget()) sendSettings('live2d-model', live2dView(c))
 })
-handle('live2d:model', () => (live2dModel ? { model: live2dModel, choices: (loadConfig().live2dChoices || {})[live2dModel.id] || {} } : null))
+handle('live2d:model', () => live2dView(chatTarget()))
 handle('live2d:set-choices', (_e, id, input) => {
-  if (!live2dModel || live2dModel.id !== id) throw new Error('il modello Live2D non e\' in vista')
-  const clean = checkLive2DChoices(id, input, live2dModel)
+  const c = chatTarget()
+  const model = c && c.live2dModel
+  if (!model || model.id !== id) throw new Error('il modello Live2D non e\' in vista')
+  const clean = checkLive2DChoices(id, input, model)
   if (!clean) throw new Error('scelte non valide')
   const cfg = loadConfig()
   cfg.live2dChoices = { ...(cfg.live2dChoices || {}), [id]: clean }
   saveConfig(cfg)
-  sendCompanion('live2d-choices', cfg.live2dChoices)
+  sendAll('live2d-choices', cfg.live2dChoices)
   return clean
 })
 
 // ─── Chibi (Blocco 5d) ───────────────────────────────────────────────────────
-// Il companion riporta l'avatar che ha caricato e se ha uno scheletro umano
-// (lo sa solo lui, per glTF e FBX); il main risponde se va in chibi. Menu e
-// Impostazioni accendono e spengono il chibi per quell'avatar.
-let avatarInfo = null   // { id, kind, humanoid }
-
-function chibiState() {
-  const reason = chibiUnavailable(avatarInfo)
-  const on = !reason && loadConfig().chibiAvatars.includes(avatarInfo.id)
-  return { available: !reason, reason, on }
-}
-
-handle('avatar:report', (_e, info) => {
-  if (!info || typeof info.id !== 'string' || info.id.length > 200 || typeof info.kind !== 'string' || info.kind.length > 20) return { chibi: false }
-  avatarInfo = { id: info.id, kind: info.kind, humanoid: info.humanoid === true }
-  const state = chibiState()
-  sendSettings('chibi-state', state)
-  return { chibi: state.on }
+// Ogni companion riporta l'avatar che ha caricato e se ha uno scheletro umano;
+// menu e Impostazioni accendono e spengono il chibi per quell'avatar.
+handle('avatar:report', (e, info) => {
+  const c = companionOf(e)
+  if (!c || !info || typeof info.id !== 'string' || info.id.length > 200 || typeof info.kind !== 'string' || info.kind.length > 20) return { chibi: false }
+  return c.reportAvatar({ id: info.id, kind: info.kind, humanoid: info.humanoid === true })
 })
-handle('avatar:chibi-state', () => chibiState())
-
-function setChibi(on) {
-  if (chibiUnavailable(avatarInfo)) return chibiState()
-  const cfg = loadConfig()
-  const others = cfg.chibiAvatars.filter(id => id !== avatarInfo.id)
-  cfg.chibiAvatars = on ? [...others, avatarInfo.id].slice(-200) : others
-  saveConfig(cfg)
-  sendCompanion('avatar-chibi', { id: avatarInfo.id, on })
-  const state = chibiState()
-  sendSettings('chibi-state', state)
-  return state
-}
-handle('avatar:set-chibi', (_e, on) => setChibi(on === true))
+handle('avatar:chibi-state', () => { const c = chatTarget(); return c ? c.chibiState() : { available: false, reason: '', on: false } })
+handle('avatar:set-chibi', (_e, on) => { const c = chatTarget(); return c ? c.setChibi(on === true) : null })
 on('live2d:open-license', () => { shell.openExternal(live2dCore.LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
 
 on('voice:open-license', () => { shell.openExternal(XTTS_LICENSE_URL).catch(e => console.error('[app] openExternal:', e.message)) })
@@ -1686,20 +1489,26 @@ handle('app:login-item:set', (_e, enabled) => {
 })
 
 // Memoria — esposizione al renderer
+// La memoria della chat e' quella del companion con cui parla.
+const chatMemory = () => { const c = chatTarget(); return c ? c.memory : null }
 handle('memory:stats', () => {
-  return memoryManager ? memoryManager.getStats() : { error: 'memory not initialized' }
+  const mm = chatMemory()
+  return mm ? mm.getStats() : { error: 'memory not initialized' }
 })
 
 handle('memory:get-context', async () => {
-  return memoryManager ? await memoryManager.getContext() : []
+  const mm = chatMemory()
+  return mm ? await mm.getContext() : []
 })
 
 // ─── Memoria leggibile (Blocco 6e) ───────────────────────────────────────────
-// La persona attiva usa il MemoryManager vivo, cosi' quello che c'e' in RAM
-// resta allineato; le altre una copia letta da disco solo per l'occasione.
+// Una persona con il companion aperto usa il suo MemoryManager vivo, cosi'
+// quello che c'e' in RAM resta allineato; le altre una copia letta da disco
+// solo per l'occasione.
 async function memoryFor(id) {
   if (!personas || typeof id !== 'string' || !personas.list.some(p => p.id === id)) return null
-  if (id === personas.activeId && memoryManager) return memoryManager
+  const open = companions.find(c => c.personaId === id)
+  if (open && open.memory) return open.memory
   const mm = new MemoryManager(id, MEMORY_PATH, memoryModelFrom(loadConfig()))
   await mm.loadState()
   return mm
@@ -1727,14 +1536,19 @@ handle('memory:edit', async (_e, input) => {
   return { ok: true }
 })
 
-handle('mood:get', () => ({ ...moodLib.publicMood(moodLib.decay(mood)), rapport: Rapport.publicRapport(rapport) }))
+// L'umore di chi chiede: un companion il suo, la chat quello con cui parla.
+handle('mood:get', (e) => {
+  const c = companionOf(e) || chatTarget()
+  return c ? c.publicMood() : null
+})
 
 handle('memory:compact-now', async () => {
-  if (!memoryManager) return { ok: false, error: 'memory not initialized' }
+  const mm = chatMemory()
+  if (!mm) return { ok: false, error: 'memory not initialized' }
   try {
     // A mano si riassume tutto tranne gli ultimi turni, di qualunque eta':
     // con i 7 giorni del timer il pulsante non faceva quasi mai nulla.
-    const did = await memoryManager.compact(0, MANUAL_COMPACT_KEEP)
+    const did = await mm.compact(0, MANUAL_COMPACT_KEEP)
     return { ok: true, compacted: did }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -1742,13 +1556,11 @@ handle('memory:compact-now', async () => {
 })
 
 handle('memory:clear', async () => {
-  if (!memoryManager) return { ok: false, error: 'memory not initialized' }
+  const c = chatTarget()
+  if (!c || !c.memory) return { ok: false, error: 'memory not initialized' }
   try {
-    await memoryManager.clear()
-    // Dimenticare tutto vale anche per come si sentiva, e per il rapporto.
-    updateMood(() => moodLib.createMood())
-    updateRapport(() => Rapport.createRapport())
-    await fs.promises.rm(diaryPath(personas.activeId), { force: true }).catch(() => {})
+    // Dimenticare tutto vale anche per come si sentiva, per il rapporto e il diario.
+    await c.forget()
     return { ok: true }
   } catch (err) { return { ok: false, error: err.message } }
 })
@@ -1780,8 +1592,9 @@ handle('avatars:remove', (_event, ids) => {
 const ANIMATION_IMPORT_EXTENSIONS = ['vrma', 'glb', 'gltf', 'fbx', 'bvh']
 const MAX_ANIMATION_IMPORT_BYTES = 60 * 1024 * 1024
 handle('animations:list', () => animationLibrary ? animationLibrary.list() : [])
-handle('animations:pick', async () => {
-  const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+handle('animations:pick', async (e) => {
+  const from = companionOf(e)
+  const parent = from && from.alive() ? from.win : dialogParent()
   const options = {
     title: 'Importa animazione',
     properties: /** @type {('openFile')[]} */ (['openFile']),
@@ -1806,6 +1619,8 @@ handle('animations:save', (_e, payload) => {
 // Azioni OS — eseguite solo nel processo main, mai nel renderer
 on('os:execute', async (_e, action) => {
   if (!action?.type) return
+  // L'azione e' del companion che ha risposto: quello della chat.
+  const c = chatTarget()
 
   // Prima si controlla, poi si chiede: approvare un'azione che verrebbe comunque
   // bloccata non ha senso, e nel dialogo deve comparire cio' che girera' davvero,
@@ -1822,7 +1637,7 @@ on('os:execute', async (_e, action) => {
       message: 'Il companion vuole eseguire un’azione esterna',
       detail: plan.label,
     }
-    const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+    const parent = c && c.alive() ? c.win : null
     const answer = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
     if (answer.response !== 1) return
     plan.run()
@@ -1830,16 +1645,17 @@ on('os:execute', async (_e, action) => {
 
   // Triggera animazione companion. Passano solo tipo e animazione: il resto
   // dell'oggetto arriva dal modello e non deve finire nel fumetto.
+  if (!c) return
   if (action.animation) {
-    markActivity()
+    c.markActivity()
     const motion = checkMotion(action)
-    animateCompanion({ type: action.type, animation: action.animation, ...motion }, motion)
+    c.animate({ type: action.type, animation: action.animation, ...motion }, motion)
     // Una posa chiesta dall'utente ("siediti") resta per un po': i gesti a
     // riposo non devono farlo alzare dopo venti secondi.
-    requestedPoseUntil = action.animation === 'sit' ? Date.now() + REQUESTED_POSE_MS : 0
+    c.holdPose(action.animation)
   }
   const motion = motionPrompt(action.motion)
-  if (motion) requestGeneratedMotion(motion).catch(e => console.error('[kimodo]', e.message))
+  if (motion) c.requestGeneratedMotion(motion).catch(e => console.error('[kimodo]', e.message))
 })
 
 // ─── Movimenti generati (Kimodo) ─────────────────────────────────────────────
@@ -1848,45 +1664,18 @@ on('os:execute', async (_e, action) => {
 // converte l'uscita in .vrma, la riproduce una volta e la rimanda qui per la
 // cache: la stessa frase, la volta dopo, parte subito.
 
-const MOTION_SECONDS = 4
-let motionJob = 0
 // Chiavi di cache che il renderer puo' salvare, solo quelle appena generate,
 // con la frase da cui vengono.
 /** @type {Map<string, string>} */
 const expectedMotions = new Map()
 
-/** Kimodo attivo, installato, e un avatar 3D (il 2D ha solo sprite). */
-async function motionsEnabled(cfg = loadConfig()) {
-  if (!cfg.kimodo || !kimodo || !kimodo.available()) return false
+/** Kimodo attivo, installato, e l'avatar avatarId in 3D (il 2D ha solo sprite). */
+async function motionsEnabled(avatarId) {
+  if (!loadConfig().kimodo || !kimodo || !kimodo.available()) return false
   let avatars = []
   try { avatars = avatarLibrary ? await avatarLibrary.list() : [] } catch (_) { return false }
-  const current = avatars.find(a => a.id === cfg.avatarModel) || avatars.find(a => a.default) || avatars[0]
+  const current = avatars.find(a => a.id === avatarId) || avatars.find(a => a.default) || avatars[0]
   return !!current && current.kind !== 'sprite-pack' && current.kind !== 'sprite'
-}
-
-/** @param {string} prompt frase gia' ripulita da motionPrompt */
-async function requestGeneratedMotion(prompt) {
-  if (!(await motionsEnabled())) return
-  const job = ++motionJob
-  const key = kimodo.cached(prompt, MOTION_SECONDS)
-  if (key) {
-    sendCompanion('generated-motion', { key, prompt, url: 'motion://generated/' + key, play: true })
-    return
-  }
-  console.log('[kimodo] genero: ' + prompt)
-  animateCompanion({ type: 'none', animation: 'think', bubble: 'Provo il movimento…' })
-  const started = Date.now()
-  try {
-    const raw = await kimodo.generate(prompt, { seconds: MOTION_SECONDS })
-    const fresh = cacheKey(prompt, MOTION_SECONDS)
-    expectedMotions.set(fresh, prompt)
-    console.log('[kimodo] pronto in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s, ' + raw.frames + ' fotogrammi')
-    // Una richiesta piu' recente ha la precedenza: questa va solo in cache.
-    sendCompanion('generated-motion', { key: fresh, prompt, rootPositions: raw.rootPositions, rotations: raw.rotations, play: job === motionJob })
-  } catch (error) {
-    console.error('[kimodo] generazione fallita: ' + error.message)
-    if (job === motionJob) animateCompanion({ type: 'none', animation: 'idle', bubble: 'Questo movimento non mi riesce…' })
-  }
 }
 
 const MAX_MOTION_BYTES = 10 * 1024 * 1024
@@ -1901,91 +1690,6 @@ handle('motions:store', async (_e, payload) => {
   return { url: 'motion://generated/' + key }
 })
 
-/**
- * Un gesto, venga dalla chat o dalla vita a riposo. walk-to / run-to muovono
- * la finestra sul desktop, non solo lo sprite.
- * @param {any} action
- * @param {{ maxDistance?: number, direction?: string, distance?: string }} [motion]
- */
-function animateCompanion(action, motion = {}) {
-  const { maxDistance = Infinity, direction, distance } = motion
-  if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
-  const walking = action.animation === 'walk-to' || action.animation === 'run-to'
-  // Per camminare scende prima dal sedile, e parte una volta a terra.
-  if (walking && perch && !drag) {
-    leavePerch({ fall: true, then: () => animateCompanion(action, motion) })
-    return
-  }
-  try { companionWindow?.webContents.send('trigger-animation', action) } catch (_) {}
-  if (walking && !drag) {
-    startWalk({ run: action.animation === 'run-to', direction, distance, maxDistance })
-  } else {
-    stopWalk()
-  }
-}
-
-// ─── Vita a riposo ───────────────────────────────────────────────────────────
-// Quando nessuno scrive, idle-life.js decide ogni IDLE_TICK_MS se fare un
-// gesto. Qui si raccolgono i segnali: da quanto non succede nulla, da quanto
-// l'utente non tocca il PC, se una risposta e' in arrivo.
-
-const IDLE_TICK_MS = 5000
-const REQUESTED_POSE_MS = 3 * 60 * 1000
-const IDLE_WALK_MAX_PX = 300
-const DRAG_MOOD_EVERY_MS = 30 * 1000
-
-let idleLifeEnabled = true
-// Reazioni ai tocchi (touch-react.js), dalla config: vedi applyWindowOptions.
-let touchEnabled = true
-let idleTimer = null
-let gestureTimer = null
-let awaitingReply = false
-let asleep = false
-let lastActivityAt = Date.now()
-let lastGestureAt = 0
-let lastDragMoodAt = 0
-let requestedPoseUntil = 0
-
-function markActivity() {
-  lastActivityAt = Date.now()
-  asleep = false
-}
-
-// Essere presi in braccio fa piacere, ma non a chi stava dormendo.
-function onDragged() {
-  const wasAsleep = asleep
-  markActivity()
-  const now = Date.now()
-  if (now - lastDragMoodAt < DRAG_MOOD_EVERY_MS) return
-  lastDragMoodAt = now
-  updateMood(m => moodLib.nudge(moodLib.decay(m, now), wasAsleep ? 'annoyance' : 'joy', wasAsleep ? 0.15 : 0.05))
-}
-
-function idleTick() {
-  // Seduto su una finestra resta seduto: i gesti a riposo sono pose in piedi.
-  if (!idleLifeEnabled || awaitingReply || walkTimer || drag || perch || peek || dancingNow || highFiveActive || Date.now() < requestedPoseUntil) return
-  if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
-  // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
-  if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused()) { markActivity(); return }
-  const now = Date.now()
-  const decision = decideIdle({
-    quietMs: now - lastActivityAt,
-    sinceGestureMs: now - lastGestureAt,
-    systemIdleMs: powerMonitor.getSystemIdleTime() * 1000,
-    asleep,
-    mood: moodLib.decay(mood, now),
-    hour: new Date(now).getHours(),
-    bond: bond(),
-  })
-  if (!decision) return
-  lastGestureAt = now
-  if (decision.asleep !== undefined) asleep = decision.asleep
-  // Il risveglio e' un ritorno dell'utente: i gesti ripartono dopo la quiete.
-  if (decision.name === 'wake') lastActivityAt = now
-  animateCompanion({ type: 'none', animation: decision.animation, bubble: decision.bubble, idle: true },
-    { maxDistance: IDLE_WALK_MAX_PX })
-  if (decision.holdMs > 0) gestureTimer = setTimeout(() => { gestureTimer = null; sendIdle() }, decision.holdMs)
-}
 
 // ─── Iniziativa (Blocco 6d) ──────────────────────────────────────────────────
 // Il companion scrive per primo: buongiorno, rientro dopo un'assenza, silenzio
@@ -2003,16 +1707,6 @@ let awaySeen = false
 let returnedAt = 0
 let initiativeBusy = false
 
-/** Un'app a schermo intero sul monitor del companion. */
-function fullscreenNow() {
-  if (!winWindows.available() || !companionWindow || companionWindow.isDestroyed()) return false
-  const id = screen.getDisplayMatching(companionWindow.getBounds()).id
-  const display = displaysInfo().find(d => d.id === id)
-  if (!display) return false
-  const windows = winWindows.listWindows().map(w => ({ ...w, bounds: toDip(w.bounds) }))
-  return edgePeek.fullscreenApp(windows, display, process.pid)
-}
-
 function initiativeTick() {
   const now = Date.now()
   const systemIdleMs = powerMonitor.getSystemIdleTime() * 1000
@@ -2022,24 +1716,26 @@ function initiativeTick() {
   const returned = returnedAt > 0 && now - returnedAt < RETURN_VALID_MS
   const kind = Initiative.occasion(initiative, { now, returned, lastChatAt, systemIdleMs })
   if (!kind) return
+  // Per ora scrive per primo il companion della chat.
+  const c = chatTarget()
   const typing = !!(chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused())
-  const busy = initiativeBusy || awaitingReply || !!drag || micBusy || !companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()
-  if (!Initiative.canSpeak(initiative, { now, enabled: loadConfig().initiative, asleep, fullscreen: busy ? false : fullscreenNow(), typing, busy })) return
-  speakFirst(kind).catch(e => console.error('[iniziativa] non riuscita:', e.message))
+  const busy = initiativeBusy || !c || c.busy || c.dragging || micBusy || !c.alive() || !c.win.isVisible()
+  if (!Initiative.canSpeak(initiative, { now, enabled: loadConfig().initiative, asleep: !!c && c.asleep, fullscreen: busy ? false : c.fullscreenNow(), typing, busy })) return
+  speakFirst(c, kind).catch(e => console.error('[iniziativa] non riuscita:', e.message))
 }
 
-async function speakFirst(kind) {
+async function speakFirst(c, kind) {
   initiativeBusy = true
-  const mm = memoryManager
+  const mm = c.memory
   try {
     const cfg = loadConfig()
     const apiKey = cfg.keys?.[cfg.provider] || ''
     if (cfg.provider !== 'ollama' && !apiKey) return
-    const history = withMoodLine(await buildHistoryWithMemory([]))
+    const history = c.withMoodLine(await c.buildHistoryWithMemory([]))
     history.push({ role: 'user', content: Initiative.prompt(kind) })
     const result = await route({
       provider: cfg.provider, model: cfg.model, apiKey, history,
-      systemPrompt: Personas.systemPrompt(activePersona(), SYSTEM_PROMPT),
+      systemPrompt: Personas.systemPrompt(c.persona(), SYSTEM_PROMPT),
     })
     const reply = String((result && result.reply) || '').trim().slice(0, 2000)
     if (!reply || result.via === 'fallback') return
@@ -2049,16 +1745,16 @@ async function speakFirst(kind) {
       .then(() => writeAtomic(INITIATIVE_PATH, JSON.stringify(initiative)))
       .catch(e => console.error('[iniziativa] salvataggio fallito:', e.message))
     if (kind !== 'silence') returnedAt = 0
-    if (EMOTIONS.includes(result.emotion)) updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
+    if (EMOTIONS.includes(result.emotion)) c.updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
     if (mm) await mm.addTurn(reply, 'assistant').catch(() => {})
     console.log('[iniziativa] ' + kind + ' (' + initiative.sent + ' oggi)')
     const anim = result.action && INITIATIVE_ANIMS.includes(result.action.animation) ? result.action.animation : 'wave'
-    endPeek('message')
-    animateCompanion({ type: 'none', animation: anim, bubble: reply.length > 140 ? reply.slice(0, 139) + '…' : reply })
+    c.endPeek('message')
+    c.animate({ type: 'none', animation: anim, bubble: reply.length > 140 ? reply.slice(0, 139) + '…' : reply })
     if (chatWindow && !chatWindow.isDestroyed()) {
       try { chatWindow.webContents.send('companion-initiative', { reply }) } catch (_) {}
     }
-    if (cfg.initiativeVoice) speakReply(reply)
+    if (cfg.initiativeVoice) speakReply(c, reply)
   } finally { initiativeBusy = false }
 }
 
@@ -2089,29 +1785,30 @@ function startActiveApp() {
   if (timer.unref) timer.unref()
 }
 
+// ─── Vita a riposo e cursore: un ciclo per tutti i companion ────────────────
+const IDLE_TICK_MS = 5000
+const CURSOR_TICK_MS = 33     // ~30 Hz: lo sguardo e' smorzato, basta
+let idleTimer = null
+let cursorTimer = null
+
 function startIdleLife() {
   applyWindowOptions(loadConfig())
   if (idleTimer) clearInterval(idleTimer)
-  idleTimer = setInterval(idleTick, IDLE_TICK_MS)
+  idleTimer = setInterval(() => { for (const c of companions) c.idleTick() }, IDLE_TICK_MS)
   if (idleTimer.unref) idleTimer.unref()
 }
 
-// ─── Mouse sull'avatar: trascinamento, cursore, menu ────────────────────────
-// Alla Mate Engine: l'avatar si prende direttamente, non da una maniglia, e il
-// main muove la finestra seguendo il cursore. Cosi' si conosce la velocita',
-// che fa oscillare l'avatar (sway.js) e muove capelli e vestiti nel 3D. Prima
-// lo spostamento lo faceva Windows con -webkit-app-region: drag, senza dire
-// niente sulla velocita', e il tasto destro apriva il menu di sistema.
-
-const DRAG_TICK_MS   = 16     // ~60 Hz, come il cursore
-const CURSOR_TICK_MS = 33     // ~30 Hz: lo sguardo e' smorzato, basta
-const VELOCITY_SMOOTHING = 0.5
-
-/** @type {{ offX: number, offY: number, x: number, y: number, t: number, vx: number, vy: number, timer: any } | null} */
-let drag = null
-let cursorTimer = null
-let lastCursorKey = ''
-let followMouse = true
+// Il cursore rispetto a ogni finestra, anche quando e' fuori: la pagina lo usa
+// per lo sguardo e per accorgersi che il mouse se n'e' andato.
+function startCursorFeed() {
+  if (cursorTimer) clearInterval(cursorTimer)
+  cursorTimer = setInterval(() => {
+    if (!companions.length) return
+    const cursor = screen.getCursorScreenPoint()
+    for (const c of companions) c.cursorTick(cursor)
+  }, CURSOR_TICK_MS)
+  if (cursorTimer.unref) cursorTimer.unref()
+}
 
 // ─── Ballo con la musica (Blocco 5c) ─────────────────────────────────────────
 // Con l'interruttore acceso, ogni MUSIC_POLL_MS si guarda nel mixer di
@@ -2123,7 +1820,6 @@ let danceEnabled = false
 let danceAppList = DANCE_APPS_DEFAULT
 let musicTimer = null
 let musicState = { playing: false, app: null }
-let dancingNow = false
 let musicWarned = false
 
 function musicTick() {
@@ -2138,7 +1834,7 @@ function musicTick() {
   }
   if (next.playing === musicState.playing && next.app === musicState.app) return
   musicState = next
-  sendCompanion('music-state', { ...musicState, enabled: danceEnabled })
+  sendAll('music-state', { ...musicState, enabled: danceEnabled })
 }
 
 function applyDance(cfg) {
@@ -2151,550 +1847,23 @@ function applyDance(cfg) {
     clearInterval(musicTimer)
     musicTimer = null
     musicState = { playing: false, app: null }
-    dancingNow = false
-    sendCompanion('music-state', { ...musicState, enabled: false })
+    for (const c of companions) c.dancing = false
+    sendAll('music-state', { ...musicState, enabled: false })
   }
 }
-
-function sendCompanion(channel, data) {
-  if (!companionWindow || companionWindow.isDestroyed()) return
-  try { companionWindow.webContents.send(channel, data) } catch (_) {}
-}
-
-// setBounds con la dimensione fissa, non setPosition: passando fra schermi con
-// scala diversa setPosition lascia a Windows il ricalcolo della dimensione, e
-// la finestra cresceva o si stringeva a ogni passaggio.
-function moveCompanion(x, y) {
-  const [width, height] = companionWindow.getSize()
-  companionWindow.setBounds({ x: Math.round(x), y: Math.round(y), width, height })
-}
-
-/** Riporta la finestra dentro l'area di lavoro dello schermo su cui si trova. */
-function keepOnScreen() {
-  if (!companionWindow || companionWindow.isDestroyed()) return
-  const b = companionWindow.getBounds()
-  const area = screen.getDisplayMatching(b).workArea
-  const x = Math.max(area.x, Math.min(b.x, area.x + area.width - b.width))
-  const y = Math.max(area.y, Math.min(b.y, area.y + area.height - b.height))
-  if (x !== b.x || y !== b.y) moveCompanion(x, y)
-}
-
-function startDrag() {
-  if (drag || viewMode === 'room' || !companionWindow || companionWindow.isDestroyed()) return
-  // Ripreso in braccio scende dal sedile, senza cadere: lo tiene l'utente.
-  // Se sbirciava smette, e la finestra resta dove l'ha presa.
-  leavePerch()
-  endPeek('drag', 'none')
-  stopSlide()
-  stopWalk()
-  if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
-  const cursor = screen.getCursorScreenPoint()
-  const [x, y] = companionWindow.getPosition()
-  drag = { offX: cursor.x - x, offY: cursor.y - y, x, y, t: Date.now(), vx: 0, vy: 0, timer: null }
-  onDragged()
-  sendCompanion('window-drag-state', { dragging: true })
-  drag.timer = setInterval(dragTick, DRAG_TICK_MS)
-}
-
-function dragTick() {
-  if (!drag) return
-  if (!companionWindow || companionWindow.isDestroyed()) { endDrag(); return }
-  const cursor = screen.getCursorScreenPoint()
-  const x = cursor.x - drag.offX
-  const y = cursor.y - drag.offY
-  const now = Date.now()
-  const dt = Math.max(1, now - drag.t) / 1000
-  drag.vx = drag.vx * VELOCITY_SMOOTHING + ((x - drag.x) / dt) * (1 - VELOCITY_SMOOTHING)
-  drag.vy = drag.vy * VELOCITY_SMOOTHING + ((y - drag.y) / dt) * (1 - VELOCITY_SMOOTHING)
-  if (x !== drag.x || y !== drag.y) {
-    try { moveCompanion(x, y) } catch (_) { endDrag(); return }
-  }
-  drag.x = x; drag.y = y; drag.t = now
-  sendCompanion('drag-motion', { vx: Math.round(drag.vx), vy: Math.round(drag.vy) })
-}
-
-function endDrag() {
-  if (!drag) return
-  clearInterval(drag.timer)
-  drag = null
-  sendCompanion('drag-motion', { vx: 0, vy: 0 })
-  sendCompanion('window-drag-state', { dragging: false })
-  // Posato con il punto di seduta sul bordo di una finestra si siede; oltre
-  // meta' fuori da un bordo sbircia; se no, mezzo fuori dallo schermo o
-  // dietro la taskbar si perderebbe.
-  if (!tryPerch() && !tryPeek()) keepOnScreen()
-  markActivity()
-}
-
-// ─── Sbirciare dal bordo (Blocco 5d) ─────────────────────────────────────────
-// Lasciato oltre meta' fuori dal bordo sinistro o destro (edge-peek.js), resta
-// li' e sbircia: il renderer mette la posa e dice dove tagliare
-// (peek-geometry), e la finestra scivola finche' il taglio cade sul bordo.
-// Esce con il cursore vicino alla testa, con una risposta in arrivo o con un
-// doppio clic; ripreso in braccio smette e basta. Non sbircia sopra un'app a
-// schermo intero.
-
-const PEEK_TICK_MS = 100
-const PEEK_SLIDE_MS = 350
-const PEEK_OUT_MS = 450
-const PEEK_GEOMETRY_WAIT_MS = 1500
-
-/** @type {{ edge: import('./edge-peek').Edge, anchorX: number, cut: number | null, head: {x: number, y: number} | null, armed: boolean, placed: boolean, wait: any, timer: any } | null} */
-let peek = null
-let slideTimer = null
-
-function stopSlide() {
-  if (slideTimer) { clearInterval(slideTimer); slideTimer = null }
-}
-
-/** Sposta la finestra con un'accelerazione morbida, in ms. */
-function slideCompanion(to, ms) {
-  stopSlide()
-  if (!companionWindow || companionWindow.isDestroyed()) return
-  const [x0, y0] = companionWindow.getPosition()
-  const t0 = Date.now()
-  slideTimer = setInterval(() => {
-    if (!companionWindow || companionWindow.isDestroyed()) { stopSlide(); return }
-    const k = Math.min(1, (Date.now() - t0) / ms)
-    const e = k * k * (3 - 2 * k)
-    try { moveCompanion(x0 + (to.x - x0) * e, y0 + (to.y - y0) * e) } catch (_) { stopSlide(); return }
-    if (k >= 1) stopSlide()
-  }, DRAG_TICK_MS)
-}
-
-/** Al rilascio: oltre meta' fuori da un bordo esterno, sbircia. */
-function tryPeek() {
-  if (viewMode === 'room' || !companionWindow || companionWindow.isDestroyed()) return false
-  const bounds = companionWindow.getBounds()
-  const anchorX = currentAnchor(0).x
-  const displays = displaysInfo()
-  const edge = edgePeek.edgeState(bounds, anchorX, displays)
-  if (!edge) return false
-  const display = displays.find(d => d.id === edge.displayId)
-  if (winWindows.available() && display) {
-    const windows = winWindows.listWindows().map(w => ({ ...w, bounds: toDip(w.bounds) }))
-    if (edgePeek.fullscreenApp(windows, display, process.pid)) {
-      console.log('[sbircia] app a schermo intero: torna dentro')
-      return false
-    }
-  }
-  console.log('[sbircia] dal bordo ' + (edge.side === 'left' ? 'sinistro' : 'destro'))
-  stopWalk()
-  peek = { edge, anchorX, cut: null, head: null, armed: false, placed: false, wait: null, timer: null }
-  sendCompanion('edge-peek', { side: edge.side })
-  // La misura arriva dal renderer quando la posa si e' assestata; se tarda,
-  // si taglia con il ripiego.
-  peek.wait = setTimeout(() => placePeek(null), PEEK_GEOMETRY_WAIT_MS)
-  return true
-}
-
-/** La finestra va al bordo, con il taglio misurato (o il ripiego). */
-function placePeek(geometry) {
-  if (!peek || peek.placed || !companionWindow || companionWindow.isDestroyed()) return
-  clearTimeout(peek.wait)
-  peek.placed = true
-  const bounds = companionWindow.getBounds()
-  const pos = edgePeek.peekPosition(peek.edge, geometry ? geometry.cut : null, bounds, peek.anchorX)
-  peek.cut = peek.edge.edgeX - pos.x
-  // Senza misura la testa e' sopra il centro dell'avatar, in alto.
-  peek.head = geometry ? geometry.head : { x: peek.anchorX, y: Math.round(bounds.height * 0.2) }
-  slideCompanion(pos, PEEK_SLIDE_MS)
-  peek.timer = setInterval(peekTick, PEEK_TICK_MS)
-}
-
-function peekTick() {
-  if (!peek || drag || !peek.head) return
-  if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
-  const b = companionWindow.getBounds()
-  const spot = { x: b.x + peek.head.x, y: b.y + peek.head.y }
-  const next = edgePeek.peekCursor(peek.armed, testCursor || screen.getCursorScreenPoint(), spot)
-  peek.armed = next.armed
-  if (next.exit) endPeek('cursor')
-}
-
-/**
- * Smette di sbirciare. move: 'slide' esce scivolando dentro lo schermo,
- * 'jump' ci va subito (prima della stanza o di una camminata), 'none' resta
- * dov'e' (in braccio).
- * @param {string} reason cursor, message, dblclick, drag, walk, room, quit
- * @param {'slide' | 'jump' | 'none'} [move]
- */
-function endPeek(reason, move = 'slide') {
-  if (!peek) return
-  const edge = peek.edge
-  clearTimeout(peek.wait)
-  clearInterval(peek.timer)
-  peek = null
-  stopSlide()
-  console.log('[sbircia] esce: ' + reason)
-  sendCompanion('edge-peek', { side: null, reason })
-  if (move === 'none' || !companionWindow || companionWindow.isDestroyed()) return
-  const to = edgePeek.outPosition(edge, companionWindow.getBounds())
-  if (move === 'jump') moveCompanion(to.x, to.y)
-  else slideCompanion(to, PEEK_OUT_MS)
-  markActivity()
-}
-
-on('companion:peek-geometry', (_e, g) => {
-  if (!peek || !g || g.side !== peek.edge.side) return
-  const [cut, x, y] = [Number(g.cut), Number(g.headX), Number(g.headY)]
-  placePeek([cut, x, y].every(Number.isFinite) ? { cut, head: { x, y } } : null)
-})
-on('companion:peek-out', () => endPeek('dblclick'))
 
 // Solo per audit.mjs (COMPANION_TEST_HOOKS=1): mettere la finestra oltre il
 // bordo, rilasciarla come dopo una presa, muovere un cursore finto e leggere
-// lo stato. Senza la variabile il canale non esiste.
-let testCursor = null
+// lo stato. Senza la variabile il canale non esiste. Vale per il primo companion.
 if (process.env.COMPANION_TEST_HOOKS === '1') {
   handle('test:peek', (_e, cmd) => {
-    if (!companionWindow || companionWindow.isDestroyed()) return null
-    if (cmd && cmd.place) moveCompanion(Number(cmd.place.x) || 0, Number(cmd.place.y) || 0)
-    if (cmd && cmd.release && !tryPerch() && !tryPeek()) keepOnScreen()
+    const c = companions[0]
+    if (!c || !c.alive()) return null
+    if (cmd && cmd.place) c.moveTo(Number(cmd.place.x) || 0, Number(cmd.place.y) || 0)
+    if (cmd && cmd.release && !c.tryPerch() && !c.tryPeek()) c.keepOnScreen()
     if (cmd && 'cursor' in cmd) testCursor = cmd.cursor && Number.isFinite(cmd.cursor.x) ? { x: cmd.cursor.x, y: cmd.cursor.y } : null
-    const p = peek
-    return {
-      bounds: companionWindow.getBounds(), workArea: companionWorkArea(),
-      peek: p && { side: p.edge.side, edgeX: p.edge.edgeX, cut: p.cut, placed: p.placed, armed: p.armed, head: p.head },
-    }
+    return { bounds: c.win.getBounds(), workArea: c.workArea(), peek: c.peekState() }
   })
-}
-
-// ─── Seduta su finestre e taskbar ────────────────────────────────────────────
-// L'ancora e' l'ombra ai piedi: posato con l'ombra sul bordo alto di una
-// finestra, o sulla taskbar in basso, l'avatar ci sta in piedi, poi si siede
-// con le gambe a penzoloni e la segue. perch.js decide, qui ci sono il timer e
-// le chiamate a Windows (win-windows.js). Su una finestra non e' piu' "sempre
-// in primo piano": sta subito sopra di lei, e le finestre davanti lo coprono
-// come su una scrivania vera.
-
-const PERCH_TICK_MS = 33          // ~30 Hz: segue anche una finestra trascinata
-const PERCH_ZORDER_EVERY = 3      // l'ordine z ogni 3 tick, ~10 Hz
-const STAND_BEFORE_SIT_MS = 1200  // appena posato sta in piedi, poi si siede
-const SIT_DOWN_MS = 450           // il bacino scende sul bordo
-const FALL_MS = 280
-
-/** @type {null | (import('./perch').Seat & { timer: any, ticks: number, landedAt: number, sitAt: number })} */
-let perch = null
-let perchEnabled = true
-/**
- * Dove sono ombra e seduta dentro la finestra, dal renderer: x comune, feet
- * l'ombra ai piedi (dove atterra), seat il bacino (dove poggia seduto). Nel 2D
- * coincidono: lo sprite seduto poggia dove poggiava in piedi.
- * @type {{ x: number, feet: number, seat: number } | null}
- */
-let seatAnchor = null
-
-/** @param {number} [sit] 0 in piedi, 1 seduto: l'altezza va dall'ombra al bacino */
-function currentAnchor(sit = 0) {
-  const [w, h] = companionWindow.getSize()
-  const a = seatAnchor
-  const valid = a && a.x >= 0 && a.x <= w && a.feet >= 0 && a.feet <= h && a.seat >= 0 && a.seat <= h
-  const { x, feet, seat } = valid ? a : { x: Math.round(w / 2), feet: h - 12, seat: Math.round(h * 0.55) }
-  return { x, y: Math.round(feet + (seat - feet) * sit) }
-}
-
-/** Quanto e' seduto adesso, da 0 (appena posato, in piedi) a 1. */
-function sitAmount(now = Date.now()) {
-  if (!perch || !perch.sitAt) return 0
-  return Math.min(1, (now - perch.sitAt) / SIT_DOWN_MS)
-}
-
-function displaysInfo() {
-  return screen.getAllDisplays().map(d => ({ id: d.id, bounds: d.bounds, workArea: d.workArea }))
-}
-
-// Windows da' pixel fisici, Electron lavora in DIP.
-function toDip(rect) {
-  return rect ? screen.screenToDipRect(null, rect) : null
-}
-
-function ownHandles() {
-  return BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => winWindows.handleOf(w.getNativeWindowHandle()))
-}
-
-/** Al rilascio: se l'ombra cade su un bordo, l'avatar si posa li'. */
-function tryPerch() {
-  if (!perchEnabled || !winWindows.available() || !companionWindow || companionWindow.isDestroyed()) return false
-  const b = companionWindow.getBounds()
-  const anchor = currentAnchor(0)
-  const shadow = { x: b.x + anchor.x, y: b.y + anchor.y }
-  const displays = displaysInfo()
-  const windows = winWindows.listWindows().map(w => ({ ...w, bounds: toDip(w.bounds) }))
-  const seat = findWindowSeat(windows, shadow, { ownPid: process.pid, displays }) || findTaskbarSeat(shadow, displays)
-  if (!seat) {
-    console.log('[perch] nessun bordo sotto l\'ombra ' + shadow.x + ',' + shadow.y)
-    return false
-  }
-  console.log('[perch] posato su ' + (seat.kind === 'window' ? 'una finestra' : 'la taskbar') + ', ombra ' + shadow.x + ',' + shadow.y)
-  startPerch(seat)
-  return true
-}
-
-/** @param {import('./perch').Seat} seat */
-function startPerch(seat) {
-  stopPerch()
-  stopWalk()
-  perch = { ...seat, timer: null, ticks: 0, landedAt: Date.now(), sitAt: 0 }
-  // Sulla taskbar resta in primo piano come prima: la taskbar sta sopra tutto.
-  // Su una finestra, da qui in poi decide keepAboveSeat.
-  if (seat.kind === 'window' && companionWindow.isAlwaysOnTop()) companionWindow.setAlwaysOnTop(false)
-  sendCompanion('perch-state', { perched: true, kind: seat.kind, phase: 'stand' })
-  perchTick()
-  perch.timer = setInterval(perchTick, PERCH_TICK_MS)
-}
-
-/** Bordo su cui stare adesso; null se non si puo' restare seduti. */
-function perchEdge() {
-  const displays = displaysInfo()
-  if (perch.kind === 'window') {
-    const state = winWindows.windowState(perch.hwnd)
-    const current = state && { ...state, bounds: toDip(state.bounds) }
-    if (!staysSeated(current, displays)) return null
-    return { x: current.bounds.x, y: current.bounds.y, width: current.bounds.width }
-  }
-  const display = displays.find(d => d.id === perch.displayId)
-  return display ? taskbarEdge(display) : null
-}
-
-function perchTick() {
-  if (!perch) return
-  if (!companionWindow || companionWindow.isDestroyed()) { stopPerch(); return }
-  const edge = perchEdge()
-  if (!edge) { leavePerch({ fall: true }); return }
-  const now = Date.now()
-  // Dopo un momento in piedi si siede: la posa cambia nel renderer, e qui la
-  // finestra scende finche' il bacino poggia sul bordo al posto dell'ombra.
-  if (!perch.sitAt && now - perch.landedAt >= STAND_BEFORE_SIT_MS) {
-    perch.sitAt = now
-    sendCompanion('perch-state', { perched: true, kind: perch.kind, phase: 'sit' })
-  }
-  const pos = perchPosition(edge, perch.fraction, currentAnchor(sitAmount(now)))
-  const b = companionWindow.getBounds()
-  if (pos.x !== b.x || pos.y !== b.y) {
-    try { moveCompanion(pos.x, pos.y) } catch (_) { leavePerch(); return }
-  }
-  if (perch.kind === 'window') keepAboveSeat()
-}
-
-// La finestra attiva sta in cima alle finestre normali, e Windows non lascia
-// salire sopra di lei quella di un altro processo con HWND_TOP: cliccato il
-// sedile, le gambe a penzoloni sparivano dietro la sua barra del titolo.
-// Finche' il sedile e' la finestra attiva l'avatar torna "sempre in primo
-// piano"; attivata un'altra finestra, torna subito sopra il sedile e sotto
-// di lei. La finestra attiva si legge a ogni tick, l'ordine z ogni 3.
-function keepAboveSeat() {
-  const seatActive = winWindows.foregroundWindow() === perch.hwnd
-  if (companionWindow.isAlwaysOnTop() !== seatActive) {
-    companionWindow.setAlwaysOnTop(seatActive, 'screen-saver')
-    perch.ticks = 0
-  }
-  if (!seatActive && perch.ticks++ % PERCH_ZORDER_EVERY === 0) {
-    winWindows.placeAbove(winWindows.handleOf(companionWindow.getNativeWindowHandle()), perch.hwnd, ownHandles())
-  }
-}
-
-function stopPerch() {
-  if (!perch) return
-  clearInterval(perch.timer)
-  perch = null
-}
-
-/**
- * Scende dal sedile. fall: cade fino a terra (la finestra e' sparita, o deve
- * camminare); senza, resta dov'e' perche' l'ha preso in braccio l'utente.
- * @param {{ fall?: boolean, then?: (() => void) | null }} [opts]
- */
-function leavePerch({ fall = false, then = null } = {}) {
-  if (!perch) { if (then) then(); return }
-  stopPerch()
-  if (companionWindow && !companionWindow.isDestroyed() && loadConfig().alwaysOnTop !== false && !companionWindow.isAlwaysOnTop()) {
-    companionWindow.setAlwaysOnTop(true, 'screen-saver')
-  }
-  sendCompanion('perch-state', { perched: false })
-  if (fall) fallToGround(then)
-  else if (then) then()
-}
-
-/** Scende fino al bordo basso dell'area di lavoro, accelerando. */
-function fallToGround(then) {
-  if (!companionWindow || companionWindow.isDestroyed()) return
-  const area = companionWorkArea()
-  const b = companionWindow.getBounds()
-  const x = Math.max(area.x, Math.min(b.x, area.x + area.width - b.width))
-  const from = b.y
-  const to = area.y + area.height - b.height
-  const started = Date.now()
-  const timer = setInterval(() => {
-    // Ripreso in braccio o seduto di nuovo mentre cadeva: la caduta finisce li'.
-    if (!companionWindow || companionWindow.isDestroyed() || drag || perch) { clearInterval(timer); return }
-    const k = Math.min(1, (Date.now() - started) / FALL_MS)
-    try { moveCompanion(x, from + (to - from) * k * k) } catch (_) { clearInterval(timer); return }
-    if (k >= 1) {
-      clearInterval(timer)
-      if (then) then()
-    }
-  }, 16)
-}
-
-// ─── Modalita' stanza ────────────────────────────────────────────────────────
-// La stessa finestra del companion diventa una stanza: grande, con la scena,
-// la barra del titolo disegnata dalla pagina e la chat agganciata a destra.
-// Avatar, WebGL, umore e clip restano quelli. Le regole pure stanno in room.js.
-
-/** @type {'desktop' | 'room'} */
-let viewMode = 'desktop'
-/** Dove stava l'avatar sul desktop, per tornarci. */
-let desktopSpot = null
-/** @type {{ edge: string, start: Electron.Rectangle, cx: number, cy: number, timer: any } | null} */
-let roomResize = null
-/** Stanza prima di "Ingrandisci", per rimetterla com'era. */
-let roomRestore = null
-let roomSaveTimer = null
-/** Chat prima di agganciarla: dove stava sul desktop. */
-let chatDesktopBounds = null
-const CHAT_DESKTOP_SIZE = { width: 380, height: 520 }
-
-function isRoomWindow() {
-  return viewMode === 'room' && !!companionWindow && !companionWindow.isDestroyed()
-}
-
-/** Dice alla pagina la modalita' e quanto spazio a destra occupa la chat. */
-function sendViewMode() {
-  const chatShown = !!chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()
-  sendCompanion('view-mode', { mode: viewMode, chatInset: viewMode === 'room' && chatShown ? room.CHAT_INSET : 0, maximized: !!roomRestore })
-}
-
-function dockChat() {
-  if (!isRoomWindow() || !chatWindow || chatWindow.isDestroyed()) return
-  try { chatWindow.setBounds(room.chatDock(companionWindow.getBounds())) } catch (_) {}
-}
-
-/** Salva la stanza poco dopo che si e' fermata: non a ogni pixel. */
-function saveRoomSoon() {
-  clearTimeout(roomSaveTimer)
-  roomSaveTimer = setTimeout(() => {
-    if (!isRoomWindow() || roomRestore) return
-    const cfg = loadConfig()
-    cfg.roomBounds = companionWindow.getBounds()
-    saveConfig(cfg)
-  }, 600)
-}
-
-function onRoomMoved() {
-  if (!isRoomWindow()) return
-  dockChat()
-  saveRoomSoon()
-}
-
-/** @param {'desktop' | 'room'} mode */
-function setView(mode) {
-  if (!companionWindow || companionWindow.isDestroyed()) return
-  if (mode === 'room') enterRoom()
-  else leaveRoom()
-  const cfg = loadConfig()
-  if (cfg.view !== viewMode) { cfg.view = viewMode; saveConfig(cfg) }
-  buildTrayMenu()
-}
-
-function enterRoom() {
-  if (viewMode === 'room') return
-  endDrag()
-  leavePerch()
-  // Tornando sul desktop riapparira' qui: dentro lo schermo, non mezzo fuori.
-  endPeek('room', 'jump')
-  stopSlide()
-  stopWalk()
-  desktopSpot = companionWindow.getBounds()
-  viewMode = 'room'
-  const area = screen.getDisplayMatching(desktopSpot).workArea
-  const bounds = room.roomBounds(loadConfig().roomBounds, area)
-  companionWindow.setIgnoreMouseEvents(false)
-  companionWindow.setAlwaysOnTop(false)
-  companionWindow.setSkipTaskbar(false)
-  companionWindow.setMinimumSize(Math.min(room.ROOM_MIN.width, area.width), Math.min(room.ROOM_MIN.height, area.height))
-  companionWindow.setBounds(bounds)
-  companionWindow.show()
-  companionWindow.focus()
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    chatDesktopBounds = chatWindow.getBounds()
-    // Figlia della stanza: le sta davanti, sparisce quando la stanza si
-    // riduce a icona, e non e' piu' sopra le altre app.
-    chatWindow.setAlwaysOnTop(false)
-    chatWindow.setParentWindow(companionWindow)
-    dockChat()
-  }
-  sendViewMode()
-  refreshWeather().catch(() => {})
-  console.log('[stanza] aperta ' + bounds.width + 'x' + bounds.height)
-}
-
-function leaveRoom() {
-  if (viewMode !== 'room') return
-  endRoomResize()
-  clearTimeout(roomSaveTimer)
-  const cfg = loadConfig()
-  if (!roomRestore) cfg.roomBounds = companionWindow.getBounds()
-  cfg.view = 'desktop'
-  saveConfig(cfg)
-  roomRestore = null
-  viewMode = 'desktop'
-  const size = WINDOW_SCALES[cfg.scale]
-  const spot = desktopSpot || companionWindow.getBounds()
-  companionWindow.setMinimumSize(140, 200)
-  companionWindow.setBounds({ x: spot.x, y: spot.y, width: size.width, height: size.height })
-  companionWindow.setSkipTaskbar(true)
-  companionWindow.setIgnoreMouseEvents(true, { forward: true })
-  if (cfg.alwaysOnTop) companionWindow.setAlwaysOnTop(true, 'screen-saver')
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    chatWindow.setParentWindow(null)
-    chatWindow.setAlwaysOnTop(true, 'screen-saver')
-    const back = chatDesktopBounds || chatWindow.getBounds()
-    chatWindow.setBounds({ x: back.x, y: back.y, ...CHAT_DESKTOP_SIZE })
-  }
-  keepOnScreen()
-  sendViewMode()
-  console.log('[stanza] chiusa, torna sul desktop')
-}
-
-/** "Ingrandisci" disegnato dalla pagina: una finestra trasparente di Windows non si massimizza da sola. */
-function toggleRoomMaximize() {
-  if (!isRoomWindow()) return
-  if (roomRestore) {
-    companionWindow.setBounds(roomRestore)
-    roomRestore = null
-  } else {
-    roomRestore = companionWindow.getBounds()
-    companionWindow.setBounds(screen.getDisplayMatching(roomRestore).workArea)
-  }
-  dockChat()
-  sendViewMode()
-}
-
-/** Un bordo della stanza preso dalla pagina: la finestra segue il cursore. */
-function startRoomResize(edge) {
-  if (!isRoomWindow() || roomResize || !room.EDGES.includes(edge)) return
-  const cursor = screen.getCursorScreenPoint()
-  roomRestore = null
-  roomResize = { edge, start: companionWindow.getBounds(), cx: cursor.x, cy: cursor.y, timer: null }
-  roomResize.timer = setInterval(() => {
-    if (!roomResize || !isRoomWindow()) { endRoomResize(); return }
-    const c = screen.getCursorScreenPoint()
-    const next = room.resizeBounds(roomResize.start, roomResize.edge, c.x - roomResize.cx, c.y - roomResize.cy)
-    const b = companionWindow.getBounds()
-    if (next.x !== b.x || next.y !== b.y || next.width !== b.width || next.height !== b.height) {
-      companionWindow.setBounds(next)
-      dockChat()
-    }
-  }, DRAG_TICK_MS)
-}
-
-function endRoomResize() {
-  if (!roomResize) return
-  clearInterval(roomResize.timer)
-  roomResize = null
-  saveRoomSoon()
-  sendViewMode()
 }
 
 // Scene della stanza: le HDRI in modelli-3d/scenes (servite da
@@ -2723,7 +1892,7 @@ on('scenes:remove', (_e, id) => { if (typeof id === 'string') removeScene(id).ca
 
 /** Dialogo del main, legato alla finestra del companion se c'e'. */
 function companionDialog(options) {
-  const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+  const parent = dialogParent()
   return parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options)
 }
 
@@ -2731,7 +1900,7 @@ function companionDialog(options) {
 // piu' modelli la scelta fra quelli. La pagina riceve solo l'elenco nuovo e
 // quale scena mostrare.
 async function importScene() {
-  const parent = (companionWindow && !companionWindow.isDestroyed()) ? companionWindow : null
+  const parent = dialogParent()
   const options = {
     title: 'Importa scena 3D',
     properties: /** @type {('openFile' | 'openDirectory')[]} */ (['openFile', 'openDirectory']),
@@ -2753,7 +1922,7 @@ async function importScene() {
     if (!candidate) return
     const scene = await sceneLibrary.commit(scan.token, candidate.id)
     setOption({ roomScene: scene.id })
-    sendCompanion('room-scenes', { select: scene.id, imported: scene.name })
+    sendAll('room-scenes', { select: scene.id, imported: scene.name })
   } catch (error) {
     await companionDialog({ type: 'error', title: 'Importa scena 3D', message: 'Importazione non riuscita', detail: error.message })
   }
@@ -2769,13 +1938,17 @@ async function removeScene(id) {
   })
   if (response !== 0) return
   await sceneLibrary.remove([id])
-  sendCompanion('room-scenes', { removed: id })
+  sendAll('room-scenes', { removed: id })
 }
-on('view:set', (_e, mode) => { if (mode === 'room' || mode === 'desktop') setView(mode) })
-on('room:minimize', () => { if (isRoomWindow()) companionWindow.minimize() })
-on('room:maximize', () => toggleRoomMaximize())
-on('room:resize-start', (_e, edge) => { if (typeof edge === 'string') startRoomResize(edge) })
-on('room:resize-end', () => endRoomResize())
+// La stanza la apre e la gestisce il companion che lo chiede dalla sua pagina.
+on('view:set', (e, mode) => {
+  const c = companionOf(e) || chatTarget()
+  if (c && (mode === 'room' || mode === 'desktop')) c.setView(mode)
+})
+on('room:minimize', (e) => { const c = companionOf(e); if (c && c.isRoomWindow()) c.win.minimize() })
+on('room:maximize', (e) => { const c = companionOf(e); if (c) c.toggleRoomMaximize() })
+on('room:resize-start', (e, edge) => { const c = companionOf(e); if (c && typeof edge === 'string') c.startRoomResize(edge) })
+on('room:resize-end', (e) => { const c = companionOf(e); if (c) c.endRoomResize() })
 
 
 // ─── Meteo della stanza (weather.js) ─────────────────────────────────────────
@@ -2791,80 +1964,40 @@ async function refreshWeather({ force = false } = {}) {
   const cfg = loadConfig()
   if (!cfg.weather || !cfg.weatherCity) {
     weatherStatus = cfg.weather ? 'Scrivi una città' : ''
-    sendCompanion('room-weather', { weather: null, place: null })
+    sendAll('room-weather', { weather: null, place: null })
     return
   }
-  if (viewMode !== 'room' && !force) return
+  if (!roomHost() && !force) return
   try {
     const { place, weather } = await weatherService.get(cfg.weatherCity, { force })
     weatherStatus = place.name + (place.country ? ', ' + place.country : '')
-    sendCompanion('room-weather', { weather, place: { latitude: place.latitude, longitude: place.longitude } })
+    sendAll('room-weather', { weather, place: { latitude: place.latitude, longitude: place.longitude } })
   } catch (error) {
     weatherStatus = error.message
     console.warn('[meteo] ' + error.message)
-    sendCompanion('room-weather', { weather: null, place: null })
+    sendAll('room-weather', { weather: null, place: null })
   }
 }
 
 function startWeatherFeed() {
   if (weatherTimer) clearInterval(weatherTimer)
-  weatherTimer = setInterval(() => { if (viewMode === 'room') refreshWeather().catch(() => {}) }, WEATHER_CHECK_MS)
+  weatherTimer = setInterval(() => { if (roomHost()) refreshWeather().catch(() => {}) }, WEATHER_CHECK_MS)
   if (weatherTimer.unref) weatherTimer.unref()
 }
 
-// Il cursore rispetto alla finestra, anche quando e' fuori: la pagina lo usa
-// per lo sguardo e per accorgersi che il mouse se n'e' andato.
-function cursorTick() {
-  if (drag || !companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return
-  const cursor = screen.getCursorScreenPoint()
-  const b = companionWindow.getBounds()
-  const msg = { x: cursor.x - b.x, y: cursor.y - b.y, follow: followMouse }
-  const key = msg.x + ',' + msg.y + ',' + msg.follow
-  if (key === lastCursorKey) return
-  lastCursorKey = key
-  sendCompanion('cursor', msg)
-}
-
-function startCursorFeed() {
-  if (cursorTimer) clearInterval(cursorTimer)
-  cursorTimer = setInterval(cursorTick, CURSOR_TICK_MS)
-  if (cursorTimer.unref) cursorTimer.unref()
-}
-
-/** Ridimensiona tenendo fermi i piedi: centro in basso della finestra. */
-function applyScale(scale) {
-  const size = WINDOW_SCALES[scale]
-  if (!size || viewMode === 'room' || !companionWindow || companionWindow.isDestroyed()) return
-  const b = companionWindow.getBounds()
-  if (b.width === size.width && b.height === size.height) return
-  companionWindow.setBounds({
-    x: Math.round(b.x + (b.width - size.width) / 2),
-    y: b.y + b.height - size.height,
-    width: size.width, height: size.height,
-  })
-  // Seduto, la posizione la rimette perchTick con il punto di seduta nuovo.
-  if (!perch) keepOnScreen()
-}
-
-/** Applica le opzioni della config che toccano finestra e comportamento. */
+/**
+ * Applica le opzioni della config che toccano finestre e comportamento: le
+ * preferenze (uguali per tutti) e la finestra di ogni companion.
+ */
 function applyWindowOptions(cfg) {
-  idleLifeEnabled = cfg.idleLife !== false
-  touchEnabled = cfg.touchReactions !== false
+  prefs.idleLife = cfg.idleLife !== false
+  prefs.touch = cfg.touchReactions !== false
+  prefs.followMouse = cfg.followMouse !== false
+  prefs.perch = cfg.perch !== false
   applyDance(cfg)
-  followMouse = cfg.followMouse !== false
-  perchEnabled = cfg.perch !== false
   // Spento Kimodo, la memoria video si libera subito.
   if (!cfg.kimodo && kimodo) kimodo.stop()
-  if (!companionWindow || companionWindow.isDestroyed()) return
-  if (!perchEnabled && perch) leavePerch({ fall: true })
-  // Nella stanza la finestra e' una finestra normale: niente primo piano, e la
-  // dimensione la sceglie chi la ridimensiona.
-  if (viewMode === 'room') return
-  // Seduto su una finestra sta sotto quelle davanti: "sempre in primo piano"
-  // torna quando scende (leavePerch).
-  const onTop = cfg.alwaysOnTop !== false && !(perch && perch.kind === 'window')
-  if (companionWindow.isAlwaysOnTop() !== onTop) companionWindow.setAlwaysOnTop(onTop, 'screen-saver')
-  applyScale(cfg.scale)
+  for (const c of companions) c.applyWindowOptions(cfg)
 }
 
 /** Manda la config a chat e Impostazioni: intestazione, pulsante del microfono, interruttori. */
@@ -2882,79 +2015,6 @@ function setOption(partial) {
   saveConfig(merged)
   applyWindowOptions(merged)
   sendChatConfig(merged)
-}
-
-async function showCompanionMenu() {
-  if (!companionWindow || companionWindow.isDestroyed()) return
-  const cfg = loadConfig()
-  let avatars = []
-  try { avatars = avatarLibrary ? await avatarLibrary.list() : [] } catch (_) {}
-  const current = avatars.find(a => a.id === cfg.avatarModel) || avatars.find(a => a.default) || avatars[0]
-  const kind = (a) => a.kind === 'live2d' ? 'Live2D' : (a.kind === 'sprite-pack' || a.kind === 'sprite') ? '2D' : '3D'
-  const command = (data) => sendCompanion('menu-command', data)
-  const is3D = !!current && kind(current) === '3D'
-  const inRoom = viewMode === 'room'
-  const chibi = chibiState()
-  /** @type {Electron.MenuItemConstructorOptions[]} */
-  const template = [
-    { label: 'Apri chat', click: () => toggleChat() },
-    // La stanza: finestra grande con la scena e la chat accanto (room.js).
-    { label: 'Stanza', type: 'checkbox', checked: inRoom, click: (item) => setView(item.checked ? 'room' : 'desktop') },
-    { type: 'separator' },
-    {
-      label: 'Avatar',
-      submenu: [
-        ...avatars.map(a => ({
-          label: a.name + '  (' + kind(a) + ')', type: /** @type {const} */ ('radio'),
-          checked: !!current && a.id === current.id,
-          click: () => command({ cmd: 'avatar', id: a.id }),
-        })),
-        { type: 'separator' },
-        { label: 'Importa avatar…', click: () => command({ cmd: 'import' }) },
-      ],
-    },
-    {
-      label: 'Animazioni',
-      submenu: [
-        { label: 'Importa animazione (VRMA, glTF, FBX, BVH)…', click: () => command({ cmd: 'import-animation' }) },
-        { label: 'Apri la cartella delle animazioni', click: () => openAnimationsFolder() },
-        { type: 'separator' },
-        ...(is3D ? await previewMenu(command) : [{ label: 'Prova (solo con un avatar 3D)', enabled: false }]),
-      ],
-    },
-    ...(inRoom ? [await sceneMenu(cfg, command)] : []),
-    // Destro o centrale + trascina girano la camera, con Alt la spostano, la rotella zooma.
-    ...(is3D || inRoom ? [{ label: 'Rimetti la camera', click: () => command({ cmd: 'camera-reset' }) }] : []),
-    // Sul desktop: dimensione della finestra; nella stanza la sceglie chi la ridimensiona.
-    ...(inRoom ? [] : [{
-      label: 'Dimensione',
-      submenu: Object.entries(WINDOW_SCALES).map(([id, size]) => ({
-        label: size.label, type: /** @type {const} */ ('radio'), checked: cfg.scale === id,
-        click: () => setOption({ scale: id }),
-      })),
-    }]),
-    // Chibi, per questo avatar: solo i 3D con scheletro umano.
-    chibi.available
-      ? { label: 'Chibi', type: 'checkbox', checked: chibi.on, click: (item) => setChibi(item.checked) }
-      : { label: 'Chibi (solo avatar 3D con scheletro umano)', enabled: false },
-    { type: 'separator' },
-    { label: 'Segue il mouse', type: 'checkbox', checked: cfg.followMouse, click: (item) => setOption({ followMouse: item.checked }) },
-    { label: 'Vita autonoma', type: 'checkbox', checked: cfg.idleLife, click: (item) => setOption({ idleLife: item.checked }) },
-    ...(inRoom ? [] : /** @type {Electron.MenuItemConstructorOptions[]} */ ([
-      { label: 'Sempre in primo piano', type: 'checkbox', checked: cfg.alwaysOnTop, click: (item) => setOption({ alwaysOnTop: item.checked }) },
-      winWindows.available()
-        ? { label: 'Si siede su finestre e taskbar', type: 'checkbox', checked: cfg.perch, click: (item) => setOption({ perch: item.checked }) }
-        : { label: 'Si siede su finestre e taskbar (non disponibile)', enabled: false },
-    ])),
-    kimodo && kimodo.available()
-      ? { label: 'Movimenti nuovi con Kimodo', type: 'checkbox', checked: cfg.kimodo, click: (item) => setOption({ kimodo: item.checked }) }
-      : { label: 'Movimenti nuovi con Kimodo (non installato)', enabled: false },
-    { type: 'separator' },
-    { label: 'Impostazioni…', click: () => openSettings() },
-    { label: 'Nascondi (torna dall\'icona nella barra)', click: () => { if (companionWindow) companionWindow.hide() } },
-    { label: 'Esci', click: () => app.quit() },
-  ]
-  Menu.buildFromTemplate(template).popup({ window: companionWindow })
 }
 
 /**
@@ -3040,85 +2100,30 @@ function openAnimationsFolder() {
     .catch(e => console.error('[animazioni] cartella non aperta:', e.message))
 }
 
-on('drag:start', () => startDrag())
-on('drag:end', () => endDrag())
-on('mouse:capture', (_e, capture) => {
-  if (!companionWindow || companionWindow.isDestroyed() || viewMode === 'room') return
-  companionWindow.setIgnoreMouseEvents(capture !== true, { forward: true })
+// ─── Messaggi dalla pagina di un companion ──────────────────────────────────
+// Ognuno va al companion che l'ha mandato (companionOf): presa in braccio,
+// clic che passano, menu, ballo, sbirciata, tocchi, batti cinque, seduta.
+on('drag:start', (e) => { const c = companionOf(e); if (c) c.startDrag() })
+on('drag:end', (e) => { const c = companionOf(e); if (c) c.endDrag() })
+on('mouse:capture', (e, capture) => {
+  const c = companionOf(e)
+  if (!c || !c.alive() || c.viewMode === 'room') return
+  c.win.setIgnoreMouseEvents(capture !== true, { forward: true })
 })
-on('companion:menu', () => { showCompanionMenu().catch(e => console.error('[menu]', e.message)) })
+on('companion:menu', (e) => { const c = companionOf(e); if (c) c.showMenu().catch(err => console.error('[menu]', err.message)) })
 // Ballo: lo stato della musica alla pagina appena carica, e dalla pagina se
 // sta ballando (la vita autonoma aspetta).
 handle('music:state', () => ({ ...musicState, enabled: danceEnabled }))
-on('companion:dancing', (_e, on) => { dancingNow = danceEnabled && on === true })
-
-// Tocchi sull'avatar (Blocco 5b): il renderer dice zona e tipo, qui si
-// decide la reazione (touch-react.js), si sposta l'umore e torna cosa
-// recitare. Al massimo un tocco ogni TOUCH_MIN_MS: la pagina non e' fidata,
-// e un ciclo di clic non deve poter far correre l'umore.
-const TOUCH_MIN_MS = 300
-const touchState = touchReact.createTouchState()
-/** @type {Record<string, string>} */
-const touchLines = {}
-let lastTouch = null
-let lastTouchAt = 0
-handle('companion:touch', (_e, input) => {
-  if (!touchEnabled) return { off: true }
-  const touch = touchReact.checkTouch(input)
-  const now = Date.now()
-  if (!touch || now - lastTouchAt < TOUCH_MIN_MS) return null
-  lastTouchAt = now
-  const scale = bond()
-  const result = touchState.onTouch(touch.zone, touch.kind, now, scale.patience)
-  if (!result) return null
-  const r = touchReact.scaleReaction(touchReact.REACTIONS[result.name], scale)
-  updateMood(m => Object.entries(r.mood).reduce((acc, [name, delta]) => moodLib.nudge(acc, name, delta), moodLib.decay(m, now)))
-  lastTouch = { name: result.name, zone: result.zone, kind: result.kind, at: now }
-  const line = touchReact.pickLine(r.line, r.chance, touchLines)
-  // Con la voce accesa la battuta si dice anche, se la voce e' libera. Che
-  // stia gia' parlando lo sa la pagina (il main manda l'audio, non lo suona).
-  const voiceOn = voiceConfig(loadConfig()).enabled
-  if (touchReact.shouldSayLine(line, { voiceOn, speaking: input.speaking === true, awaitingReply, listening: micBusy || !!micHold })) speakReply(line)
-  return {
-    name: result.name, step: result.step, zone: result.zone, kind: result.kind,
-    slot: r.slot, expression: r.expression, weight: r.weight, ms: r.ms, line,
-  }
-})
-
-// Batti cinque (Blocco 5e). La pagina decide quando offrire la mano
-// (touch.js, companion-highfive.js) e lo dice qui: offer chiede il permesso
-// (con i tocchi spenti no) e ferma la vita autonoma finche' la mano e'
-// alzata; slap e missed danno umore, battuta e riga per il prompt.
-let highFiveActive = false
-const highFiveState = touchReact.createHighFiveState()
-let lastHighFiveAt = 0
-handle('companion:highfive', (_e, input) => {
-  const event = input && input.event
-  if (!touchReact.HIGHFIVE.EVENTS.includes(event)) return null
-  if (event === 'offer') {
-    if (!touchEnabled) return { off: true }
-    highFiveActive = true
-    markActivity()
-    return { ok: true }
-  }
-  highFiveActive = false
-  if (event === 'cancel') return { ok: true }
-  const now = Date.now()
-  if (now - lastHighFiveAt < TOUCH_MIN_MS) return null
-  lastHighFiveAt = now
-  const r = touchReact.scaleReaction(touchReact.highFiveReaction(event, event === 'slap' ? highFiveState.onSlap(now) : 1), bond())
-  updateMood(m => Object.entries(r.mood).reduce((acc, [name, delta]) => moodLib.nudge(acc, name, delta), moodLib.decay(m, now)))
-  lastTouch = { name: event === 'slap' ? 'highfive' : 'missed', zone: 'hand', kind: 'highfive', at: now }
-  const line = touchReact.pickLine(r.line, r.chance, touchLines)
-  const voiceOn = voiceConfig(loadConfig()).enabled
-  if (touchReact.shouldSayLine(line, { voiceOn, speaking: input.speaking === true, awaitingReply, listening: micBusy || !!micHold })) speakReply(line)
-  return { slot: r.slot, expression: r.expression, weight: r.weight, ms: r.ms, line }
-})
-
+on('companion:dancing', (e, on) => { const c = companionOf(e); if (c) c.dancing = danceEnabled && on === true })
+on('companion:peek-geometry', (e, g) => { const c = companionOf(e); if (c) c.peekGeometry(g) })
+on('companion:peek-out', (e) => { const c = companionOf(e); if (c) c.endPeek('dblclick') })
+handle('companion:touch', (e, input) => { const c = companionOf(e); return c ? c.onTouch(input) : null })
+handle('companion:highfive', (e, input) => { const c = companionOf(e); return c ? c.onHighFive(input) : null })
 // Ombra e seduta dentro la finestra, in px: solo numeri, la finestra li limita.
-on('companion:seat-anchor', (_e, anchor) => {
-  if (!anchor || ![anchor.x, anchor.feet, anchor.seat].every(Number.isFinite)) return
-  seatAnchor = { x: Math.round(anchor.x), feet: Math.round(anchor.feet), seat: Math.round(anchor.seat) }
+on('companion:seat-anchor', (e, anchor) => {
+  const c = companionOf(e)
+  if (!c || !anchor || ![anchor.x, anchor.feet, anchor.seat].every(Number.isFinite)) return
+  c.setSeatAnchor(anchor)
 })
 
 // ─── OS Actions (hardened, standalone) ─────────────────────────────────────────
@@ -3245,7 +2250,7 @@ if (!isPrimaryInstance) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    if (companionWindow && !companionWindow.isDestroyed()) companionWindow.show()
+    for (const c of companions) if (c.alive()) c.win.show()
     if (chatWindow && !chatWindow.isDestroyed() && !chatWindow.isVisible()) toggleChat()
   })
 }
@@ -3393,12 +2398,11 @@ app.whenReady().then(() => {
     } catch (_) { return new Response('Forbidden', { status: 403 }) }
   })
 
-  initMemory()
+  loadPersonas()
   initVoice()
-  createCompanionWindow()
+  openCompanion(personas.activeId)
   createChatWindow()
   createTray()
-  initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
   startIdleLife()
   startInitiative()
   startActiveApp()
@@ -3407,14 +2411,10 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  stopWalk()
-  endDrag()
-  endPeek('quit', 'none')
-  stopSlide()
+  for (const c of companions) c.shutdown()
   if (cursorTimer) clearInterval(cursorTimer)
   if (idleTimer) clearInterval(idleTimer)
   if (weatherTimer) clearInterval(weatherTimer)
-  if (global.__memoryTimer) clearInterval(global.__memoryTimer)
   if (kimodo) kimodo.stop()
   if (voiceService) voiceService.shutdown()
   endMicHold(null)
@@ -3424,7 +2424,7 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    if (!companionWindow || companionWindow.isDestroyed()) createCompanionWindow()
+    if (!companions.some(c => c.alive()) && personas) { companions.length = 0; openCompanion(personas.activeId) }
     if (!chatWindow || chatWindow.isDestroyed()) createChatWindow()
   }
 })
