@@ -236,7 +236,8 @@ function updateFace(vrm, delta, lookTarget) {
     for (const name of MOOD_EXPRESSIONS) em.setValue(name, Math.max(moodWeights[name] || 0, reaction[name] || 0));
     em.setValue('blink', blinker.update(delta));
     // Labiale: la bocca segue il volume della voce (voice-player.js).
-    em.setValue('aa', window.CompanionVoice ? window.CompanionVoice.mouth(delta) : 0);
+    // Se parla un ospite (Blocco 8e) la bocca e' la sua.
+    em.setValue('aa', window.CompanionVoice && !voiceSpeaker ? window.CompanionVoice.mouth(delta) : 0);
   }
   if (vrm.lookAt && gazeTarget) {
     const offset = gaze.update(delta);
@@ -277,6 +278,8 @@ if (api && api.onDragMotion) api.onDragMotion((v) => { if (v) dragVel = { vx: +v
 // window.__companionTest = true il cursore vero viene ignorato).
 window.__companion3DTest = {
   cursor: handleCursor,
+  /** Gli ospiti della stanza (Blocco 8e): chi e', se e' caricato e dove sta. */
+  guests: () => [...guests.values()].map(g => ({ id: g.id, name: g.name, loaded: !!g.vrm, x: g.holder ? g.holder.position.x : null })),
   animator: () => animator.debug(),
   clips: () => clips.debug(),
   humanoid: () => !!(currentVrm && currentVrm.humanoid),
@@ -540,6 +543,10 @@ function reportSeat(vrm) {
 const ZONE_BONES = ['hips', 'neck', 'head', 'leftHand', 'rightHand', 'leftLowerArm', 'rightLowerArm', 'leftUpperArm', 'rightUpperArm'];
 const boneWorld = new THREE.Vector3();
 function zone3D(x, y) {
+  // Nella stanza il clic puo' cadere su un ospite (Blocco 8e).
+  const guest = guestAt(x, y);
+  window.__touchGuest = guest ? guest.id : null;
+  if (guest) return guest.zone;
   const h = currentVrm && currentVrm.humanoid;
   if (!h || !camera) return null;
   const pts = {};
@@ -565,6 +572,7 @@ const PEEK_SLOTS = new Set(['pat', 'flinch']);
 
 // La reazione decisa dal main (touch-react.js): gesto, espressione, battuta.
 window.addEventListener('companion-touch', (e) => {
+  if (e.detail && e.detail.guest) return;   // un ospite: ci pensa lui (Blocco 8e)
   if (!window.__threeVisible || dragging || !currentVrm) return;
   const r = e.detail && e.detail.reaction;
   if (!r) return;
@@ -673,6 +681,7 @@ function animate() {
     updateShadow(currentVrm, delta);
     reportSeat(currentVrm);
   }
+  if (roomMode && guests.size) updateGuests(delta);
   controls.update();
   renderer.render(scene, camera);
   readHit();
@@ -952,6 +961,8 @@ async function loadAnimationLibrary() {
     }
   }
   clips.setLibrary(library);
+  animLibrary = library;
+  for (const g of guests.values()) if (g.clips) g.clips.setLibrary(library);
 }
 loadAnimationLibrary().catch(e => console.warn('Animazioni non caricate:', e.message));
 
@@ -1552,6 +1563,168 @@ if (api && api.onRoomScenes) {
   });
 }
 
+// ─── Ospiti nella stanza (Blocco 8e) ───────────────────────────────────────
+// Con piu' companion, nella stanza entrano anche gli altri: il main nasconde
+// le loro finestre e li manda qui come ospiti, ognuno con il suo avatar 3D,
+// il suo posto (guestSpot in room.js), un animatore e un livello di clip suoi.
+// Fanno le pose a riposo e qualche gesto, le reazioni ai tocchi, le
+// espressioni del loro umore, e muovono la bocca quando parla la loro voce.
+// Camminare, essere presi in braccio e sedersi resta al companion di casa.
+const guests = new Map();
+let animLibrary = null;     // le clip .vrma, le stesse del companion di casa
+let voiceSpeaker = null;    // chi parla in questa finestra: null = il companion di casa
+const GUEST_GESTURES = ['wave', 'happy', 'think', 'stretch'];
+const GUEST_KINDS = new Set(['vrm', 'gltf', 'glb', 'fbx']);
+const guestRay = new THREE.Raycaster();
+
+async function addGuest({ id, name, avatarId, spot }) {
+  if (guests.has(id) || !roomMode) return;
+  ensureThree();
+  const g = { id, name, vrm: null };
+  guests.set(id, g);
+  const avatars = await api.listAvatars();
+  const avatar = avatars.find(a => a.id === avatarId) || avatars.find(a => a.default) || avatars[0];
+  let model = null;
+  if (avatar && GUEST_KINDS.has(avatar.kind)) {
+    try { model = await readModel(avatar); } catch (error) { console.warn('Ospite ' + name + ' non caricato:', error.message); }
+  }
+  if (!model || guests.get(id) !== g) {
+    if (model) VRMUtils.deepDispose(model.vrm ? model.vrm.scene : model.object);
+    if (guests.get(id) === g) { guests.delete(id); showBubble(name + ' resta sul desktop: nella stanza entrano solo gli avatar 3D', 3600); }
+    return;
+  }
+  let vrm = model.vrm;
+  if (vrm) { VRMUtils.removeUnnecessaryVertices(vrm.scene); VRMUtils.combineSkeletons(vrm.scene); }
+  else vrm = humanoidFromObject(model.object);
+  if (!vrm) {
+    VRMUtils.deepDispose(model.object);
+    guests.delete(id);
+    showBubble(name + ' resta fuori: il suo modello non ha uno scheletro da animare', 3600);
+    return;
+  }
+  vrm.scene.rotation.y = baseYaw(vrm);
+  const hips = vrm.humanoid && vrm.humanoid.getNormalizedBoneNode('hips');
+  if (hips) hips.userData.__baseY = hips.position.y;
+  const animator = createVRMAnimator();
+  animator.reset(vrm);
+  const clipLayer = createClipLayer();
+  if (animLibrary) clipLayer.setLibrary(animLibrary);
+  clipLayer.attach(vrm);
+  // Gli occhi verso chi guarda la stanza.
+  if (vrm.lookAt) vrm.lookAt.target = camera;
+  keepAvatarLook(vrm.scene);
+  const holder = new THREE.Group();
+  holder.position.set(spot.x, 0, spot.z);
+  holder.rotation.y = spot.yaw;
+  holder.add(vrm.scene);
+  // La sua ombra ai piedi, come quella del companion di casa.
+  const foot = makeShadow();
+  foot.material.opacity = 0.9;
+  holder.add(foot);
+  scene.add(holder);
+  Object.assign(g, {
+    vrm, holder, animator, clips: clipLayer, blinker: createBlinker(), mood: moodExpressions(null),
+    reaction: {}, timers: {}, nextGesture: performance.now() + 8000 + Math.random() * 12000,
+    play: (slot) => animator.play(slot, { duration: clipLayer.prepare(animator.resolve(slot)) }),
+  });
+}
+
+function removeGuest(id) {
+  const g = guests.get(id);
+  guests.delete(id);
+  if (!g || !g.vrm) return;
+  scene.remove(g.holder);
+  VRMUtils.deepDispose(g.vrm.scene);
+  for (const t of Object.values(g.timers)) clearTimeout(t);
+}
+
+function clearGuests() {
+  for (const id of [...guests.keys()]) removeGuest(id);
+  voiceSpeaker = null;
+}
+
+function guestReact(g, name, weight, ms) {
+  g.reaction[name] = weight;
+  clearTimeout(g.timers[name]);
+  g.timers[name] = setTimeout(() => { g.reaction[name] = 0; }, ms);
+}
+
+/** Quello che il main manda a un companion ospite: gesti, umore, fumetti. */
+function guestEvent({ id, channel, data }) {
+  const g = guests.get(id);
+  if (!g || !g.vrm || !data) return;
+  if (channel === 'trigger-animation') {
+    // Gli ospiti non camminano: la stanza la percorre il companion di casa.
+    const anim = data.animation === 'walk-to' || data.animation === 'run-to' ? 'idle' : data.animation;
+    if (anim) g.play(anim);
+    if (data.bubble && !data.idle) showBubble(g.name + ': ' + data.bubble, 4200);
+  } else if (channel === 'mood-changed') g.mood = moodExpressions(data);
+  else if (channel === 'companion-bubble' && data.text) showBubble(g.name + ': ' + data.text, data.ms || 3000);
+}
+
+function updateGuests(delta) {
+  const now = performance.now();
+  for (const g of guests.values()) {
+    if (!g.vrm) continue;
+    // Ogni tanto un gesto, come la vita a riposo.
+    if (now > g.nextGesture) {
+      g.play(GUEST_GESTURES[Math.floor(Math.random() * GUEST_GESTURES.length)]);
+      g.nextGesture = now + 20000 + Math.random() * 25000;
+    }
+    const info = g.animator.update(g.vrm, delta, { applyLook: false });
+    g.clips.update(delta, info.clip);
+    applyLook(g.vrm, info.lookParts, isVRM0(g.vrm) ? 1 : -1);
+    const em = g.vrm.expressionManager;
+    if (em) {
+      for (const name of MOOD_EXPRESSIONS) em.setValue(name, Math.max(g.mood[name] || 0, g.reaction[name] || 0));
+      em.setValue('blink', g.blinker.update(delta));
+      em.setValue('aa', voiceSpeaker === g.id && window.CompanionVoice ? window.CompanionVoice.mouth(delta) : 0);
+    }
+    g.vrm.update(delta);
+  }
+}
+
+/** Il clic su un ospite: chi e' e in che zona (dalla testa e dal bacino). */
+function guestAt(x, y) {
+  if (!roomMode || !guests.size || !camera) return null;
+  guestRay.setFromCamera(new THREE.Vector2((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1), camera);
+  let best = null;
+  for (const g of guests.values()) {
+    if (!g.vrm) continue;
+    const hit = guestRay.intersectObject(g.holder, true)[0];
+    if (hit && (!best || hit.distance < best.hit.distance)) best = { g, hit };
+  }
+  if (!best) return null;
+  const h = best.g.vrm.humanoid;
+  const yOf = (bone) => { const n = h && h.getRawBoneNode(bone); return n ? n.getWorldPosition(new THREE.Vector3()).y : null; };
+  const head = yOf('head'), hips = yOf('hips'), py = best.hit.point.y;
+  const zone = head === null || hips === null ? 'chest'
+    : py > head - 0.1 ? 'head' : py > hips + 0.25 ? 'chest' : py > hips - 0.05 ? 'belly' : 'legs';
+  return { id: best.g.id, zone };
+}
+
+if (api && api.onRoomGuest) api.onRoomGuest((msg) => {
+  if (!msg) return;
+  if (msg.op === 'add') addGuest(msg).catch(e => console.warn('Ospite non aggiunto:', e.message));
+  else if (msg.op === 'remove') removeGuest(msg.id);
+  else if (msg.op === 'event') guestEvent(msg);
+});
+// Chi sta parlando: la bocca si muove a lui, ospite o companion di casa.
+if (api && api.onVoiceAudio) api.onVoiceAudio((msg) => {
+  if (msg && msg.type === 'chunk') voiceSpeaker = typeof msg.speaker === 'string' ? msg.speaker : null;
+});
+// La reazione a un tocco su un ospite (companion-input.js la manda con guest).
+window.addEventListener('companion-touch', (e) => {
+  const d = e.detail || {};
+  const g = d.guest && guests.get(d.guest);
+  if (!g || !g.vrm || !d.reaction) return;
+  const r = d.reaction;
+  if (r.off) { guestReact(g, 'happy', 1.0, 1500); return; }
+  if (r.slot) g.play(r.slot);
+  if (r.expression) guestReact(g, r.expression, r.weight, r.ms);
+  if (r.line) showBubble(g.name + ': ' + r.line, 2600);
+});
+
 async function applyViewMode(data) {
   const next = !!data && data.mode === 'room';
   chatInset = next ? Math.max(0, Number(data.chatInset) || 0) : 0;
@@ -1577,6 +1750,8 @@ async function applyViewMode(data) {
       if (body) body.visible = window.__threeVisible;
       startLoop();
     } else if (roomScene) {
+      // Tornando sul desktop gli ospiti tornano nelle loro finestre.
+      clearGuests();
       if (sceneAdjust) sceneAdjust.close();
       roomScene.setActive(false);
       controls.mouseButtons.LEFT = -1;

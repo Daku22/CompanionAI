@@ -89,10 +89,12 @@
    * true }: tocchi spenti nelle Impostazioni, vale il sorriso di sempre.
    */
   function touch(zone, kind) {
-    const send = (reaction) => window.dispatchEvent(new CustomEvent('companion-touch', { detail: { zone, kind, reaction } }))
+    // Nella stanza il tocco puo' essere per un ospite (companion-3d.js, Blocco 8e).
+    const guest = window.__touchGuest || null
+    const send = (reaction) => window.dispatchEvent(new CustomEvent('companion-touch', { detail: { zone, kind, reaction, guest } }))
     if (!zone || !api || !api.touch) { if (kind === 'poke') send({ off: true }); return }
     const speaking = !!(window.CompanionVoice && window.CompanionVoice.isSpeaking())
-    api.touch(zone, kind, speaking).then(send, () => { if (kind === 'poke') send({ off: true }) })
+    api.touch(zone, kind, speaking, guest).then(send, () => { if (kind === 'poke') send({ off: true }) })
   }
 
   // Carezza: il cursore che va avanti e indietro sulla testa, senza tasti.

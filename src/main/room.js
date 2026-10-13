@@ -136,4 +136,18 @@ function parseScenes(json, exists) {
   return out
 }
 
-module.exports = { ROOM_MIN, ROOM_DEFAULT, CHAT_WIDTH, CHAT_INSET, TITLE_BAR, EDGES, roomBounds, resizeBounds, chatDock, isRect, parseScenes }
+/**
+ * Dove sta l'ospite n-esimo nella stanza (Blocco 8e), in metri: ai lati del
+ * companion di casa, un po' indietro, girato verso il centro. Il primo a
+ * sinistra, il secondo a destra, poi piu' in fondo.
+ * @param {number} index 0, 1, ...
+ * @returns {{ x: number, z: number, yaw: number }}
+ */
+function guestSpot(index) {
+  const side = index % 2 === 0 ? -1 : 1
+  const row = Math.floor(index / 2)
+  const x = side * (0.85 + row * 0.35)
+  return { x, z: -0.35 - row * 0.45, yaw: -side * 0.35 }
+}
+
+module.exports = { ROOM_MIN, ROOM_DEFAULT, CHAT_WIDTH, CHAT_INSET, TITLE_BAR, EDGES, roomBounds, resizeBounds, chatDock, isRect, parseScenes, guestSpot }

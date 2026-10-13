@@ -85,7 +85,15 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   const persona = () => ctx.persona(personaId)
   const alive = () => !!win && !win.isDestroyed()
 
+  // Ospite nella stanza di un altro (Blocco 8e): gesti, umore e fumetti vanno
+  // alla finestra della stanza, che lo disegna nella sua scena.
+  const GUEST_CHANNELS = new Set(['trigger-animation', 'mood-changed', 'companion-bubble'])
   function send(channel, data) {
+    const host = ctx.guestHost(c)
+    if (host) {
+      if (GUEST_CHANNELS.has(channel)) host.send('room-guest', { op: 'event', id: personaId, channel, data })
+      return
+    }
     if (!alive()) return
     try { win.webContents.send(channel, data) } catch (_) {}
   }

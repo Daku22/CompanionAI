@@ -107,4 +107,12 @@ test('scene HDRI: solo voci valide, con i file che esistono', () => {
   assert.deepEqual(parseScenes({ scenes: 'x' }, exists), [])
 })
 
+test('ospiti nella stanza: ai lati, girati verso il centro, senza sovrapporsi', () => {
+  const { guestSpot } = require('../src/main/room')
+  const a = guestSpot(0), b = guestSpot(1), c = guestSpot(2)
+  assert.ok(a.x < 0 && b.x > 0, 'uno a sinistra, uno a destra')
+  assert.ok(a.yaw > 0 && b.yaw < 0, 'girati verso il centro')
+  assert.ok(Math.abs(a.x) >= 0.8 && c.z < a.z, "lontano dal centro; il terzo piu' in fondo")
+})
+
 console.log('\n=== ' + passed + ' test superati ===')

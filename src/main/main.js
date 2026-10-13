@@ -438,6 +438,7 @@ const companionCtx = {
   },
   refreshWeather: () => { refreshWeather().catch(() => {}) },
   onViewChanged: () => onViewChanged(),
+  guestHost: (c) => guestHost(c),
   toggleChat: () => toggleChat(),
   openSettings: (page) => openSettings(page),
   setOption: (partial) => setOption(partial),
@@ -475,22 +476,52 @@ function openCompanion(id) {
   c.initMemory()
   c.createWindow()
   c.initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
+  // Con la stanza aperta entra subito anche lui, come ospite.
+  if (roomHost()) onViewChanged()
   return c
 }
 
 /**
- * Stanza aperta o chiusa. Finche' gli altri non entrano anche loro nella
- * stanza (Blocco 8e), si nascondono e tornano quando si chiude.
+ * Stanza aperta o chiusa (Blocco 8e). Nella stanza entrano tutti: gli altri
+ * companion nascondono la loro finestra e diventano ospiti della scena del
+ * companion di casa. Chi ha un avatar Live2D o 2D resta sul desktop.
  */
-function onViewChanged() {
+const guestIds = new Set()
+const THREE_D_KINDS = new Set(['vrm', 'gltf', 'glb', 'fbx'])
+
+async function syncGuests() {
   const host = roomHost()
+  if (!host) {
+    guestIds.clear()
+    for (const c of companions) if (c.alive() && !c.win.isVisible()) c.win.showInactive()
+    return
+  }
+  const avatars = avatarLibrary ? await avatarLibrary.list().catch(() => []) : []
+  const kindOf = (c) => { const a = avatars.find(x => x.id === c.avatarId()) || avatars.find(x => x.default) || avatars[0]; return a ? a.kind : '' }
+  // Usciti dalla stanza (chiusi o tolti dal desktop).
+  for (const id of [...guestIds]) {
+    if (!companions.some(c => c.personaId === id)) { guestIds.delete(id); host.send('room-guest', { op: 'remove', id }) }
+  }
+  let index = 0
   for (const c of companions) {
     if (c === host || !c.alive()) continue
-    if (host) c.win.hide()
-    else c.win.showInactive()
+    const spot = room.guestSpot(index++)
+    if (!THREE_D_KINDS.has(kindOf(c))) { c.win.showInactive(); continue }
+    if (guestIds.has(c.personaId)) continue
+    guestIds.add(c.personaId)
+    c.win.hide()
+    host.send('room-guest', { op: 'add', id: c.personaId, name: (c.persona() || {}).name || c.personaId, avatarId: c.avatarId(), spot })
+    c.broadcastMood()
   }
+}
+
+function onViewChanged() {
+  syncGuests().catch(e => console.error('[stanza] ospiti:', e.message))
   buildTrayMenu()
 }
+
+/** Il companion di casa, se c e' ospite nella stanza. */
+const guestHost = (c) => { const host = roomHost(); return host && host !== c && guestIds.has(c.personaId) ? host : null }
 
 /** Chiude un companion: torna dalla stanza, ricorda il posto, chiude la finestra. */
 function closeCompanion(c) {
@@ -534,7 +565,7 @@ async function setCompanionOpen(id, on) {
     if (wasTarget) await switchPersona(companions[0].personaId)
   }
   saveOpen()
-  buildTrayMenu()
+  onViewChanged()
   sendChatConfig(loadConfig())
   console.log('[companion] sul desktop: ' + companions.map(c => c.personaId).join(', '))
   return { ok: true }
@@ -682,7 +713,10 @@ function initVoice() {
       if (msg.type === 'stop') speechEndsAt = 0
       else if (secs > 0) speechEndsAt = Math.max(Date.now(), speechEndsAt) + secs * 1000
       const c = speakingCompanion && speakingCompanion.alive() ? speakingCompanion : chatTarget()
-      if (c) c.send('voice-audio', msg)
+      // Un ospite della stanza parla dalla finestra della stanza, con la sua bocca.
+      const host = c && guestHost(c)
+      if (host) host.send('voice-audio', { ...msg, speaker: c.personaId })
+      else if (c) c.send('voice-audio', msg)
     },
     onStatus: (status) => sendSettings('voice-status', status),
   })
@@ -1967,7 +2001,8 @@ function initiativeTick() {
   const typing = !!(chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused())
   const enabled = loadConfig().initiative
   // In ordine sparso, cosi' non parla sempre lo stesso; uno per controllo.
-  const order = companions.filter(c => c.alive() && c.win.isVisible()).sort(() => Math.random() - 0.5)
+  // Anche gli ospiti della stanza (finestra nascosta, ma presenti).
+  const order = companions.filter(c => c.alive() && (c.win.isVisible() || guestHost(c))).sort(() => Math.random() - 0.5)
   for (const c of order) {
     const s = initiativeOf(c.personaId)
     const peers = order.filter(o => o !== c)
@@ -2056,7 +2091,7 @@ async function answerPeer(who, from, said) {
  */
 async function greetArrival(c) {
   if (process.env.COMPANION_NO_INITIATIVE === '1' || !loadConfig().initiative) return
-  const others = companions.filter(o => o !== c && o.alive() && o.win.isVisible())
+  const others = companions.filter(o => o !== c && o.alive() && (o.win.isVisible() || guestHost(o)))
   if (!others.length || !c.alive()) return
   if (!Initiative.canSpeak(initiativeOf(c.personaId), { now: Date.now(), enabled: true, asleep: false, fullscreen: false, typing: false }, 'hello')) return
   exchanging = true
@@ -2445,7 +2480,12 @@ handle('music:state', () => ({ ...musicState, enabled: danceEnabled }))
 on('companion:dancing', (e, on) => { const c = companionOf(e); if (c) c.dancing = danceEnabled && on === true })
 on('companion:peek-geometry', (e, g) => { const c = companionOf(e); if (c) c.peekGeometry(g) })
 on('companion:peek-out', (e) => { const c = companionOf(e); if (c) c.endPeek('dblclick') })
-handle('companion:touch', (e, input) => { const c = companionOf(e); return c ? c.onTouch(input) : null })
+handle('companion:touch', (e, input) => {
+  // Nella stanza il tocco puo' essere per un ospite (Blocco 8e).
+  const guest = input && typeof input.guest === 'string' && guestIds.has(input.guest) ? companions.find(x => x.personaId === input.guest) : null
+  const c = guest || companionOf(e)
+  return c ? c.onTouch(input) : null
+})
 handle('companion:highfive', (e, input) => { const c = companionOf(e); return c ? c.onHighFive(input) : null })
 // Ombra e seduta dentro la finestra, in px: solo numeri, la finestra li limita.
 on('companion:seat-anchor', (e, anchor) => {

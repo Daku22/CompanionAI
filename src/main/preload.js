@@ -26,7 +26,7 @@ contextBridge.exposeInMainWorld('companion', {
   // Un tocco sull'avatar: zona e tipo ('poke', 'pat'), e se la voce sta gia'
   // parlando (allora la battuta resta nel fumetto). Torna la reazione da
   // recitare, { off: true } se i tocchi sono spenti, o null.
-  touch:            (zone, kind, speaking) => ipcRenderer.invoke('companion:touch', { zone: String(zone), kind: String(kind), speaking: speaking === true }),
+  touch:            (zone, kind, speaking, guest) => ipcRenderer.invoke('companion:touch', { zone: String(zone), kind: String(kind), speaking: speaking === true, ...(typeof guest === 'string' ? { guest } : {}) }),
   // Dove sono l'ombra ai piedi (feet) e il bacino (seat) dentro la finestra:
   // il main posa l'ombra sul bordo di una finestra o della taskbar, e seduto
   // ci mette il bacino.
@@ -281,6 +281,12 @@ contextBridge.exposeInMainWorld('companion', {
     return () => ipcRenderer.removeListener('room-scenes', handler)
   },
   // Voce: frasi da suonare ({ type: 'chunk', pcm, rate, ... }) o { type: 'stop' }
+  // Gli ospiti della stanza (Blocco 8e): arrivo, uscita, gesti e umore.
+  onRoomGuest: (cb) => {
+    const handler = (_e, msg) => cb(msg)
+    ipcRenderer.on('room-guest', handler)
+    return () => ipcRenderer.removeListener('room-guest', handler)
+  },
   onVoiceAudio: (cb) => {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('voice-audio', handler)

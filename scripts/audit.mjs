@@ -1256,6 +1256,18 @@ try {
   await sleep(500)
   const peerWho = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant')].slice(${beforePeer}).map(m => m.querySelector('.who')?.textContent || '')`)
   check(peered === true && peerWho.length === 2 && peerWho[0] !== peerWho[1], 'si commentano: ' + JSON.stringify(peerWho))
+  // Tutti nella stanza (Blocco 8e): l'altro entra come ospite nella scena, e
+  // tornando sul desktop riprende la sua finestra.
+  await comp.evaluate(`window.companion.setView('room'); true`)
+  let guestList = []
+  for (let i = 0; i < 80 && !(guestList[0] && guestList[0].loaded); i++) { await sleep(250); guestList = await comp.evaluate('window.__companion3DTest.guests()') }
+  await sleep(800)
+  await shot('8e-stanza-ospite')
+  await comp.evaluate(`window.companion.setView('desktop'); true`)
+  await sleep(1500)
+  const afterRoom = await comp.evaluate('window.__companion3DTest.guests()')
+  check(guestList.length === 1 && guestList[0].loaded && guestList[0].name === 'Prova Audit' && afterRoom.length === 0,
+    'tutti nella stanza: ospite ' + JSON.stringify(guestList) + ', poi di nuovo sul desktop')
   const closed = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'close', id: '${auditId}' })`)
   await sleep(500)
   const left = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(t => t.url.includes('companion.html'))
