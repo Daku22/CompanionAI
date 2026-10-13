@@ -687,7 +687,7 @@ function createChatWindow() {
 // tray e dalla chat. Schede: Modello, Generale, Voce, Microfono. page sceglie
 // la scheda (la chat apre Modello); senza, si riapre sull'ultima usata.
 
-const SETTINGS_PAGES = ['modello', 'generale', 'voce', 'microfono', 'live2d']
+const SETTINGS_PAGES = ['modello', 'generale', 'persone', 'memoria', 'voce', 'microfono', 'movimenti', 'strumenti', 'live2d']
 
 function openSettings(page) {
   page = SETTINGS_PAGES.includes(page) ? page : ''

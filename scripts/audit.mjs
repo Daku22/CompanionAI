@@ -695,6 +695,29 @@ try {
     await chat.evaluate(`window.companion.setConfig({ voice: { enabled: false, engine: 'kokoro', micEnabled: false } }).then(c => c.voice.enabled)`)
   }
 
+  // Impostazioni, scheda Memoria: aperta per nome, un selettore suo con le
+  // persone, riassunto e diario lì e non più in Persone.
+  {
+    await chat.evaluate(`window.companion.openSettings('memoria'); true`)
+    let st = null
+    for (let i = 0; i < 40 && !st; i++) {
+      const t = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find(x => x.url.includes('settings.html'))
+      if (t) st = await connect(t); else await sleep(250)
+    }
+    let mem = null
+    for (let i = 0; i < 20 && !(mem && mem.personas); i++) {
+      await sleep(250)
+      mem = await st.evaluate(`({ visible: !document.getElementById('page-memoria').classList.contains('hidden'),
+        personas: document.getElementById('memory-persona').options.length,
+        inMemoria: !!document.querySelector('#page-memoria #memory-summary') && !!document.querySelector('#page-memoria #diary-list'),
+        inPersone: !!document.querySelector('#page-persone #memory-summary') })`)
+    }
+    check(mem.visible && mem.personas >= 1 && mem.inMemoria && !mem.inPersone, 'Impostazioni, scheda Memoria: ' + JSON.stringify(mem))
+    const shot = await st.send('Page.captureScreenshot', { format: 'png' })
+    fs.writeFileSync(path.join(OUT, '4a-memoria-impostazioni.png'), Buffer.from(shot.result.data, 'base64'))
+    await st.evaluate('window.close(); true').catch(() => {})
+  }
+
   // 4b. Il mouse sul 3D: pixel del modello, sguardo, presa in braccio.
   await waitIdle(6000)
   const [w3, h3] = await size()

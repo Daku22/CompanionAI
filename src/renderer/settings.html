@@ -214,6 +214,7 @@
     <button class="item" data-page="modello"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 4.5 7.5v9L12 20.5l7.5-4v-9z"/><path d="M4.5 7.5 12 11.5l7.5-4M12 11.5v9"/></svg> Modello</button>
     <button class="item" data-page="generale"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg> Generale</button>
     <button class="item" data-page="persone"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.5"/><path d="M3 19.5c.6-3.2 3-5.5 6-5.5s5.4 2.3 6 5.5"/><path d="M15.5 5.2a3.5 3.5 0 0 1 0 6.6M17.5 14.3c1.8.8 3.1 2.7 3.5 5.2"/></svg> Persone</button>
+    <button class="item" data-page="memoria"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h10.5a1.5 1.5 0 0 1 1.5 1.5v13.5H7.5A1.5 1.5 0 0 1 6 18z"/><path d="M6 18a1.5 1.5 0 0 1 1.5-1.5H18M9.5 8.5h5M9.5 11.5h3.5"/></svg> Memoria</button>
     <div class="group">Voce</div>
     <button class="item" data-page="voce"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg> Voce</button>
     <button class="item" data-page="microfono"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg> Microfono</button>
@@ -235,7 +236,7 @@
 
    <div class="page hidden" id="page-persone">
     <h1>Persone</h1>
-    <p class="sub">Ogni persona ha il suo nome, la sua personalità e la sua memoria, il suo umore. Ricorda l'avatar e la voce
+    <p class="sub">Ogni persona ha il suo nome, la sua personalità e la sua voce. I suoi ricordi sono in Memoria. Ricorda l'avatar e la voce
       che usava l'ultima volta: quando la riattivi tornano quelli.</p>
     <section>
       <div class="box">
@@ -268,6 +269,20 @@
       </div>
     </section>
 
+   </div>
+
+   <div class="page hidden" id="page-memoria">
+    <h1>Memoria</h1>
+    <p class="sub">I ricordi e il diario di ogni persona, ciascuna con i suoi. Una persona nuova compare qui da sola.</p>
+    <section>
+      <div class="box">
+        <div class="row">
+          <label class="name" for="memory-persona">Persona</label>
+          <select id="memory-persona"></select>
+        </div>
+      </div>
+    </section>
+
     <section>
       <h2>Diario</h2>
       <p class="muted">Una pagina per ogni giorno in cui vi siete parlati, scritta dalla persona il primo avvio del giorno dopo.</p>
@@ -278,7 +293,7 @@
     </section>
 
     <section>
-      <h2>Memoria</h2>
+      <h2>Ricordi</h2>
       <p class="muted">Quello che la persona ricorda di voi. Il riassunto è ciò che ha capito delle conversazioni passate: puoi
         correggerlo. I ricordi sono i messaggi veri: quelli recenti li rilegge parola per parola, quelli in archivio sono già
         nel riassunto (eliminarne uno non lo toglie dal riassunto: correggilo lì).</p>

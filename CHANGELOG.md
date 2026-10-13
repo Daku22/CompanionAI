@@ -133,6 +133,9 @@
     being dropped silently;
   - tokens are encrypted with Windows' key store, apart from the settings.
 - Leftover JSON (`},"emotion":…`) no longer shows at the end of a reply.
+- Settings → Memoria: a page of its own for the memory and the diary of each
+  persona, picked from its own menu; Persone keeps only who the persona is
+  (name, voice, personality). Settings pages now open by name for every tab.
 - Photo mode in the room (📷 in the title bar): the interface hides, a small
   panel picks a pose and an expression, and "Scatta" saves a PNG of the scene
   with the avatar where you choose. 3D avatars only for now.

@@ -73,7 +73,7 @@ personal data.
 **Deleting your data:**
 - the chat's "Dimentica tutto" button erases the active persona's memory
   (summary, recent turns and archive), mood, relationship and diary; single
-  messages can be deleted in Settings → Persone → Memoria;
+  messages can be deleted in Settings → Memoria;
 - deleting a persona in Settings → Persone erases all of its data;
 - uninstalling the app keeps settings, memory and avatars, so a reinstall picks
   up where you left off. To remove everything, delete the folders above.

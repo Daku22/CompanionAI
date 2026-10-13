@@ -246,7 +246,7 @@ memoria, umore e persona; va nel fumetto (con un gesto), nella chat e in
 memoria. "Legge ad alta voce i messaggi spontanei" è spento di base. Lo smoke,
 che gira sui dati veri, lo spegne con `COMPANION_NO_INITIATIVE=1`.
 
-**Memoria leggibile.** In Persone → Memoria: il riassunto si corregge a mano,
+**Memoria leggibile.** In Impostazioni → Memoria (una persona alla volta, scelta dal suo menu): il riassunto si corregge a mano,
 ogni ricordo (recente o in archivio, fino agli ultimi 200) si elimina, anche
 dai file d'archivio su disco. Un ricordo archiviato eliminato resta nel
 riassunto finché non lo si corregge lì.

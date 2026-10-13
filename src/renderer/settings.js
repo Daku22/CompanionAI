@@ -57,7 +57,20 @@
     }))
     personaSel.value = data.list.some(p => p.id === keep) ? keep : data.activeId
     showPersona()
+    // Memoria: un selettore suo, che tiene la scelta fatta li'.
+    const memKeep = memorySel.value || data.activeId
+    memorySel.replaceChildren(...data.list.map(p => new Option(p.name + (p.id === data.activeId ? ' (attiva)' : ''), p.id)))
+    memorySel.value = data.list.some(p => p.id === memKeep) ? memKeep : data.activeId
+    showMemoryPage()
   }
+  const memorySel = $('memory-persona')
+  function showMemoryPage() {
+    if (!memorySel.value) return
+    showDiary(memorySel.value)
+    showMemory(memorySel.value)
+  }
+  memorySel.addEventListener('change', () => { $('memory-state').textContent = ''; showMemoryPage() })
+  for (const t of tabs) if (t.dataset.page === 'memoria') t.addEventListener('click', showMemoryPage)
   // Le voci sono quelle della scheda Voce: Kokoro e, se XTTS e' installato,
   // le sue (il campione e le voci del modello).
   const personaVoice = $('persona-voice')
@@ -104,8 +117,6 @@
     personaName.value = p.name
     personaPrompt.value = p.prompt
     fillPersonaVoices(p.voice)
-    showDiary(p.id)
-    showMemory(p.id)
     const isActive = p.id === personaData.activeId
     $('persona-activate').disabled = isActive
     $('persona-remove').disabled = isActive
@@ -121,7 +132,7 @@
   // Diario della persona scelta: sola lettura, la pagina piu' recente in alto.
   async function showDiary(id) {
     const entries = await api.personasDiary(id).catch(() => [])
-    if (id !== personaSel.value) return
+    if (id !== memorySel.value) return
     const fmt = (day) => new Date(day + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     $('diary-list').replaceChildren(...entries.map(e => {
       const a = document.createElement('article')
@@ -381,7 +392,7 @@
   // ricordi da eliminare, i piu' recenti in alto.
   async function showMemory(id) {
     const m = await api.memoryView(id).catch(() => null)
-    if (id !== personaSel.value) return
+    if (id !== memorySel.value) return
     $('memory-summary').value = m ? m.summary : ''
     const name = (personaData.list.find(p => p.id === id) || {}).name || 'Companion'
     const when = (ts) => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }
@@ -414,10 +425,10 @@
     $('memory-list').replaceChildren(...parts)
   }
   $('memory-summary-save').addEventListener('click', async () => {
-    const r = await api.memoryEdit({ id: personaSel.value, op: 'summary', text: $('memory-summary').value }).catch(() => null)
+    const r = await api.memoryEdit({ id: memorySel.value, op: 'summary', text: $('memory-summary').value }).catch(() => null)
     $('memory-state').textContent = r && r.ok ? 'Riassunto salvato.' : (r && r.error) || 'Non riuscito.'
   })
-  if (api.onDiaryChanged) api.onDiaryChanged((id) => { if (id === personaSel.value) showDiary(id) })
+  if (api.onDiaryChanged) api.onDiaryChanged((id) => { if (id === memorySel.value) showDiary(id) })
   personaSel.addEventListener('change', () => { personaState.textContent = ''; showPersona() })
   $('persona-save').addEventListener('click', () =>
     changePersona({ op: 'update', id: personaSel.value, name: personaName.value, prompt: personaPrompt.value, voice: personaVoiceChoice() }, 'Salvata.'))

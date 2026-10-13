@@ -105,7 +105,7 @@ the desktop.
 
 **Settings.** Right-click the avatar (or the tray icon) → "Impostazioni…", or
 ⚙ in the chat. Tabs: Modello (provider, model and key), Generale (start
-with Windows, idle life, weather, the active app), Persone, Voce, Microfono,
+with Windows, idle life, weather, the active app), Persone, Memoria (memory and diary of each persona), Voce, Microfono,
 Live2D, Movimenti (the movements generated with Kimodo: rename, try, delete)
 and Connettori.
 
@@ -119,13 +119,13 @@ unlocks nothing; it changes the tone of the replies and how often the
 affectionate or annoyed reactions come. Level and days together show next to
 the mood in the chat.
 - **Diary:** on the first start of a day, the persona writes a page about the
-  last day you talked, about whatever it wants. Read it in "Persone".
+  last day you talked, about whatever it wants. Read it in "Memoria".
 - **It writes first** ("Scrive per primo", on by default): a greeting the
   first time you meet in the day, a welcome back after a couple of hours
   away, a message after a long silence. At most 6 a day, never while it
   sleeps, while you type or over a full-screen app. Reading these aloud is a
   separate option, off by default.
-- **Readable memory:** in "Persone" you can correct the summary by hand and
+- **Readable memory:** in "Memoria" (pick the persona there) you can correct the summary by hand and
   delete any remembered message. "Compatta" in the chat summarises everything
   but the last few messages.
 
