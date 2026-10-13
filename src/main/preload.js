@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('companion', {
   highFive:         (event, speaking) => ipcRenderer.invoke('companion:highfive', { event: String(event), speaking: speaking === true }),
   // Solo per audit.mjs: il main risponde solo con COMPANION_TEST_HOOKS=1
   testPeek:         (cmd)    => ipcRenderer.invoke('test:peek', cmd),
+  testPeer:         ()       => ipcRenderer.invoke('test:peer'),
   live2dSetChoices: (id, choices) => ipcRenderer.invoke('live2d:set-choices', id, choices),
   voiceXttsCancel:  ()       => ipcRenderer.send('voice:xtts-cancel'),
   voiceXttsRemove:  ()       => ipcRenderer.invoke('voice:xtts-remove'),

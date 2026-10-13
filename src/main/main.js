@@ -520,7 +520,11 @@ async function setCompanionOpen(id, on) {
   if (on) {
     if (open) return { ok: true }
     if (companions.length >= Companions.MAX_OPEN) return { ok: false, error: 'Sul desktop ci stanno al massimo ' + Companions.MAX_OPEN + ' companion.' }
-    openCompanion(id)
+    const c = openCompanion(id)
+    // Appena arrivato saluta gli altri, quando la sua finestra e' pronta.
+    if (c && c.alive()) c.win.webContents.once('did-finish-load', () => setTimeout(() => {
+      greetArrival(c).catch(e => console.error('[iniziativa] saluto non riuscito:', e.message))
+    }, ARRIVAL_GREET_MS))
   } else {
     if (!open) return { ok: true }
     if (companions.length <= 1) return { ok: false, error: 'Almeno un companion resta sul desktop.' }
@@ -1893,21 +1897,64 @@ handle('motions:store', async (_e, payload) => {
 })
 
 
-// ─── Iniziativa (Blocco 6d) ──────────────────────────────────────────────────
-// Il companion scrive per primo: buongiorno, rientro dopo un'assenza, silenzio
-// lungo. Le regole stanno in initiative.js; qui un controllo ogni 30 s, il
-// testo dal modello (con memoria, umore e persona come una risposta) e la
-// consegna: fumetto sull'avatar e messaggio nella chat, voce solo se chiesta.
+// ─── Iniziativa (Blocchi 6d e 8d) ────────────────────────────────────────────
+// Un companion scrive per primo: buongiorno, rientro dopo un'assenza, silenzio
+// lungo, e con altri companion sul desktop ogni tanto un commento su uno di
+// loro, che puo' rispondere una volta. Le regole stanno in initiative.js;
+// qui un controllo ogni 30 s, il testo dal modello (con memoria, umore e
+// persona come una risposta) e la consegna: fumetto sull'avatar e messaggio
+// nella chat, voce solo se chiesta. Ogni companion ha il suo stato e i suoi
+// 6 al giorno (initiative.json nella cartella della persona).
 const INITIATIVE_TICK_MS = 30 * 1000
 const INITIATIVE_FIRST_MS = 60 * 1000     // all'avvio aspetta che tutto sia su
 const RETURN_VALID_MS = 10 * 60 * 1000    // un rientro vale per un po', poi scade
-const INITIATIVE_PATH = path.join(MEMORY_PATH, 'initiative.json')
+const PEER_SAID_MS = 30 * 60 * 1000       // "poco fa ha detto": l'ultima mezz'ora
 const INITIATIVE_ANIMS = ['wave', 'happy', 'think', 'idle', 'highfive']
-let initiative = Initiative.createInitiative()
+const ARRIVAL_GREET_MS = 2500                 // il nuovo arrivato si guarda attorno, poi saluta
+const initiativePath = (id) => path.join(Personas.personaDir(MEMORY_PATH, id), 'initiative.json')
+/** @type {Map<string, any>} lo stato di ogni persona */
+const initiatives = new Map()
 let lastChatAt = Date.now()
 let awaySeen = false
 let returnedAt = 0
 let initiativeBusy = false
+let exchanging = false   // un commento fra due companion, con la risposta
+let lastInitiativeAt = 0
+let lastInitiativeBy = null
+
+function initiativeOf(id) {
+  if (!initiatives.has(id)) {
+    let s = Initiative.createInitiative()
+    try { s = Initiative.restore(JSON.parse(fs.readFileSync(initiativePath(id), 'utf8'))) } catch (_) {}
+    initiatives.set(id, s)
+  }
+  return initiatives.get(id)
+}
+
+function saveInitiative(id, s) {
+  initiatives.set(id, s)
+  const file = initiativePath(id)
+  fs.promises.mkdir(path.dirname(file), { recursive: true })
+    .then(() => writeAtomic(file, JSON.stringify(s)))
+    .catch(e => console.error('[iniziativa] salvataggio fallito:', e.message))
+}
+
+/** Cosa sta facendo un companion, detto per un altro. */
+function doingOf(c) {
+  if (c.asleep) return 'sonnecchia'
+  if (c.dancing) return 'sta ballando'
+  if (c.perched) return 'sta seduto su una finestra'
+  return null
+}
+
+/** L'ultima cosa detta da un companion, se e' di poco fa. */
+function lastSaid(c) {
+  const turns = c.memory ? c.memory.getRawTurns() : []
+  const t = [...turns].reverse().find(x => x.speaker === 'assistant')
+  if (!t || Date.now() - new Date(t.timestamp).getTime() > PEER_SAID_MS) return null
+  const text = String(t.content || '').trim()
+  return text.length > 200 ? text.slice(0, 199) + '…' : text
+}
 
 function initiativeTick() {
   const now = Date.now()
@@ -1915,55 +1962,113 @@ function initiativeTick() {
   // Rientro: prima via per almeno AWAY_MS, poi di nuovo al PC.
   if (systemIdleMs >= Initiative.RULES.AWAY_MS) awaySeen = true
   else if (awaySeen && systemIdleMs < Initiative.RULES.PRESENT_MS) { awaySeen = false; returnedAt = now }
+  if (initiativeBusy || exchanging) return
   const returned = returnedAt > 0 && now - returnedAt < RETURN_VALID_MS
-  const kind = Initiative.occasion(initiative, { now, returned, lastChatAt, systemIdleMs })
-  if (!kind) return
-  // Per ora scrive per primo il companion della chat.
-  const c = chatTarget()
   const typing = !!(chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused())
-  const busy = initiativeBusy || !c || c.busy || c.dragging || micBusy || !c.alive() || !c.win.isVisible()
-  if (!Initiative.canSpeak(initiative, { now, enabled: loadConfig().initiative, asleep: !!c && c.asleep, fullscreen: busy ? false : c.fullscreenNow(), typing, busy })) return
-  speakFirst(c, kind).catch(e => console.error('[iniziativa] non riuscita:', e.message))
+  const enabled = loadConfig().initiative
+  // In ordine sparso, cosi' non parla sempre lo stesso; uno per controllo.
+  const order = companions.filter(c => c.alive() && c.win.isVisible()).sort(() => Math.random() - 0.5)
+  for (const c of order) {
+    const s = initiativeOf(c.personaId)
+    const peers = order.filter(o => o !== c)
+    const kind = Initiative.occasion(s, { now, returned, lastChatAt, systemIdleMs, peers: peers.length })
+    if (!kind) continue
+    const busy = c.busy || c.dragging || micBusy
+    const sinceOtherMs = lastInitiativeBy && lastInitiativeBy !== c.personaId ? now - lastInitiativeAt : Infinity
+    if (!Initiative.canSpeak(s, { now, enabled, asleep: c.asleep, fullscreen: busy ? false : c.fullscreenNow(), typing, busy, sinceOtherMs }, kind)) continue
+    const done = (e) => console.error('[iniziativa] non riuscita:', e.message)
+    if (kind === 'peer') {
+      exchanging = true
+      peerExchange(c, peers[Math.floor(Math.random() * peers.length)]).catch(done).finally(() => { exchanging = false })
+    } else speakFirst(c, kind).catch(done)
+    return
+  }
 }
 
-async function speakFirst(c, kind) {
+/**
+ * Un messaggio spontaneo di c. Con peer: un commento su di lui (kind 'peer')
+ * o la risposta a un suo commento ('peer-reply', said: il commento).
+ * @returns {Promise<string>} il testo detto, o ''
+ */
+async function speakFirst(c, kind, peer = null, said = null) {
   initiativeBusy = true
   const mm = c.memory
   try {
     const cfg = loadConfig()
     const apiKey = cfg.keys?.[cfg.provider] || ''
-    if (cfg.provider !== 'ollama' && !apiKey) return
+    if (cfg.provider !== 'ollama' && !apiKey) return ''
+    const peerName = peer && !Array.isArray(peer) ? (peer.persona() || {}).name || 'l\'altro companion' : null
     const history = c.withMoodLine(await c.buildHistoryWithMemory([]))
-    history.push({ role: 'user', content: Initiative.prompt(kind) })
+    // peer puo' essere uno o piu' companion (il saluto all'arrivo li saluta tutti).
+    const peerOf = Array.isArray(peer) ? { name: peer.map(o => (o.persona() || {}).name || o.personaId).join(' e ') }
+      : peer ? { name: peerName, doing: doingOf(peer), said: said || lastSaid(peer) } : null
+    history.push({ role: 'user', content: Initiative.prompt(kind, peerOf) })
     const result = await route({
       provider: cfg.provider, model: cfg.model, apiKey, history,
       systemPrompt: Personas.systemPrompt(c.persona(), SYSTEM_PROMPT),
     })
     const reply = String((result && result.reply) || '').trim().slice(0, 2000)
-    if (!reply || result.via === 'fallback') return
+    if (!reply || result.via === 'fallback') return ''
     // Contato anche se poi nessuno lo legge: il freno e' sui tentativi riusciti.
-    initiative = Initiative.onSpoke(initiative, kind, Date.now())
-    fs.promises.mkdir(MEMORY_PATH, { recursive: true })
-      .then(() => writeAtomic(INITIATIVE_PATH, JSON.stringify(initiative)))
-      .catch(e => console.error('[iniziativa] salvataggio fallito:', e.message))
-    if (kind !== 'silence') returnedAt = 0
+    const s = Initiative.onSpoke(initiativeOf(c.personaId), kind, Date.now())
+    saveInitiative(c.personaId, s)
+    lastInitiativeAt = Date.now()
+    lastInitiativeBy = c.personaId
+    if (kind === 'morning' || kind === 'return') returnedAt = 0
     if (EMOTIONS.includes(result.emotion)) c.updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
     if (mm) await mm.addTurn(reply, 'assistant').catch(() => {})
-    console.log('[iniziativa] ' + kind + ' (' + initiative.sent + ' oggi)')
+    // Gli altri sul desktop l'hanno sentito.
+    const name = (c.persona() || {}).name || c.personaId
+    for (const o of companions) if (o !== c && o.memory) o.memory.addTurn(Group.heardLine(name, reply), 'user').catch(() => {})
+    console.log('[iniziativa] ' + c.personaId + ': ' + kind + (peer && !Array.isArray(peer) ? ' (' + peer.personaId + ')' : '') + ' (' + s.sent + ' all\'utente, ' + s.peerSent + ' fra companion oggi)')
     const anim = result.action && INITIATIVE_ANIMS.includes(result.action.animation) ? result.action.animation : 'wave'
     c.endPeek('message')
     c.animate({ type: 'none', animation: anim, bubble: reply.length > 140 ? reply.slice(0, 139) + '…' : reply })
     if (chatWindow && !chatWindow.isDestroyed()) {
-      try { chatWindow.webContents.send('companion-initiative', { reply, personaId: c.personaId, name: (c.persona() || {}).name }) } catch (_) {}
+      try { chatWindow.webContents.send('companion-initiative', { reply, personaId: c.personaId, name }) } catch (_) {}
     }
+    lastSpeakerId = c.personaId
     if (cfg.initiativeVoice) speakReply(c, reply)
+    return reply
   } finally { initiativeBusy = false }
+}
+
+// Il commento su un altro: l'altro, se puo', risponde una volta, dopo che il
+// primo ha finito di parlare. Conta anche sul suo limite (quello fra companion).
+async function peerExchange(c, peer) {
+  const said = await speakFirst(c, 'peer', peer)
+  if (said) await answerPeer(peer, c, said)
+}
+
+/** who risponde a quello che from gli ha appena detto. */
+async function answerPeer(who, from, said) {
+  if (!who.alive()) return
+  await waitForSpeech()
+  await new Promise(r => setTimeout(r, 1500))
+  const free = { enabled: loadConfig().initiative, asleep: who.asleep, fullscreen: false, typing: false, busy: who.busy || who.dragging || micBusy }
+  if (!Initiative.canSpeak(initiativeOf(who.personaId), { now: Date.now(), ...free }, 'peer-reply')) return
+  await speakFirst(who, 'peer-reply', from, said)
+}
+
+/**
+ * Un companion appena messo sul desktop saluta quelli che ci sono gia', e uno
+ * di loro gli risponde. Non all'avvio dell'app: solo quando arriva qualcuno.
+ */
+async function greetArrival(c) {
+  if (process.env.COMPANION_NO_INITIATIVE === '1' || !loadConfig().initiative) return
+  const others = companions.filter(o => o !== c && o.alive() && o.win.isVisible())
+  if (!others.length || !c.alive()) return
+  if (!Initiative.canSpeak(initiativeOf(c.personaId), { now: Date.now(), enabled: true, asleep: false, fullscreen: false, typing: false }, 'hello')) return
+  exchanging = true
+  try {
+    const said = await speakFirst(c, 'hello', others)
+    if (said) await answerPeer(others[Math.floor(Math.random() * others.length)], c, said)
+  } finally { exchanging = false }
 }
 
 function startInitiative() {
   // Lo smoke gira sui dati veri: niente messaggi spontanei nella memoria.
   if (process.env.COMPANION_NO_INITIATIVE === '1') return
-  try { initiative = Initiative.restore(JSON.parse(fs.readFileSync(INITIATIVE_PATH, 'utf8'))) } catch (_) {}
   // L'avvio dell'app vale come un rientro: il primo del giorno e' il buongiorno.
   returnedAt = Date.now()
   setTimeout(() => {
@@ -1989,6 +2094,7 @@ function startActiveApp() {
 
 // ─── Vita a riposo e cursore: un ciclo per tutti i companion ────────────────
 const IDLE_TICK_MS = 5000
+const GLANCE_CHANCE = 0.06   // per companion, ogni 5 s: un'occhiata a un vicino ogni minuto o poco piu'
 const CURSOR_TICK_MS = 33     // ~30 Hz: lo sguardo e' smorzato, basta
 let idleTimer = null
 let cursorTimer = null
@@ -1996,7 +2102,18 @@ let cursorTimer = null
 function startIdleLife() {
   applyWindowOptions(loadConfig())
   if (idleTimer) clearInterval(idleTimer)
-  idleTimer = setInterval(() => { for (const c of companions) c.idleTick() }, IDLE_TICK_MS)
+  idleTimer = setInterval(() => {
+    for (const c of companions) c.idleTick()
+    // Con altri companion vicino, ogni tanto uno guarda un altro (Blocco 8d).
+    const shown = companions.filter(c => c.alive() && c.win.isVisible() && c.viewMode === 'desktop')
+    if (shown.length < 2) return
+    for (const c of shown) {
+      if (c.dragging || Math.random() >= GLANCE_CHANCE) continue
+      const others = shown.filter(o => o !== c)
+      const other = others[Math.floor(Math.random() * others.length)]
+      c.glanceAt(Companions.headPoint(other.bounds), 2500 + Math.random() * 2000)
+    }
+  }, IDLE_TICK_MS)
   if (idleTimer.unref) idleTimer.unref()
 }
 
@@ -2007,7 +2124,10 @@ function startCursorFeed() {
   cursorTimer = setInterval(() => {
     if (!companions.length) return
     const cursor = screen.getCursorScreenPoint()
-    for (const c of companions) c.cursorTick(cursor)
+    // Chi ascolta guarda chi sta parlando (Blocco 8d).
+    const speaker = speakingCompanion && speakingCompanion.alive() && speakingCompanion.win.isVisible() && Date.now() < speechEndsAt ? speakingCompanion : null
+    const head = speaker && speaker.viewMode === 'desktop' ? Companions.headPoint(speaker.bounds) : null
+    for (const c of companions) c.cursorTick(cursor, head && c !== speaker && c.viewMode === 'desktop' ? head : null)
   }, CURSOR_TICK_MS)
   if (cursorTimer.unref) cursorTimer.unref()
 }
@@ -2065,6 +2185,12 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     if (cmd && cmd.release && !c.tryPerch() && !c.tryPeek()) c.keepOnScreen()
     if (cmd && 'cursor' in cmd) testCursor = cmd.cursor && Number.isFinite(cmd.cursor.x) ? { x: cmd.cursor.x, y: cmd.cursor.y } : null
     return { bounds: c.win.getBounds(), workArea: c.workArea(), peek: c.peekState() }
+  })
+  // Un commento fra i primi due companion, subito (Blocco 8d).
+  handle('test:peer', async () => {
+    if (companions.length < 2) return false
+    await peerExchange(companions[0], companions[1])
+    return true
   })
 }
 

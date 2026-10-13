@@ -1068,13 +1068,23 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
 
   // ─── Cursore, dimensione, opzioni ──────────────────────────────────────────
   let lastCursorKey = ''
+  /** Uno sguardo a un punto dello schermo (un altro companion), fino a until. */
+  let glance = null
+
+  function glanceAt(point, ms) {
+    glance = { point, until: Date.now() + ms }
+  }
 
   // Il cursore rispetto alla finestra, anche quando e' fuori: la pagina lo usa
-  // per lo sguardo e per accorgersi che il mouse se n'e' andato.
-  function cursorTick(cursor) {
+  // per lo sguardo e per accorgersi che il mouse se n'e' andato. watch: un
+  // punto da guardare al posto del mouse (chi sta parlando, Blocco 8d).
+  function cursorTick(cursor, watch = null) {
     if (drag || !alive() || !win.isVisible()) return
     const b = win.getBounds()
-    const msg = { x: cursor.x - b.x, y: cursor.y - b.y, follow: ctx.prefs.followMouse }
+    const target = watch || (glance && Date.now() < glance.until ? glance.point : null)
+    const msg = target
+      ? { x: target.x - b.x, y: target.y - b.y, follow: true }
+      : { x: cursor.x - b.x, y: cursor.y - b.y, follow: ctx.prefs.followMouse }
     const key = msg.x + ',' + msg.y + ',' + msg.follow
     if (key === lastCursorKey) return
     lastCursorKey = key
@@ -1305,7 +1315,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     startDrag, endDrag, peekGeometry, endPeek, tryPerch, tryPeek, keepOnScreen, moveTo, workArea, setSeatAnchor,
     peekState: () => peek && { side: peek.edge.side, edgeX: peek.edge.edgeX, cut: peek.cut, placed: peek.placed, armed: peek.armed, head: peek.head },
     setView, isRoomWindow, sendViewMode, dockChat, toggleRoomMaximize, startRoomResize, endRoomResize,
-    cursorTick, applyWindowOptions, showMenu, onTouch, onHighFive,
+    cursorTick, glanceAt, applyWindowOptions, showMenu, onTouch, onHighFive,
   }))
   return c
 }

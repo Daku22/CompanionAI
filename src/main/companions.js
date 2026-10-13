@@ -78,4 +78,7 @@ function nudgeAside(me, others, area, gap = 12) {
   return candidates.length ? { x: Math.round(candidates[0]), y: me.y } : null
 }
 
-module.exports = { MAX_OPEN, cleanOpen, freeSpot, overlaps, onSomeArea, blockedWalk, nudgeAside }
+/** Dove guardare un altro companion: piu' o meno la sua testa. */
+const headPoint = (r) => ({ x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height * 0.22) })
+
+module.exports = { MAX_OPEN, cleanOpen, freeSpot, overlaps, onSomeArea, blockedWalk, nudgeAside, headPoint }

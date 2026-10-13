@@ -1237,12 +1237,25 @@ try {
   const apart = rects.length === 2 && !(rects[0].x < rects[1].x + rects[1].width && rects[1].x < rects[0].x + rects[0].width &&
     rects[0].y < rects[1].y + rects[1].height && rects[1].y < rects[0].y + rects[0].height)
   check(!!(opened && opened.ok && opened.personas.open.length === 2 && apart), 'due companion sul desktop, uno accanto all\'altro: ' + JSON.stringify(rects))
+  // Arrivato, il nuovo saluta e uno degli altri gli risponde (Blocco 8d).
+  let hello = []
+  for (let i = 0; i < 80 && hello.length < 2; i++) {
+    await sleep(250)
+    hello = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant .who')].map(w => w.textContent)`)
+  }
+  check(hello.length === 2 && hello[0] === 'Prova Audit' && hello[1] === 'Companion', 'si salutano all\'arrivo: ' + JSON.stringify(hello))
   // Chat di gruppo (Blocco 8c): le pastiglie, e chi e' chiamato per nome risponde col suo nome.
   await sleep(500)
   const chips = await chat.evaluate(`[...document.querySelectorAll('#group-bar button')].map(b => b.textContent)`)
   await say('Prova Audit, come stai?')
   const who = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant')].pop()?.querySelector('.who')?.textContent || ''`)
   check(chips.length === 3 && chips.includes('Prova Audit') && who === 'Prova Audit', 'chat di gruppo: pastiglie ' + JSON.stringify(chips) + ', risponde ' + who)
+  // Si commentano (Blocco 8d): un commento del primo sul secondo, e la risposta.
+  const beforePeer = await chat.evaluate(`document.querySelectorAll('.msg.assistant').length`)
+  const peered = await comp.evaluate('window.companion.testPeer()')
+  await sleep(500)
+  const peerWho = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant')].slice(${beforePeer}).map(m => m.querySelector('.who')?.textContent || '')`)
+  check(peered === true && peerWho.length === 2 && peerWho[0] !== peerWho[1], 'si commentano: ' + JSON.stringify(peerWho))
   const closed = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'close', id: '${auditId}' })`)
   await sleep(500)
   const left = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(t => t.url.includes('companion.html'))

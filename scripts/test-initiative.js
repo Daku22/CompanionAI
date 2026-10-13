@@ -61,6 +61,37 @@ test('al massimo 6 al giorno, 45 minuti fra uno e l\'altro; il giorno dopo si ri
   assert.equal(I.canSpeak(s, { now: t0 + 24 * H, ...free }), true)
 })
 
+test('piu\' companion: un commento sull\'altro ogni tanto, e 10 minuti fra companion diversi', () => {
+  const s = I.createInitiative()
+  const quiet = { now: t0, lastChatAt: t0 - 30 * 60000, systemIdleMs: 0 }
+  assert.equal(I.occasion(s, { ...quiet, peers: 1, rand: () => 0 }), 'peer')
+  assert.equal(I.occasion(s, { ...quiet, peers: 1, rand: () => 0.9 }), null, 'non sempre')
+  assert.equal(I.occasion(s, { ...quiet, peers: 0, rand: () => 0 }), null, 'da solo no')
+  assert.equal(I.occasion(s, { ...quiet, lastChatAt: t0 - 60000, peers: 1, rand: () => 0 }), null, 'non subito dopo la chat')
+  assert.equal(I.occasion(s, { ...quiet, systemIdleMs: 10 * 60000, peers: 1, rand: () => 0 }), null, 'non se l\'utente e\' via')
+  assert.equal(I.canSpeak(s, { now: t0, ...free, sinceOtherMs: 5 * 60000 }), false)
+  assert.equal(I.canSpeak(s, { now: t0, ...free, sinceOtherMs: 11 * 60000 }), true)
+  assert.match(I.prompt('peer', { name: 'Kai', doing: 'dorme' }), /anche Kai.*che adesso dorme/)
+  assert.match(I.prompt('hello', { name: 'Kai e Luma' }), /appena arrivato.*saluta Kai e Luma/)
+})
+
+test('fra companion un conto a parte: 12 al giorno, 15 minuti fra due commenti', () => {
+  let s = I.createInitiative()
+  // I commenti non tolgono messaggi all'utente.
+  s = I.onSpoke(s, 'peer', t0)
+  assert.equal(s.sent, 0)
+  assert.equal(I.canSpeak(s, { now: t0, ...free }), true, 'il messaggio all\'utente resta libero')
+  assert.equal(I.canSpeak(s, { now: t0 + 5 * 60000, ...free }, 'peer'), false, 'un altro commento aspetta')
+  assert.equal(I.canSpeak(s, { now: t0 + 5 * 60000, ...free }, 'peer-reply'), true, 'una risposta no')
+  assert.equal(I.canSpeak(s, { now: t0 + 16 * 60000, ...free }, 'peer'), true)
+  assert.equal(I.occasion(s, { now: t0 + 5 * 60000, lastChatAt: t0 - 10 * 60000, systemIdleMs: 0, peers: 1, rand: () => 0 }), null, 'niente occasione prima dei 15 minuti')
+  let now = t0
+  for (let i = 1; i < I.RULES.MAX_PEER_PER_DAY; i++) { now += I.RULES.PEER_GAP_MS; s = I.onSpoke(s, 'hello', now) }
+  assert.equal(I.canSpeak(s, { now: now + I.RULES.PEER_GAP_MS, ...free }, 'peer'), false, 'finiti per oggi')
+  assert.equal(I.canSpeak(s, { now: t0 + 24 * H, ...free }, 'peer'), true, 'il giorno dopo si riparte')
+  assert.match(I.prompt('peer-reply', { name: 'Luma', said: 'ciao' }), /Luma ti ha appena detto: «ciao»/)
+})
+
 test('prompt e stato salvato', () => {
   assert.ok(I.prompt('silence').includes('scrivere per primo'))
   const s = I.onSpoke(I.createInitiative(), 'morning', t0)

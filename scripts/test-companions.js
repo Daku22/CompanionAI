@@ -72,4 +72,8 @@ test("posato sopra un altro: scivola di lato, nel posto libero piu' vicino", () 
   assert.deepEqual(C.nudgeAside({ x: 350, y: 500, width: 180, height: 260 }, [other], area), { x: 208, y: 500 })
 })
 
+test("sguardo: verso la testa dell'altro", () => {
+  assert.deepEqual(C.headPoint({ x: 100, y: 500, width: 180, height: 260 }), { x: 190, y: 557 })
+})
+
 console.log(`=== ${passed} test superati ===`)
