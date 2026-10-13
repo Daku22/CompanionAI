@@ -1220,6 +1220,29 @@ try {
   check(!!(edited && edited.ok && view && view.summary === 'Riassunto di prova.' && Array.isArray(diary)),
     'memoria leggibile della persona: riassunto corretto a mano, diario leggibile')
   const back = await chat.evaluate(`window.companion.personasChange({ op: 'activate', id: 'default' })`)
+
+  // 5c. Più companion (Blocco 8b): la persona di prova sul desktop accanto alla
+  // prima, senza coprirla; poi tolta, e resta una finestra sola.
+  const opened = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'open', id: '${auditId}' })`)
+  let pages = []
+  for (let i = 0; i < 40 && pages.length < 2; i++) {
+    await sleep(250)
+    pages = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(t => t.url.includes('companion.html'))
+  }
+  const rects = []
+  for (const t of pages) {
+    const p = await connect(t)
+    rects.push(await p.evaluate('({ x: window.screenX, y: window.screenY, width: window.outerWidth, height: window.outerHeight })'))
+  }
+  const apart = rects.length === 2 && !(rects[0].x < rects[1].x + rects[1].width && rects[1].x < rects[0].x + rects[0].width &&
+    rects[0].y < rects[1].y + rects[1].height && rects[1].y < rects[0].y + rects[0].height)
+  check(!!(opened && opened.ok && opened.personas.open.length === 2 && apart), 'due companion sul desktop, uno accanto all\'altro: ' + JSON.stringify(rects))
+  const closed = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'close', id: '${auditId}' })`)
+  await sleep(500)
+  const left = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(t => t.url.includes('companion.html'))
+  const last = await chat.evaluate(`window.companion.personasChange({ op: 'close', id: 'default' })`)
+  check(!!(closed && closed.ok && left.length === 1 && last && !last.ok), 'tolto dal desktop; l\'ultimo resta (' + (last && last.error) + ')')
+
   const removed = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'remove', id: '${auditId}' })`)
   check(!!(back && back.ok && removed && removed.ok && removed.personas.list.length === 1), 'tornati alla persona predefinita, quella di prova eliminata')
 

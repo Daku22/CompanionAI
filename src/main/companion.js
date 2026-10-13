@@ -28,6 +28,7 @@ const ActiveApp = require('./active-app')
 const touchReact = require('./touch-react')
 const { decideIdle } = require('./idle-life')
 const { route } = require('./ai-router')
+const { overlaps, blockedWalk, nudgeAside } = require('./companions')
 
 // ─── Aiuti sugli schermi e sulle finestre di Windows (di tutti) ──────────────
 
@@ -66,6 +67,8 @@ const FALL_MS = 280
 const TOUCH_MIN_MS = 300
 const MOTION_SECONDS = 4
 const CHAT_DESKTOP_SIZE = { width: 380, height: 520 }
+const SPOT_SAVE_MS = 800
+const ASIDE_MS = 250
 
 /**
  * Un companion. ctx e' quello che main.js condivide: config, chat,
@@ -264,14 +267,13 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   // ─── Finestra ──────────────────────────────────────────────────────────────
 
   function createWindow() {
-    // workArea e non workAreaSize: con la taskbar in alto o a sinistra l'area
-    // utile non parte da 0,0 e l'avatar nasceva spostato di quanto e' larga.
-    const area = screen.getPrimaryDisplay().workArea
     const cfg = ctx.loadConfig()
     const size = WINDOW_SCALES[cfg.scale]
+    // Dove era l'ultima volta, o un posto libero accanto agli altri (main.js).
+    const spot = ctx.spotFor(personaId, size)
     win = new BrowserWindow({
       width: size.width, height: size.height,
-      x: area.x + area.width - size.width - 40, y: area.y + area.height - size.height,
+      x: spot.x, y: spot.y,
       transparent: true,
       frame: false,
       alwaysOnTop: cfg.alwaysOnTop,
@@ -301,7 +303,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     // (companion-input.js).
     win.setIgnoreMouseEvents(true, { forward: true })
     // Nella stanza la chat segue la finestra, e la stanza si ricorda dov'era.
-    win.on('move', () => onRoomMoved())
+    win.on('move', () => { onRoomMoved(); saveSpotSoon() })
     win.on('resize', () => onRoomMoved())
     // Aperta l'ultima volta nella stanza: si riapre li'. La pagina deve essere
     // pronta, o non saprebbe della modalita'.
@@ -326,6 +328,22 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   function moveTo(x, y) {
     const [width, height] = win.getSize()
     win.setBounds({ x: Math.round(x), y: Math.round(y), width, height })
+  }
+
+  // Il posto sul desktop si ricorda per persona, poco dopo che si e' fermato.
+  let spotTimer = null
+  function saveSpotSoon() {
+    clearTimeout(spotTimer)
+    spotTimer = setTimeout(() => {
+      if (alive() && viewMode === 'desktop' && !drag) ctx.saveSpot(personaId, win.getBounds())
+    }, SPOT_SAVE_MS)
+  }
+
+  /** Posato sopra un altro companion, scivola di lato. */
+  function stepAside() {
+    if (!alive()) return
+    const to = nudgeAside(win.getBounds(), ctx.othersRects(c), workArea())
+    if (to) slideTo(to, ASIDE_MS)
   }
 
   /** Riporta la finestra dentro l'area di lavoro dello schermo su cui si trova. */
@@ -371,7 +389,9 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     const [x, y] = win.getPosition()
     const [w] = win.getSize()
     const cursorX = direction === 'toward-cursor' ? screen.getCursorScreenPoint().x : undefined
-    const targetX = walkTarget({ x, width: w, area, direction, distance, cursorX, maxDistance })
+    const wanted = walkTarget({ x, width: w, area, direction, distance, cursorX, maxDistance })
+    // Si ferma prima di un altro companion, non gli passa sopra.
+    const targetX = wanted === null ? null : blockedWalk(win.getBounds(), wanted, ctx.othersRects(c))
     if (targetX === null) { sendIdle(); return }
     const minX = Math.min(x, targetX)
     const maxX = Math.max(x, targetX)
@@ -590,7 +610,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     // Posato con il punto di seduta sul bordo di una finestra si siede; oltre
     // meta' fuori da un bordo sbircia; se no, mezzo fuori dallo schermo o
     // dietro la taskbar si perderebbe.
-    if (!tryPerch() && !tryPeek()) keepOnScreen()
+    if (!tryPerch() && !tryPeek()) { keepOnScreen(); stepAside() }
     markActivity()
   }
 
@@ -761,6 +781,17 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     if (!seat) {
       console.log('[perch] nessun bordo sotto l\'ombra ' + shadow.x + ',' + shadow.y)
       return false
+    }
+    // Un posto e' di uno solo: se li' c'e' gia' un altro companion, niente.
+    const seatWindow = seat.kind === 'window' && windows.find(w => w.hwnd === seat.hwnd)
+    const seatDisplay = seat.kind === 'taskbar' && displays.find(d => d.id === seat.displayId)
+    const edge = seatWindow ? { x: seatWindow.bounds.x, y: seatWindow.bounds.y, width: seatWindow.bounds.width } : seatDisplay ? taskbarEdge(seatDisplay) : null
+    if (edge) {
+      const pos = perchPosition(edge, seat.fraction, anchor)
+      if (ctx.othersRects(c).some(o => overlaps({ ...pos, width: b.width, height: b.height }, o))) {
+        console.log('[perch] posto gia\' occupato da un altro companion')
+        return false
+      }
     }
     console.log('[perch] posato su ' + (seat.kind === 'window' ? 'una finestra' : 'la taskbar') + ', ombra ' + shadow.x + ',' + shadow.y)
     startPerch(seat)
@@ -1099,6 +1130,8 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
       { label: 'Apri chat', click: () => ctx.toggleChat() },
       // La stanza: finestra grande con la scena e la chat accanto (room.js).
       { label: 'Stanza', type: 'checkbox', checked: inRoom, click: (item) => setView(item.checked ? 'room' : 'desktop') },
+      // Chi sta sul desktop, fino a 3 (Blocco 8b).
+      ctx.companionsMenu(),
       { type: 'separator' },
       {
         label: 'Avatar',
@@ -1241,6 +1274,8 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     stopPerch()
     if (memoryTimer) clearInterval(memoryTimer)
     if (gestureTimer) clearTimeout(gestureTimer)
+    clearTimeout(spotTimer)
+    if (alive() && viewMode === 'desktop') ctx.saveSpot(personaId, win.getBounds())
   }
 
   // defineProperties, non Object.assign: i getter devono restare getter
@@ -1249,6 +1284,8 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     get personaId() { return personaId },
     get slot() { return slot },
     get win() { return win },
+    get bounds() { return alive() ? win.getBounds() : null },
+    get perched() { return !!perch },
     get memory() { return memory },
     get viewMode() { return viewMode },
     get dragging() { return !!drag },

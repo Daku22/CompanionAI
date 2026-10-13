@@ -35,6 +35,7 @@ const Mcp = require('./mcp')
 const { writeAtomic } = require('./write-atomic')
 const touchReact = require('./touch-react')
 const { createCompanion } = require('./companion')
+const Companions = require('./companions')
 
 let chatWindow      = null
 let tray            = null
@@ -262,6 +263,9 @@ function personasPublic() {
   const current = voiceConfig(loadConfig())
   return {
     activeId: personas.activeId,
+    // Chi e' sul desktop (Blocco 8b), e quanti ce ne stanno.
+    open: companions.map(c => c.personaId),
+    maxOpen: Companions.MAX_OPEN,
     list: personas.list.map(({ id, name, prompt, voice }) => {
       const v = id === personas.activeId ? current : { ...current, ...(voice || {}) }
       return { id, name, prompt, voice: { engine: v.engine, kokoroVoice: v.kokoroVoice, xttsSpeaker: v.xttsSpeaker } }
@@ -271,27 +275,38 @@ function personasPublic() {
 
 /** Lascia la persona attiva (ricordando avatar e voce) e passa a id. */
 async function switchPersona(id) {
-  const c = chatTarget()
-  if (!personas || id === personas.activeId || (c && c.busy)) return false
+  // Il companion della persona attiva, se e' aperto.
+  const current = companions.find(x => personas && x.personaId === personas.activeId) || null
+  if (!personas || id === personas.activeId || (current && current.busy)) return false
   const cfg = loadConfig()
   const next = Personas.activate(Personas.snapshot(personas, { avatarModel: cfg.avatarModel, voice: cfg.voice }), id)
   if (!next) return false
-  if (c) await c.moodSaved()
+  if (current) await current.moodSaved()
   personas = next
   savePersonas()
   const p = activePersona()
   const merged = mergeConfig(cfg, { voice: p.voice || {} })
   merged.avatarModel = p.avatarModel || ''
   saveConfig(merged)
-  // Finche' il companion e' uno solo, cambia persona lui.
-  if (c) await c.setPersona(id)
-  // L'avatar lo cambia il companion, come dal menu ('' = il predefinito).
-  let avatarId = p.avatarModel
-  if (!avatarId && avatarLibrary) {
-    const avatars = await avatarLibrary.list().catch(() => [])
-    avatarId = (avatars.find(a => a.default) || avatars[0] || {}).id
+  const already = companions.find(x => x.personaId === id)
+  if (already) {
+    // Gia' sul desktop: la chat passa a lui, e ne mostra l'umore.
+    already.broadcastMood()
+  } else {
+    // Non e' sul desktop: il companion della chat diventa lui.
+    const c = current || companions[0]
+    if (c) {
+      await c.setPersona(id)
+      // L'avatar lo cambia il companion, come dal menu ('' = il predefinito).
+      let avatarId = p.avatarModel
+      if (!avatarId && avatarLibrary) {
+        const avatars = await avatarLibrary.list().catch(() => [])
+        avatarId = (avatars.find(a => a.default) || avatars[0] || {}).id
+      }
+      if (avatarId) c.send('menu-command', { cmd: 'avatar', id: avatarId })
+      saveOpen()
+    }
   }
-  if (avatarId && c) c.send('menu-command', { cmd: 'avatar', id: avatarId })
   syncVoice(merged)
   sendChatConfig(merged)
   console.log('[persone] attiva:', p.id)
@@ -319,6 +334,14 @@ handle('personas:change', async (_e, input) => {
   }
   else if (op === 'remove') {
     if (id === personas.activeId) return { ok: false, error: 'Attiva prima un\'altra persona.' }
+    // Sul desktop: prima si toglie da li'.
+    const open = companions.find(c => c.personaId === id)
+    if (open) {
+      if (open.busy) return { ok: false, error: 'Non adesso: aspetta la risposta.' }
+      closeCompanion(open)
+      saveOpen()
+      buildTrayMenu()
+    }
     next = Personas.remove(personas, id)
     // Memoria e umore se ne vanno con lei; "default" non ha una cartella sua.
     if (next && id !== 'default') {
@@ -326,6 +349,9 @@ handle('personas:change', async (_e, input) => {
         await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {})
       }
     }
+  } else if (op === 'open' || op === 'close') {
+    const r = await setCompanionOpen(id, op === 'open')
+    return r.ok ? { ok: true, personas: personasPublic() } : r
   } else if (op === 'activate') {
     return (await switchPersona(id)) ? { ok: true, personas: personasPublic() } : { ok: false, error: 'Non adesso: aspetta la risposta.' }
   }
@@ -408,25 +434,119 @@ const companionCtx = {
     return key
   },
   refreshWeather: () => { refreshWeather().catch(() => {}) },
-  onViewChanged: () => buildTrayMenu(),
+  onViewChanged: () => onViewChanged(),
   toggleChat: () => toggleChat(),
   openSettings: (page) => openSettings(page),
   setOption: (partial) => setOption(partial),
   sceneMenu: (cfg, command) => sceneMenu(cfg, command),
   previewMenu: (command) => previewMenu(command),
   openAnimationsFolder: () => openAnimationsFolder(),
+  companionsMenu: () => companionsMenu(),
   quit: () => app.quit(),
+  // Gli altri companion, per non sovrapporsi (camminata, rilascio, seduta).
+  othersRects: (me) => companions.filter(o => o !== me && o.alive() && o.win.isVisible() && o.viewMode === 'desktop').map(o => o.bounds),
+  // Dove nasce: dove era l'ultima volta, se e' ancora su uno schermo e non
+  // copre nessuno; se no un posto libero in basso a destra.
+  spotFor: (id, size) => {
+    const saved = (loadConfig().companionSpots || {})[id]
+    const taken = companions.filter(o => o.personaId !== id && o.alive()).map(o => o.bounds)
+    const areas = screen.getAllDisplays().map(d => d.workArea)
+    if (Companions.onSomeArea(saved, size, areas) && !taken.some(t => Companions.overlaps({ ...saved, ...size }, t))) return { x: saved.x, y: saved.y }
+    return Companions.freeSpot(screen.getPrimaryDisplay().workArea, size, taken)
+  },
+  saveSpot: (id, b) => {
+    const cfg = loadConfig()
+    cfg.companionSpots = { ...(cfg.companionSpots || {}), [id]: { x: b.x, y: b.y } }
+    saveConfig(cfg)
+  },
 }
 
-/** Apre il companion della persona id. */
+/** Apre il companion della persona id (al massimo Companions.MAX_OPEN). */
 function openCompanion(id) {
-  if (companions.some(c => c.personaId === id)) return null
-  const c = createCompanion(companionCtx, id, { slot: companions.length })
+  if (companions.some(c => c.personaId === id) || companions.length >= Companions.MAX_OPEN) return null
+  const used = new Set(companions.map(c => c.slot))
+  let slot = 0
+  while (used.has(slot)) slot++
+  const c = createCompanion(companionCtx, id, { slot })
   companions.push(c)
   c.initMemory()
   c.createWindow()
   c.initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
   return c
+}
+
+/**
+ * Stanza aperta o chiusa. Finche' gli altri non entrano anche loro nella
+ * stanza (Blocco 8e), si nascondono e tornano quando si chiude.
+ */
+function onViewChanged() {
+  const host = roomHost()
+  for (const c of companions) {
+    if (c === host || !c.alive()) continue
+    if (host) c.win.hide()
+    else c.win.showInactive()
+  }
+  buildTrayMenu()
+}
+
+/** Chiude un companion: torna dalla stanza, ricorda il posto, chiude la finestra. */
+function closeCompanion(c) {
+  if (c.viewMode === 'room') c.setView('desktop')
+  c.shutdown()
+  if (speakingCompanion === c) { if (voiceService) voiceService.stop(); speakingCompanion = null }
+  const i = companions.indexOf(c)
+  if (i >= 0) companions.splice(i, 1)
+  if (c.alive()) c.win.destroy()
+}
+
+/** Le persone sul desktop, nell'ordine in cui si sono aperte: si ricordano. */
+function saveOpen() {
+  const cfg = loadConfig()
+  cfg.openPersonas = companions.map(c => c.personaId)
+  saveConfig(cfg)
+}
+
+/**
+ * Mette o toglie dal desktop il companion di una persona. Ne resta sempre
+ * almeno uno; se si toglie quello della chat, la chat passa a un altro.
+ * @returns {{ ok: boolean, error?: string }}
+ */
+async function setCompanionOpen(id, on) {
+  if (!personas || !personas.list.some(p => p.id === id)) return { ok: false, error: 'Persona non trovata.' }
+  const open = companions.find(c => c.personaId === id)
+  if (on) {
+    if (open) return { ok: true }
+    if (companions.length >= Companions.MAX_OPEN) return { ok: false, error: 'Sul desktop ci stanno al massimo ' + Companions.MAX_OPEN + ' companion.' }
+    openCompanion(id)
+  } else {
+    if (!open) return { ok: true }
+    if (companions.length <= 1) return { ok: false, error: 'Almeno un companion resta sul desktop.' }
+    if (open.busy) return { ok: false, error: 'Non adesso: aspetta la risposta.' }
+    const wasTarget = open === chatTarget()
+    closeCompanion(open)
+    if (wasTarget) await switchPersona(companions[0].personaId)
+  }
+  saveOpen()
+  buildTrayMenu()
+  sendChatConfig(loadConfig())
+  console.log('[companion] sul desktop: ' + companions.map(c => c.personaId).join(', '))
+  return { ok: true }
+}
+
+/** "Companion": le persone, spuntate quelle sul desktop. Per la tray e il tasto destro. */
+function companionsMenu() {
+  const full = companions.length >= Companions.MAX_OPEN
+  return {
+    label: 'Companion sul desktop',
+    submenu: personas.list.map(p => {
+      const isOpen = companions.some(c => c.personaId === p.id)
+      return {
+        label: p.name.replace(/&/g, '&&'), type: /** @type {const} */ ('checkbox'), checked: isOpen,
+        enabled: isOpen ? companions.length > 1 : !full,
+        click: () => { setCompanionOpen(p.id, !isOpen).catch(e => console.error('[companion]', e.message)) },
+      }
+    }),
+  }
 }
 
 // ─── Chat Window ─────────────────────────────────────────────────────────────
@@ -704,6 +824,7 @@ function buildTrayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Mostra companion',  click: () => { for (const c of companions) if (c.alive()) c.win.show() } },
     { label: 'Apri chat',         click: () => toggleChat() },
+    ...(personas ? [companionsMenu()] : []),
     host
       ? { label: 'Torna sul desktop', click: () => host.setView('desktop') }
       : { label: 'Apri la stanza', click: () => { const c = chatTarget(); if (c) c.setView('room') } },
@@ -2400,7 +2521,11 @@ app.whenReady().then(() => {
 
   loadPersonas()
   initVoice()
-  openCompanion(personas.activeId)
+  // Sul desktop chi c'era l'ultima volta, con la persona attiva sempre fra loro.
+  const known = personas.list.map(p => p.id)
+  const toOpen = Companions.cleanOpen(loadConfig().openPersonas, known, personas.activeId)
+  if (!toOpen.includes(personas.activeId)) toOpen.splice(Companions.MAX_OPEN - 1, 1, personas.activeId)
+  for (const id of toOpen) openCompanion(id)
   createChatWindow()
   createTray()
   startIdleLife()

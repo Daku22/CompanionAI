@@ -39,4 +39,43 @@ function freeSpot(area, size, taken, gap = 20) {
   return spot
 }
 
-module.exports = { MAX_OPEN, cleanOpen, freeSpot, overlaps }
+/** Il posto salvato vale se il companion ci sta per intero in un'area di lavoro. */
+function onSomeArea(spot, size, areas) {
+  return !!spot && Number.isFinite(spot.x) && Number.isFinite(spot.y) && areas.some(a =>
+    spot.x >= a.x && spot.y >= a.y && spot.x + size.width <= a.x + a.width && spot.y + size.height <= a.y + a.height)
+}
+
+/**
+ * Una camminata da x verso target si ferma prima di un altro companion sulla
+ * stessa fascia di schermo. null se non resta strada da fare.
+ * @param {{ x: number, y: number, width: number, height: number }} me
+ * @param {number} target x finale voluta
+ * @param {{ x: number, y: number, width: number, height: number }[]} others
+ */
+function blockedWalk(me, target, others, gap = 12) {
+  let limit = target
+  for (const o of others) {
+    if (!(me.y < o.y + o.height && o.y < me.y + me.height)) continue
+    if (target > me.x && o.x >= me.x + me.width) limit = Math.min(limit, o.x - me.width - gap)
+    if (target < me.x && o.x + o.width <= me.x) limit = Math.max(limit, o.x + o.width + gap)
+  }
+  return Math.abs(limit - me.x) < 8 || (target > me.x) !== (limit > me.x) ? null : Math.round(limit)
+}
+
+/**
+ * Posato sopra un altro companion, si sposta di lato: il posto libero piu'
+ * vicino, dentro l'area. null se non serve o non c'e'.
+ * @param {{ x: number, y: number, width: number, height: number }} me
+ * @param {{ x: number, y: number, width: number, height: number }[]} others
+ * @param {{ x: number, width: number }} area
+ */
+function nudgeAside(me, others, area, gap = 12) {
+  if (!others.some(o => overlaps(me, o))) return null
+  const candidates = others.flatMap(o => [o.x - me.width - gap, o.x + o.width + gap])
+    .filter(x => x >= area.x && x + me.width <= area.x + area.width)
+    .filter(x => !others.some(o => overlaps({ ...me, x }, o)))
+    .sort((a, b) => Math.abs(a - me.x) - Math.abs(b - me.x))
+  return candidates.length ? { x: Math.round(candidates[0]), y: me.y } : null
+}
+
+module.exports = { MAX_OPEN, cleanOpen, freeSpot, overlaps, onSomeArea, blockedWalk, nudgeAside }

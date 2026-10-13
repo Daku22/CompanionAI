@@ -45,4 +45,31 @@ test('posto libero: con lo schermo pieno resta dentro l\'area', () => {
   assert.ok(spot.x >= area.x - size.width && spot.y === 140)
 })
 
+test('posto salvato: vale solo se il companion ci sta per intero', () => {
+  const areas = [{ x: 0, y: 0, width: 1000, height: 800 }]
+  const size = { width: 180, height: 260 }
+  assert.equal(C.onSomeArea({ x: 100, y: 100 }, size, areas), true)
+  assert.equal(C.onSomeArea({ x: 900, y: 100 }, size, areas), false, 'mezzo fuori')
+  assert.equal(C.onSomeArea({ x: 3000, y: 100 }, size, areas), false, 'schermo staccato')
+  assert.equal(C.onSomeArea(null, size, areas), false)
+})
+
+test('camminata: si ferma prima di un altro companion sulla stessa fascia', () => {
+  const me = { x: 100, y: 500, width: 180, height: 260 }
+  const other = { x: 500, y: 520, width: 180, height: 260 }
+  assert.equal(C.blockedWalk(me, 800, [other]), 500 - 180 - 12)
+  assert.equal(C.blockedWalk(me, 250, [other]), 250, "prima dell'altro: libera")
+  assert.equal(C.blockedWalk(me, 0, [other]), 0, "dall'altra parte: libera")
+  assert.equal(C.blockedWalk({ ...me, x: 305 }, 800, [other]), null, "gia' attaccato: non si muove")
+  assert.equal(C.blockedWalk(me, 800, [{ ...other, y: 0, height: 100 }]), 800, 'altra fascia: libera')
+})
+
+test("posato sopra un altro: scivola di lato, nel posto libero piu' vicino", () => {
+  const area = { x: 0, width: 1000 }
+  const other = { x: 400, y: 500, width: 180, height: 260 }
+  assert.equal(C.nudgeAside({ x: 100, y: 500, width: 180, height: 260 }, [other], area), null, 'non si toccano')
+  assert.deepEqual(C.nudgeAside({ x: 450, y: 500, width: 180, height: 260 }, [other], area), { x: 592, y: 500 })
+  assert.deepEqual(C.nudgeAside({ x: 350, y: 500, width: 180, height: 260 }, [other], area), { x: 208, y: 500 })
+})
+
 console.log(`=== ${passed} test superati ===`)

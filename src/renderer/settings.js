@@ -52,7 +52,7 @@
     personaSel.replaceChildren(...data.list.map(p => {
       const o = document.createElement('option')
       o.value = p.id
-      o.textContent = p.name + (p.id === data.activeId ? ' (attiva)' : '')
+      o.textContent = p.name + (p.id === data.activeId ? ' (attiva)' : (data.open || []).includes(p.id) ? ' (sul desktop)' : '')
       return o
     }))
     personaSel.value = data.list.some(p => p.id === keep) ? keep : data.activeId
@@ -118,6 +118,15 @@
     personaPrompt.value = p.prompt
     fillPersonaVoices(p.voice)
     const isActive = p.id === personaData.activeId
+    // Sul desktop (Blocco 8b): fino a maxOpen insieme, almeno uno.
+    const open = personaData.open || []
+    const isOpen = open.includes(p.id)
+    const toggle = $('persona-open')
+    toggle.checked = isOpen
+    toggle.disabled = isOpen ? open.length <= 1 : open.length >= (personaData.maxOpen || 3)
+    $('persona-open-note').textContent = isOpen && open.length <= 1 ? 'È l\'unico sul desktop: almeno uno resta.'
+      : !isOpen && toggle.disabled ? 'Sul desktop ce ne sono già ' + open.length + ': toglierne uno per mettere questo.'
+        : 'Fino a ' + (personaData.maxOpen || 3) + ' companion insieme, ognuno con il suo avatar, la sua voce e la sua memoria.'
     $('persona-activate').disabled = isActive
     $('persona-remove').disabled = isActive
     $('persona-active').textContent = isActive ? 'È quella attiva.' : ''
@@ -125,7 +134,7 @@
   async function changePersona(input, done, pick) {
     personaState.textContent = ''
     const r = await api.personasChange(input).catch(() => null)
-    if (!r || !r.ok) { personaState.textContent = (r && r.error) || 'Non riuscito.'; return }
+    if (!r || !r.ok) { personaState.textContent = (r && r.error) || 'Non riuscito.'; if (personaData) showPersona(); return }
     showPersonas(r.personas, pick)
     personaState.textContent = done
   }
@@ -433,6 +442,7 @@
   $('persona-save').addEventListener('click', () =>
     changePersona({ op: 'update', id: personaSel.value, name: personaName.value, prompt: personaPrompt.value, voice: personaVoiceChoice() }, 'Salvata.'))
   $('persona-activate').addEventListener('click', () => changePersona({ op: 'activate', id: personaSel.value }, 'Attivata.'))
+  $('persona-open').addEventListener('change', (e) => changePersona({ op: e.target.checked ? 'open' : 'close', id: personaSel.value }, e.target.checked ? 'Ora è sul desktop.' : 'Tolta dal desktop.'))
   $('persona-new').addEventListener('click', async () => {
     const before = new Set(personaData.list.map(p => p.id))
     await changePersona({ op: 'create', name: 'Nuova persona' }, 'Creata: dalle un nome e una personalità.')
