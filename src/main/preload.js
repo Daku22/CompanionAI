@@ -161,6 +161,12 @@ contextBridge.exposeInMainWorld('companion', {
     ipcRenderer.on('companion-initiative', handler)
     return () => ipcRenderer.removeListener('companion-initiative', handler)
   },
+  // La seconda risposta nella chat di gruppo (Blocco 8c).
+  onGroupReply: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('group-reply', handler)
+    return () => ipcRenderer.removeListener('group-reply', handler)
+  },
   onDiaryChanged: (cb) => {
     const handler = (_e, id) => cb(id)
     ipcRenderer.on('diary-changed', handler)
@@ -194,7 +200,7 @@ contextBridge.exposeInMainWorld('companion', {
   storeGeneratedMotion: (data) => ipcRenderer.invoke('motions:store', data),
 
   // ─── Azioni OS (solo main le esegue) ───────────────────────────────────────
-  executeAction: (action)    => ipcRenderer.send('os:execute', action),
+  executeAction: (action, personaId) => ipcRenderer.send('os:execute', action, typeof personaId === 'string' ? personaId : undefined),
 
   // ─── Listener eventi dal main (con unsubscribe anti-leak) ─────────────────
   onTriggerAnimation: (cb)   => {

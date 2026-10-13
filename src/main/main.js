@@ -36,6 +36,7 @@ const { writeAtomic } = require('./write-atomic')
 const touchReact = require('./touch-react')
 const { createCompanion } = require('./companion')
 const Companions = require('./companions')
+const Group = require('./group-chat')
 
 let chatWindow      = null
 let tray            = null
@@ -210,6 +211,8 @@ function publicConfig(cfg) {
     // Meteo della stanza: la citta' trovata, o perche' non c'e'.
     weatherStatus,
     persona: activePersona() ? { id: activePersona().id, name: activePersona().name } : null,
+    // Chi e' sul desktop: con piu' di uno la chat e' di gruppo (Blocco 8c).
+    companions: companions.map(c => ({ id: c.personaId, name: (c.persona() || {}).name || c.personaId })),
     voice: voiceConfig(cfg),
     // Microfono: installato, la scorciatoia davvero registrata (null se un
     // altro programma la usa gia'), e le scorciatoie fra cui scegliere.
@@ -669,7 +672,14 @@ function initVoice() {
       }
     },
     // L'audio va al companion che parla: e' lui a muovere la bocca.
-    play: (msg) => { const c = speakingCompanion && speakingCompanion.alive() ? speakingCompanion : chatTarget(); if (c) c.send('voice-audio', msg) },
+    play: (msg) => {
+      // Quanto parlera' ancora: chi risponde per secondo aspetta (chat di gruppo).
+      const secs = msg.type === 'chunk' && msg.pcm && msg.rate ? msg.pcm.length / msg.rate : msg.type === 'gap' ? Number(msg.seconds) || 0 : 0
+      if (msg.type === 'stop') speechEndsAt = 0
+      else if (secs > 0) speechEndsAt = Math.max(Date.now(), speechEndsAt) + secs * 1000
+      const c = speakingCompanion && speakingCompanion.alive() ? speakingCompanion : chatTarget()
+      if (c) c.send('voice-audio', msg)
+    },
     onStatus: (status) => sendSettings('voice-status', status),
   })
   syncVoice(loadConfig())
@@ -1283,48 +1293,38 @@ handle('ai:test-model', async (_e, input) => {
   }
 })
 
-// AI Router
-handle('ai:send-message', async (_e, { history, image }) => {
-  const cfg = loadConfig()
-  const apiKey = cfg.keys?.[cfg.provider] || ''
-  const safeHistory = Array.isArray(history) ? history.filter(m => m && typeof m.content === 'string').slice(-40).map(m => ({ role: m.role, content: m.content })) : []
-  if (safeHistory.length === 0) return { ok: false, error: 'history vuota o non valida' }
-  if (cfg.provider !== 'ollama' && !apiKey) return { ok: false, error: `Manca API key per ${cfg.provider}` }
-  // Schermata (Blocco 7b): solo sull'ultimo messaggio dell'utente, solo a un
-  // modello che vede le immagini, e mai in memoria.
-  if (image !== undefined) {
-    if (!validImage(image)) return { ok: false, error: 'Immagine non valida.' }
-    const caps = await modelCapsOf(cfg.provider, cfg.model).catch(() => null)
-    if (!caps || !caps.vision) return { ok: false, error: 'Il modello scelto non vede le immagini: scegline uno che le vede nelle impostazioni (⚙, "Prova il modello" te lo dice).' }
-    const last = safeHistory[safeHistory.length - 1]
-    if (!last || last.role !== 'user') return { ok: false, error: 'history vuota o non valida' }
-    last.image = image
-  }
-  console.log('[Main] Ricevuta richiesta sendMessage, provider:', cfg.provider)
+// ─── Chat (Blocco 8c: anche di gruppo) ──────────────────────────────────────
+// Con un companion solo risponde lui, come sempre. Con piu' companion sul
+// desktop si scrive a tutti: risponde chi e' chiamato per nome (o chi e'
+// scelto dalla pastiglia nella chat), se no uno, e a volte un secondo che
+// reagisce al primo (group-chat.js). La prima risposta torna subito alla
+// chat; la seconda arriva dopo, con 'group-reply'. Tutti quelli sul desktop
+// sentono la conversazione: va nella memoria di ciascuno.
 
-  // Risponde il companion della chat; la risposta resta sua (switchPersona
-  // aspetta comunque la fine della risposta).
-  const c = chatTarget()
-  if (!c) return { ok: false, error: 'Nessun companion aperto.' }
-  // Un messaggio nuovo zittisce la risposta di prima.
-  if (voiceService) voiceService.stop()
-  // Mentre si aspetta la risposta il companion non fa gesti per conto suo.
+// Fine stimata della voce in corso: chi risponde per secondo aspetta.
+let speechEndsAt = 0
+let lastSpeakerId = null
+let groupTurn = 0
+
+async function waitForSpeech(maxMs = 60000) {
+  const until = Date.now() + maxMs
+  while (Date.now() < Math.min(speechEndsAt, until)) await new Promise(r => setTimeout(r, 200))
+}
+
+/**
+ * Una risposta del companion c: umore, modello, strumenti, memoria, voce.
+ * @param {any} c
+ * @param {{ cfg: any, apiKey: string, history: any[], group: string, others: any[] }} turn
+ */
+async function replyFrom(c, { cfg, apiKey, history, group, others }) {
   c.busy = true
   c.markActivity()
-  c.updateMood(m => moodLib.onUserMessage(m))
-  c.updateRapport(r => Rapport.onDay(r))
-  lastChatAt = Date.now()
   const mm = c.memory
   try {
-    const lastUser = [...(history || [])].reverse().find(m => m.role === 'user')
-    if (lastUser?.content && mm) {
-      // Con una schermata il testo ha gia' "[immagine dello schermo]" (lo mette la chat).
-      await mm.addTurn(lastUser.content, 'user').catch(() => {})
-    }
+    const historyWithMemory = c.withMoodLine(await c.buildHistoryWithMemory(history))
+    if (group) historyWithMemory.splice(historyWithMemory.findIndex(m => m.role !== 'system') === -1 ? historyWithMemory.length : historyWithMemory.findIndex(m => m.role !== 'system'), 0, { role: 'system', content: group })
 
-    const historyWithMemory = c.withMoodLine(await c.buildHistoryWithMemory(safeHistory))
-
-    console.log('[Main] Chiamata route...')
+    console.log('[Main] Chiamata route per ' + c.personaId + '...')
     // Il campo motion si spiega al modello solo quando si puo' usare; gli
     // strumenti MCP solo se ce ne sono di ammessi.
     const basePrompt = ((await motionsEnabled(c.avatarId())) ? SYSTEM_PROMPT + MOTION_PROMPT : SYSTEM_PROMPT) + Mcp.toolsPrompt(cfg.mcpServers)
@@ -1377,26 +1377,106 @@ handle('ai:send-message', async (_e, { history, image }) => {
     }
     if (notes.length) result.toolNote = notes.join('\n')
 
-    if (result?.reply && mm) {
-      await mm.addTurn(result.reply, 'assistant').catch(() => {})
-      // Oltre la soglia i turni piu' vecchi vanno riassunti. In background: la
-      // risposta all'utente non deve aspettare il riassunto.
-      if (mm.needsCompaction()) {
-        mm.compact().catch(e => console.error('[memory] compattazione per soglia fallita:', e.message))
+    if (result?.reply) {
+      if (mm) {
+        await mm.addTurn(result.reply, 'assistant').catch(() => {})
+        // Oltre la soglia i turni piu' vecchi vanno riassunti. In background: la
+        // risposta all'utente non deve aspettare il riassunto.
+        if (mm.needsCompaction()) mm.compact().catch(e => console.error('[memory] compattazione per soglia fallita:', e.message))
       }
+      // Gli altri sul desktop l'hanno sentita.
+      for (const o of others) if (o !== c && o.memory) o.memory.addTurn(Group.heardLine(c.persona().name, result.reply), 'user').catch(() => {})
+      // Una risposta lo fa uscire dal bordo, se stava sbirciando.
+      c.endPeek('message')
+      lastSpeakerId = c.personaId
     }
-
-    // Una risposta lo fa uscire dal bordo, se stava sbirciando.
-    if (result?.reply) c.endPeek('message')
-    if (result?.reply) speakReply(c, result.reply)
-    return { ok: true, result }
-  } catch(err) {
-    console.error('[Main] Errore in route():', err)
-    return { ok: false, error: describeError(err, cfg.provider) }
+    return result
   } finally {
     c.busy = false
     c.markActivity()
   }
+}
+
+handle('ai:send-message', async (_e, { history, image, to }) => {
+  const cfg = loadConfig()
+  const apiKey = cfg.keys?.[cfg.provider] || ''
+  // Le risposte dei companion portano chi le ha dette (speaker): ognuno vede
+  // le proprie come sue e quelle degli altri come "Nome ha detto".
+  const safeHistory = Array.isArray(history) ? history.filter(m => m && typeof m.content === 'string').slice(-40)
+    .map(m => ({ role: m.role, content: m.content, ...(typeof m.speaker === 'string' ? { speaker: m.speaker } : {}) })) : []
+  if (safeHistory.length === 0) return { ok: false, error: 'history vuota o non valida' }
+  if (cfg.provider !== 'ollama' && !apiKey) return { ok: false, error: `Manca API key per ${cfg.provider}` }
+  const last = safeHistory[safeHistory.length - 1]
+  if (!last || last.role !== 'user') return { ok: false, error: 'history vuota o non valida' }
+  // Schermata (Blocco 7b): solo sull'ultimo messaggio dell'utente, solo a un
+  // modello che vede le immagini, e mai in memoria.
+  if (image !== undefined) {
+    if (!validImage(image)) return { ok: false, error: 'Immagine non valida.' }
+    const caps = await modelCapsOf(cfg.provider, cfg.model).catch(() => null)
+    if (!caps || !caps.vision) return { ok: false, error: 'Il modello scelto non vede le immagini: scegline uno che le vede nelle impostazioni (⚙, "Prova il modello" te lo dice).' }
+  }
+  console.log('[Main] Ricevuta richiesta sendMessage, provider:', cfg.provider)
+
+  const present = companions.filter(c => c.alive())
+  if (!present.length) return { ok: false, error: 'Nessun companion aperto.' }
+  const open = present.map(c => ({ id: c.personaId, name: (c.persona() || {}).name || c.personaId }))
+  const names = Object.fromEntries(open.map(o => [o.id, o.name]))
+  // Con un companion solo risponde quello della chat, come prima.
+  const ids = present.length === 1 ? [present[0].personaId]
+    : Group.pickResponders(last.content, open, { to: typeof to === 'string' ? to : null, last: lastSpeakerId || (chatTarget() || {}).personaId })
+  const responders = ids.map(id => present.find(c => c.personaId === id)).filter(Boolean)
+  const turnId = ++groupTurn
+
+  // Un messaggio nuovo zittisce la risposta di prima, chiunque stesse parlando.
+  if (voiceService) {
+    voiceService.stop()
+    for (const c of present) c.send('voice-audio', { type: 'stop', utterance: voiceService.utterance })
+  }
+  speechEndsAt = 0
+  lastChatAt = Date.now()
+  // Tutti sentono il messaggio: memoria, e il giorno insieme per il rapporto.
+  // Con una schermata il testo ha gia' "[immagine dello schermo]" (lo mette la chat).
+  for (const c of present) {
+    if (c.memory) await c.memory.addTurn(last.content, 'user').catch(() => {})
+    c.updateRapport(r => Rapport.onDay(r))
+  }
+  for (const c of responders) c.updateMood(m => moodLib.onUserMessage(m))
+
+  const groupFor = (c, after) => Group.groupLine(open.filter(o => o.id !== c.personaId).map(o => o.name), after)
+  const historyOf = (c, extra = []) => {
+    const h = Group.historyFor([...safeHistory, ...extra], c.personaId, names)
+    // La schermata solo a chi risponde per primo.
+    if (image !== undefined && c === responders[0]) h[safeHistory.length - 1].image = image
+    return h
+  }
+
+  const first = responders[0]
+  let result
+  try {
+    result = await replyFrom(first, { cfg, apiKey, history: historyOf(first), group: present.length > 1 ? groupFor(first) : '', others: present })
+  } catch (err) {
+    console.error('[Main] Errore in route():', err)
+    return { ok: false, error: describeError(err, cfg.provider) }
+  }
+  if (result?.reply) speakReply(first, result.reply)
+
+  // Il secondo, se c'e', reagisce al primo: arriva dopo, quando il primo ha finito di parlare.
+  const second = responders[1]
+  if (second && result?.reply) {
+    const extra = [{ role: 'assistant', content: result.reply, speaker: first.personaId }]
+    replyFrom(second, { cfg, apiKey, history: historyOf(second, extra), group: groupFor(second, names[first.personaId]), others: present })
+      .then(async (r) => {
+        if (!r || !r.reply || turnId !== groupTurn) return
+        await waitForSpeech()
+        if (turnId !== groupTurn) return
+        if (chatWindow && !chatWindow.isDestroyed()) {
+          try { chatWindow.webContents.send('group-reply', { ...r, personaId: second.personaId, name: names[second.personaId] }) } catch (_) {}
+        }
+        speakReply(second, r.reply)
+      })
+      .catch(err => console.error('[gruppo] seconda risposta non riuscita:', err.message))
+  }
+  return { ok: true, result: { ...result, personaId: first.personaId, name: names[first.personaId] }, group: present.length > 1 }
 })
 
 // Impostazioni e voce. Gli indirizzi dei file, gli hash e la cartella li
@@ -1738,10 +1818,11 @@ handle('animations:save', (_e, payload) => {
 })
 
 // Azioni OS — eseguite solo nel processo main, mai nel renderer
-on('os:execute', async (_e, action) => {
+on('os:execute', async (_e, action, personaId) => {
   if (!action?.type) return
-  // L'azione e' del companion che ha risposto: quello della chat.
-  const c = chatTarget()
+  // L'azione e' del companion che ha risposto (chat di gruppo), se no di
+  // quello della chat.
+  const c = companions.find(x => x.personaId === personaId) || chatTarget()
 
   // Prima si controlla, poi si chiede: approvare un'azione che verrebbe comunque
   // bloccata non ha senso, e nel dialogo deve comparire cio' che girera' davvero,
@@ -1755,7 +1836,7 @@ on('os:execute', async (_e, action) => {
     const options = {
       type: /** @type {const} */ ('question'), buttons: ['Annulla', 'Approva'], defaultId: 0, cancelId: 0,
       title: 'Conferma azione del companion',
-      message: 'Il companion vuole eseguire un’azione esterna',
+      message: ((c && c.persona() && c.persona().name) || 'Il companion') + ' vuole eseguire un’azione esterna',
       detail: plan.label,
     }
     const parent = c && c.alive() ? c.win : null
@@ -1873,7 +1954,7 @@ async function speakFirst(c, kind) {
     c.endPeek('message')
     c.animate({ type: 'none', animation: anim, bubble: reply.length > 140 ? reply.slice(0, 139) + '…' : reply })
     if (chatWindow && !chatWindow.isDestroyed()) {
-      try { chatWindow.webContents.send('companion-initiative', { reply }) } catch (_) {}
+      try { chatWindow.webContents.send('companion-initiative', { reply, personaId: c.personaId, name: (c.persona() || {}).name }) } catch (_) {}
     }
     if (cfg.initiativeVoice) speakReply(c, reply)
   } finally { initiativeBusy = false }

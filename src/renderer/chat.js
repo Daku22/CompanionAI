@@ -118,7 +118,10 @@ compactBtn.addEventListener('click', async () => {
 
 const headerTitle = document.querySelector('#header-info h1')
 function updateBadge() {
-  if (config.persona) headerTitle.textContent = config.persona.name
+  const group = (config.companions || []).length > 1
+  if (group) headerTitle.textContent = config.companions.map(c => c.name).join(' · ')
+  else if (config.persona) headerTitle.textContent = config.persona.name
+  renderGroupBar()
   const p = (config.providers || {})[config.provider]
   providerBadge.textContent = p ? `${p.name} · ${providerForm.labelOf(config.provider, config.model) || config.model}` : '—'
 }
@@ -194,13 +197,56 @@ forgetBtn.addEventListener('click', async () => {
   await updateMemoryFooter()
 })
 
+// ── Chat di gruppo (Blocco 8c) ──────────────────────────────────────────────
+// Con piu' companion sul desktop si scrive a tutti; una pastiglia scelta
+// manda il messaggio solo a lui. Ogni risposta porta il nome di chi parla.
+const groupBar = document.getElementById('group-bar')
+let groupTo = null
+const isGroup = () => (config.companions || []).length > 1
+/** Un colore per nome, sempre lo stesso. */
+function hueOf(name) {
+  let h = 0
+  for (const ch of String(name || '')) h = (h * 31 + ch.codePointAt(0)) % 360
+  return h
+}
+function renderGroupBar() {
+  const list = config.companions || []
+  groupBar.classList.toggle('hidden', list.length < 2)
+  if (list.length < 2) { groupTo = null; groupBar.replaceChildren(); return }
+  if (groupTo && !list.some(c => c.id === groupTo)) groupTo = null
+  const chip = (id, label, title) => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.setAttribute('aria-pressed', String(groupTo === id))
+    b.title = title
+    if (id) {
+      const dot = document.createElement('span')
+      dot.className = 'dot'
+      dot.style.setProperty('--hue', String(hueOf(label)))
+      b.append(dot)
+    }
+    b.append(label)
+    b.addEventListener('click', () => { groupTo = groupTo === id ? null : id; renderGroupBar(); inputEl.focus() })
+    return b
+  }
+  groupBar.replaceChildren(chip(null, 'Tutti', 'Scrivi a tutti: risponde chi chiami per nome, o uno di loro'),
+    ...list.map(c => chip(c.id, c.name, 'Scrivi solo a ' + c.name)))
+}
+
 // ── Messages ─────────────────────────────────────────────────────────────────
-function addMessage(role, text) {
+function addMessage(role, text, who) {
   // Il benvenuto lascia il posto alla conversazione appena scrivi.
   if (role === 'user') document.getElementById('welcome')?.remove()
   const el = document.createElement('div')
   el.className = `msg ${role}`
-  el.textContent = text
+  if (who && isGroup()) {
+    const tag = document.createElement('span')
+    tag.className = 'who'
+    tag.style.setProperty('--hue', String(hueOf(who)))
+    tag.textContent = who
+    el.append(tag)
+  }
+  el.append(text)
   const typing = document.getElementById('typing')
   if (typing && typing.parentNode === messagesEl) messagesEl.insertBefore(el, typing)
   else messagesEl.appendChild(el)
@@ -289,12 +335,13 @@ async function sendMessage(spoken) {
   sending = true
   setTyping(true)
 
-  // Animazione "think" immediata sul companion
-  try { api.executeAction({ type: 'none', animation: 'think' }) } catch (_) {}
+  // Animazione "think" immediata sul companion (quello scelto, nel gruppo)
+  try { api.executeAction({ type: 'none', animation: 'think' }, groupTo || undefined) } catch (_) {}
 
   let resp
   try {
-    resp = await api.sendMessage(image ? { history: conversationHistory, image } : { history: conversationHistory })
+    const payload = { history: conversationHistory, ...(image ? { image } : {}), ...(groupTo ? { to: groupTo } : {}) }
+    resp = await api.sendMessage(payload)
   } catch (e) {
     setTyping(false)
     sending = false
@@ -313,16 +360,7 @@ async function sendMessage(spoken) {
     return
   }
 
-  // Aggiungi risposta alla history
-  conversationHistory.push({ role: 'assistant', content: (result.reply || '').slice(0, 8000) })
-  if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
-
-  // Lo strumento usato per rispondere, prima della risposta (Blocco 7f).
-  if (result.toolNote) addMessage('system', result.toolNote)
-  addMessage('assistant', result.reply)
-  // Uno strumento MCP annullato o rifiutato (Blocco 7f).
-  if (result.notice) addMessage('system', result.notice)
-  updateMemoryFooter().catch(() => {})
+  showReply(result)
   // Il modello ha risposto fuori formato: l'azione e' andata persa. Lo si dice
   // una volta per modello, altrimenti sembra che l'avatar ignori le richieste.
   if (result.via === 'fallback' && !warnedModels.has(config.model)) {
@@ -330,24 +368,46 @@ async function sendMessage(spoken) {
     addMessage('system', 'Questo modello non ha risposto nel formato del companion, quindi niente animazione. Se succede spesso, scegline un altro nelle impostazioni (⚙).')
   }
 
-  // Esegui azione OS + animazione
-  const action = result.action || { type: 'none', animation: 'idle' }
+  runAction(result.action, result.personaId)
+}
 
+/** Una risposta nella conversazione: chi l'ha detta, lo strumento usato, gli avvisi. */
+function showReply(result) {
+  conversationHistory.push({ role: 'assistant', content: (result.reply || '').slice(0, 8000), ...(result.personaId ? { speaker: result.personaId } : {}) })
+  if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
+  // Lo strumento usato per rispondere, prima della risposta (Blocco 7f).
+  if (result.toolNote) addMessage('system', result.toolNote)
+  addMessage('assistant', result.reply, result.name)
+  // Uno strumento MCP annullato o rifiutato (Blocco 7f).
+  if (result.notice) addMessage('system', result.notice)
+  updateMemoryFooter().catch(() => {})
+}
+
+/** L'azione della risposta, fatta dal companion che l'ha data. */
+function runAction(action, personaId) {
+  action = action || { type: 'none', animation: 'idle' }
   // "Guarda qui": si prepara la schermata, da confermare con Invia (Blocco 7b).
   if (action.type === 'look') {
     lookAtScreen()
-    api.executeAction({ type: 'none', animation: action.animation || 'think' })
+    api.executeAction({ type: 'none', animation: action.animation || 'think' }, personaId)
     return
   }
   if (action.type !== 'none') {
     api.toggleChat() // chiude la chat durante l'animazione
-    setTimeout(() => api.executeAction(action), 150)
+    setTimeout(() => api.executeAction(action, personaId), 150)
   } else {
     // L'azione intera, non solo l'animazione: verso e distanza della camminata
     // stanno li'. Il main lascia passare solo i valori del contratto.
-    api.executeAction({ ...action, type: 'none', animation: action.animation || 'idle' })
+    api.executeAction({ ...action, type: 'none', animation: action.animation || 'idle' }, personaId)
   }
 }
+
+// La seconda risposta nella chat di gruppo: arriva quando il primo ha finito.
+if (api && api.onGroupReply) api.onGroupReply((data) => {
+  if (!data || typeof data.reply !== 'string' || !data.reply) return
+  showReply(data)
+  runAction(data.action, data.personaId)
+})
 
 // ── Iniziativa (Blocco 6d) ──────────────────────────────────────────────────
 // Un messaggio che il companion scrive per primo: entra nella conversazione
@@ -355,9 +415,9 @@ async function sendMessage(spoken) {
 if (api && api.onInitiative) api.onInitiative((data) => {
   const reply = data && typeof data.reply === 'string' ? data.reply : ''
   if (!reply) return
-  conversationHistory.push({ role: 'assistant', content: reply.slice(0, 8000) })
+  conversationHistory.push({ role: 'assistant', content: reply.slice(0, 8000), ...(data.personaId ? { speaker: data.personaId } : {}) })
   if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
-  addMessage('assistant', reply)
+  addMessage('assistant', reply, data.name)
   updateMemoryFooter().catch(() => {})
 })
 

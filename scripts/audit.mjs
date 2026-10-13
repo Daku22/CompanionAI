@@ -1237,6 +1237,12 @@ try {
   const apart = rects.length === 2 && !(rects[0].x < rects[1].x + rects[1].width && rects[1].x < rects[0].x + rects[0].width &&
     rects[0].y < rects[1].y + rects[1].height && rects[1].y < rects[0].y + rects[0].height)
   check(!!(opened && opened.ok && opened.personas.open.length === 2 && apart), 'due companion sul desktop, uno accanto all\'altro: ' + JSON.stringify(rects))
+  // Chat di gruppo (Blocco 8c): le pastiglie, e chi e' chiamato per nome risponde col suo nome.
+  await sleep(500)
+  const chips = await chat.evaluate(`[...document.querySelectorAll('#group-bar button')].map(b => b.textContent)`)
+  await say('Prova Audit, come stai?')
+  const who = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant')].pop()?.querySelector('.who')?.textContent || ''`)
+  check(chips.length === 3 && chips.includes('Prova Audit') && who === 'Prova Audit', 'chat di gruppo: pastiglie ' + JSON.stringify(chips) + ', risponde ' + who)
   const closed = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'close', id: '${auditId}' })`)
   await sleep(500)
   const left = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(t => t.url.includes('companion.html'))
