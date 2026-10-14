@@ -713,6 +713,9 @@ try {
         inPersone: !!document.querySelector('#page-persone #memory-summary') })`)
     }
     check(mem.visible && mem.personas >= 1 && mem.inMemoria && !mem.inPersone, 'Impostazioni, scheda Memoria: ' + JSON.stringify(mem))
+    // Tavolozza ambra (Blocco 9a): il pulsante pieno usa l'accento dai token.
+    const primary = await st.evaluate(`getComputedStyle(document.getElementById('memory-summary-save')).backgroundColor`)
+    check(primary === 'rgb(228, 155, 69)', 'tavolozza ambra sui pulsanti pieni (' + primary + ')')
     const shot = await st.send('Page.captureScreenshot', { format: 'png' })
     fs.writeFileSync(path.join(OUT, '4a-memoria-impostazioni.png'), Buffer.from(shot.result.data, 'base64'))
     await st.evaluate('window.close(); true').catch(() => {})
