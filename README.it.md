@@ -207,7 +207,7 @@ router come messaggi di sistema e non viene mai tagliata insieme alla chat.
 
 Il Blocco 6 (piano in `docs/blocco-6.md`).
 
-**Persone** (`personas.js`, Impostazioni → Persone). Ognuna ha nome,
+**Persone** (`personas.js`, Impostazioni → Personaggi). Ognuna ha nome,
 personalità (fino a 2000 caratteri, messa davanti al prompt di base), voce
 (motore, voce e velocità; accensione, volume e microfono restano dell'app),
 memoria (`MemoryManager` con l'id come `conversationId`), umore, rapporto e
@@ -300,6 +300,78 @@ posto da `room.guestSpot`, animatore e clip propri, gesti, umore, labiale
 (`voice-audio` con `speaker`) e tocchi (`companion:touch` con `guest`).
 Camminare, presa e seduta restano al companion di casa; Live2D e 2D restano
 sul desktop.
+
+## Grafica nuova (Blocco 9)
+
+Piano in `docs/blocco-9.md`. Ambra calda come unico accento (`--accent`
+`#e49b45` in `ui.css`, scelta dall'utente su un foglio di tre varianti), ombre
+tinte di bruno e componenti comuni in `ui.css`: pulsante pieno, vetro,
+pillola, capsula, anello (`--value` da 0 a 1), badge, card, iniziali.
+
+**HUD attorno al companion** (`hud.html`, `hud.js`). Una sola finestra
+trasparente per tutti i companion, che il main mette attorno a quello sotto
+il mouse a ogni giro del cursore (33 ms), con `hudPlacement` in `companions.js`
+(puro, con test): la pillola sotto, o sopra se sotto non c'è posto, e le
+capsule ai lati, dentro lo schermo. La pagina lascia passare i clic tranne sui
+controlli (`hud:capture`), e le azioni arrivano al main con `hud:action`.
+- Capsula a sinistra: gli anelli di umore, energia e rapporto.
+- Capsula a destra: la chat con lui, la stanza, il menu degli avatar,
+  nascondi.
+- Pillola: microfono, pausa (`prefs.paused`: niente voce, niente vita a
+  riposo né iniziativa), chat di gruppo (solo con almeno due companion), chi
+  è sul desktop, impostazioni, maniglia per trascinare.
+- Compare al passaggio del mouse e sparisce dopo circa 1,2 secondi; "Barra
+  sempre visibile" (`hudPinned`) la tiene sul companion della chat. Mai durante
+  la presa, la sbirciata, il batti cinque, la stanza o un'app a schermo intero.
+
+**Chat in finestre separate.** Una finestra per ogni companion
+(`chat.html?mode=single&persona=<id>`), che nasce con lui ed è chiusa con lui,
+e una per il gruppo (`?mode=group`), con almeno due companion. In `main.js`
+`chatWins` (companion → finestra), `groupChatWindow`, `chatOf`, `chatOwnerOf`
+(la memoria e l'umore di una chat singola sono del suo companion) e
+`currentChat` (l'ultima usata: microfono, tray, scorciatoie). `showChat` mette
+una chat nuova accanto a quelle aperte, senza coprirle. I messaggi spontanei
+vanno nella chat singola di chi scrive, i commenti fra companion e i saluti in
+quella di gruppo.
+
+**Chat ridisegnata** (`faces.js`, comune a chat e HUD). Il viso del companion
+nell'intestazione (nel gruppo i visi affiancati, e accanto a ogni fumetto), i
+tuoi fumetti in ambra pieno, umore, energia e rapporto in tre anelli con il
+dettaglio nel tooltip, Compatta e Dimentica tutto nel menu "⋯". Un invio senza
+risposta resta nella chat come errore con "Riprova", che rimanda la stessa
+cronologia.
+
+**Impostazioni** (920x680, barra laterale a gruppi). Le pagine stanno in
+`SETTINGS_PAGES` (`guards.js`), con un test che le confronta con
+`settings.html`; "persone", il nome di prima, porta a Personaggi.
+- **Personaggi:** le card delle persone (viso, rapporto da `personas:rapport`,
+  "Sul desktop", "Attiva", "Nuova persona") con il dettaglio al clic; le card
+  degli avatar (tipo, "Usa" sul companion scelto con `avatars:use`, "Elimina"
+  per gli importati, "Importa" con la scelta se la cartella ha più modelli).
+- **Visione:** lo schermo (spiegato) e "Sa quale app stai usando", spostato
+  da Generale.
+- **Tasti rapidi:** `APP_SHORTCUTS` in `guards.js`, con `mergeShortcuts` che
+  non dà lo stesso tasto a due azioni: Ctrl+Alt+C apre e chiude la chat,
+  Ctrl+Alt+H mostra e nasconde i companion (`toggleCompanionsShown`). La
+  scorciatoia del microfono resta in `voice.micShortcut`, con la sua riga qui.
+  Una combinazione già presa da un altro programma resta spenta, e la pagina
+  lo dice (`shortcutsActive`).
+
+**Foto del viso** (`avatar-thumb.js`). La prima volta che un companion indossa
+un avatar chiede al main se manca la foto (`avatars:thumb-needed`), aspetta che
+sia a riposo e la scatta:
+- 3D: `holdStill` mette dritti bacino, busto, collo, testa e occhi, gira il
+  modello in avanti, spegne le espressioni (occhi aperti, viso neutro); una
+  camera a parte davanti alla testa disegna, si ritaglia il quadrato centrale
+  e si rimette tutto prima che il fotogramma arrivi a schermo;
+- 2D: il primo fotogramma di riposo, dalla strip a piena risoluzione;
+- Live2D e 3D senza scheletro: la parte alta della sagoma nel canvas
+  (`faceRect`, puro, con test).
+Il PNG (256 px) passa da `checkThumbPng` e va in `avatars/thumbs/<hash>.png`
+(`thumbName`: hash dell'id con `THUMB_VERSION`, perché "Dust" e "dust" su
+Windows sarebbero lo stesso file), servito come `avatar://thumbs/`. Finché
+manca, le iniziali con il colore del nome. Mai nella stanza: lo sfondo
+finirebbe nella foto.
 
 ## Umore e vita a riposo
 
@@ -798,10 +870,9 @@ velano il cielo, e pioggia, neve e nebbia si vedono davvero.
 ## Voce
 
 Spenta di base. Si accende dalla finestra **Impostazioni** (menu col tasto
-destro o tray, o ⚙ nella chat; `settings.html`), che ha quattro schede:
-Modello (provider, modello e chiave, con `provider-form.js` condiviso con il
-pannello del primo avvio della chat), Generale (avvio con Windows, vita
-autonoma, meteo), Voce e Microfono. Chat e Impostazioni si aggiornano a
+destro o tray, o ⚙ nella chat; `settings.html`), pagine Voce e Microfono
+(le altre sono nel Blocco 9; Modello usa `provider-form.js`, condiviso con il
+pannello del primo avvio della chat). Chat e Impostazioni si aggiornano a
 vicenda (`config-changed` a tutte e due dopo ogni `config:set`).
 
 **Il percorso di una risposta.** `ai:send-message` in `main.js`, a risposta
@@ -878,7 +949,7 @@ accettata (`voice.cpmlAccepted`, e il main la ricontrolla).
   in fila senza buchi, e la pausa fra le frasi è un messaggio a parte (`gap`).
 
 **Microfono (facoltativo, dopo XTTS).** Tieni premuta la scorciatoia
-(Ctrl + Alt + M di base) o 🎙 nella chat, parla e lascia: il testo parte
+(Ctrl + Alt + M di base, si cambia in Tasti rapidi) o 🎙 nella chat, parla e lascia: il testo parte
 come un messaggio scritto. Un tocco breve lascia il microfono aperto fino al
 tocco dopo; Esc annulla. Il microfono da usare si sceglie nelle Impostazioni.
 - **Installazione** (`installStt` in `xtts-setup.js`), dopo XTTS e nel suo
@@ -944,7 +1015,7 @@ JPEG, e solo verso un modello che vede le immagini (`withImage` la traduce per
 Claude, OpenAI/OpenRouter e Ollama). In memoria resta il testo più
 "[immagine dello schermo]": l'immagine non si salva mai.
 
-**L'app attiva** (spenta di base, `src/main/active-app.js`): il titolo
+**L'app attiva** (spenta di base, Impostazioni → Visione, `src/main/active-app.js`): il titolo
 dell'ultima finestra in primo piano che non sia dell'app entra come riga di
 contesto, mai in memoria. Le finestre il cui titolo contiene una parola
 dell'elenco da ignorare (password manager, navigazione privata) non si leggono.
@@ -1125,6 +1196,11 @@ Fatto:
   con i freni; memoria leggibile e correggibile;
 - presenza: tocchi con reazioni e carezza, ballo con la musica, chibi,
   sbirciare dal bordo, batti cinque; clip Kimodo integrate (CC0);
+- fino a 3 companion, con chat di gruppo, sguardi, commenti e la stanza per
+  tutti;
+- grafica nuova in ambra: HUD attorno al companion, chat in finestre separate
+  e ridisegnate, impostazioni a gruppi con le card e le foto del viso, tasti
+  rapidi;
 - installer NSIS con Fuses, CI e release automatiche.
 
 Da fare:

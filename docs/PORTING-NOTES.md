@@ -1145,6 +1145,40 @@ sbirciata, ballo) restano del companion di casa; gli ospiti non le usano.
 (`\\'`, `\n` dentro stringhe JS): per le sostituzioni lunghe si usa un JSON
 scritto con lo strumento di scrittura e un piccolo `rep.py` che lo applica.
 
+## Blocco 9: grafica nuova (2026-10-14)
+
+**Riferimenti.** AikoMate (barra a pillola, capsule ai lati dell'avatar) e
+Hakko (impostazioni a barra laterale, gallerie a card), solo come idee di
+disposizione: nessun codice né risorsa. Lo stile segue la skill
+`taste-skill:redesign-skill`: un solo accento, ombre tinte, stati di passaggio,
+pressione e focus su tutto.
+
+**Scelte dell'utente.** Ambra calda, scelta su un foglio con tre sfumature
+applicate alle schermate vere; barra al passaggio del mouse con l'opzione per
+tenerla fissa; foto del viso scattate in automatico. Dopo le prove:
+- il tasto chat della capsula apre la chat con quel companion, quello della
+  pillola la chat di gruppo (solo con almeno due companion);
+- le chat singole e quella di gruppo in finestre separate, che si aprono
+  affiancate;
+- le foto 3D con il modello fermo, dritto, occhi aperti: la prima versione
+  scattava a metà animazione, con la testa girata.
+
+**Trappole.**
+- Un canvas WebGL senza `preserveDrawingBuffer` si legge solo subito dopo il
+  render, nello stesso giro: la foto del viso disegna con la sua camera, copia
+  e ridisegna la scena prima che il browser mostri il fotogramma.
+- Ritagliare il viso di un 2D dalla finestra del companion (180x260) dava una
+  foto sfocata: si legge il fotogramma dalla strip, a piena risoluzione.
+- Gli id degli avatar integrati hanno maiuscole ("Dust" VRM e "dust" 2D): su
+  Windows sarebbero lo stesso file, quindi il nome della foto è un hash.
+- Una finestra nascosta non risponde a `Page.captureScreenshot`: l'audit apre
+  la chat per lo scatto (`chatShot`) e la richiude.
+- Gli script del renderer si caricano in Node come moduli (`package.json` con
+  `type: module` in `src/renderer`): i test di `avatar-thumb.js` sono `.mjs`
+  e leggono `globalThis.CompanionThumb`.
+- Per le modifiche lunghe un piccolo `edit.py` con le sostituzioni scritte in
+  un file a parte: gli heredoc con gli escape di JS si rompono.
+
 ## Mate Engine
 - Stato: idee e numeri, nessun codice (confronto e piano nel file di piano del
   26 settembre 2026)

@@ -61,7 +61,9 @@ personal data.
 | Conversation memory | `%USERPROFILE%\.desktop-companion\memory\`: recent turns, summary, and the lossless archive of summarized turns |
 | Personas | `%USERPROFILE%\.desktop-companion\memory\personas.json` (names, personalities, avatar and voice of each), and for every persona its mood, relationship (`rapport.json`), diary (`diary.jsonl`) and spontaneous-message counters (`initiative.json`). The first persona keeps them in `memory\`, the others in `memory\personas\<id>\`. With several companions on the desktop, each one's memory also keeps what you wrote to the group and what the others said |
 | Companions on the desktop | `config.json`: which personas are on the desktop (`openPersonas`) and where (`companionSpots`) |
+| Hotkeys and the bar | `config.json`: the chosen shortcuts (`shortcuts`) and whether the bar stays visible (`hudPinned`) |
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
+| Avatar face photos | `%APPDATA%\CompanionAI\avatars\thumbs\`: a 256 px PNG per avatar, taken by the companion the first time it wears it and shown only in the settings and the chat. Deleting an imported avatar deletes its photo |
 | Imported animations | `%APPDATA%\CompanionAI\animations\` |
 | Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, the sentence each one came from in `index.json`, and the names you gave them in `names.json` |
 | Connectors | The list (names, addresses, commands, allowed actions) in `config.json`. Environment variables of local connectors are stored there **in plain text**: put secrets in a token instead. Sign-in tokens are encrypted with `safeStorage` in `%USERPROFILE%\.desktop-companion\mcp-secrets.json`; removing a connector deletes its token |
@@ -76,7 +78,7 @@ personal data.
 - the chat's "Dimentica tutto" button erases the active persona's memory
   (summary, recent turns and archive), mood, relationship and diary; single
   messages can be deleted in Settings → Memoria;
-- deleting a persona in Settings → Persone erases all of its data;
+- deleting a persona in Settings → Personaggi erases all of its data;
 - uninstalling the app keeps settings, memory and avatars, so a reinstall picks
   up where you left off. To remove everything, delete the folders above.
 

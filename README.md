@@ -103,13 +103,37 @@ snow and fog from the real weather of a city you type (through Open-Meteo, see
 [PRIVACY.md](PRIVACY.md)). The ✕ in the title bar brings the avatar back to
 the desktop.
 
-**Settings.** Right-click the avatar (or the tray icon) → "Impostazioni…", or
-⚙ in the chat. Tabs: Modello (provider, model and key), Generale (start
-with Windows, idle life, weather, the active app), Persone, Memoria (memory and diary of each persona), Voce, Microfono,
-Live2D, Movimenti (the movements generated with Kimodo: rename, try, delete)
-and Connettori.
+**Settings.** Right-click the avatar (or the tray icon) → "Impostazioni…", ⚙
+in the chat, or the gear on the bar around the companion. A sidebar in groups:
+Generale (start with Windows, idle life, weather, the bar always visible),
+Personaggi (personas and avatars as cards), Modello (provider, model and key),
+Connettori, Voce, Microfono, Visione (the screen and the active app), Memoria
+(memory and diary of each persona), Movimenti (the movements generated with
+Kimodo: rename, try, delete), Live2D and Tasti rapidi.
 
-**Personas and your relationship.** In Settings → Persone each persona has a
+**New look.** Hover a companion and a bar shows around it: on the left three
+rings (mood, energy, bond), on the right its chat, the room, the avatar menu
+and hide, below a pill with the microphone, pause (silences the voice and
+stops its idle life), the group chat (with two or more companions), who is on
+the desktop, settings and a grip to drag it. "Barra sempre visibile" in
+Generale keeps it on. Each companion has its own chat window, and the group
+chat is a window of its own; they open side by side. The chat shows the
+companion's face, your messages in amber, the three rings at the bottom and
+"Compatta" and "Dimentica tutto" in the "⋯" menu; a message that gets no reply
+has a "Riprova" button.
+- **Personaggi:** a card for each persona (face, bond level, "Sul desktop",
+  "Attiva", and "Nuova persona"); a click opens its name, voice and
+  personality. The Avatar tab shows every avatar with its type, "Usa" for the
+  companion you pick, "Elimina" for imported ones and "Importa".
+- **Face photos:** the first time a companion wears an avatar it takes a photo
+  of its face (3D held still, looking ahead, eyes open; 2D from its idle
+  frame; Live2D from the top). Until then the card shows the initials.
+- **Tasti rapidi:** Ctrl + Alt + C opens and closes the chat, Ctrl + Alt + H
+  shows and hides the companions, and the microphone shortcut lives here too.
+  If another program already uses one, the page says so: pick another, or
+  "Nessuna".
+
+**Personas and your relationship.** In Settings → Personaggi each persona has a
 name, a personality you write, a voice (with "Prova" to hear it), and its own
 memory, mood, relationship and diary; it remembers the avatar it was using.
 The memory you had before becomes the first persona. The relationship goes
@@ -130,7 +154,7 @@ the mood in the chat.
   but the last few messages.
 
 **More companions (up to 3).** Turn on "Sul desktop" for a persona in
-Settings → Persone, or use "Companion sul desktop" in the right-click or tray
+Settings → Personaggi, or use "Companion sul desktop" in the right-click or tray
 menu. Each one has its own avatar, voice, memory, mood and idle life, and they
 don't step on each other: a new one appears in a free spot, walking stops
 before another, one dropped on top of another slides aside, and a seat on a
@@ -173,7 +197,7 @@ to clone.
 **Talk to it with the microphone (optional, after XTTS).** In the settings'
 "Microfono" tab press "Installa il microfono" (about 1.8 GB: the faster-whisper packages and
 the Whisper large-v3-turbo model) and turn on "Parlo al companion con il
-microfono". Then hold Ctrl + Alt + M (or the 🎙 button in the chat), speak,
+microfono". Then hold Ctrl + Alt + M (change it in "Tasti rapidi"), or the 🎙 button in the chat, speak,
 and release: what you said is sent as a message. A short tap keeps the
 microphone open until the next tap, and Esc cancels. Pick which microphone to
 use in the same tab (Windows' default one unless you choose). The audio is
@@ -184,7 +208,7 @@ computer.
 **Senses.** The 👁 button in the chat (or "guarda il mio schermo") takes a
 screenshot of the companion's monitor and shows it as a preview: it is sent
 with your next message only, to a model that sees images, and never saved.
-"Sa quale app stai usando" in Settings → Generale (off by default) lets it
+"Sa quale app stai usando" in Settings → Visione (off by default) lets it
 know the title of the window you are using. In the room, 📷 opens the photo
 mode: pick a pose and an expression, then "Scatta" saves a PNG.
 

@@ -150,6 +150,21 @@
     answer once (12 such messages a day each, apart from the 6 to you);
   - the room fits everyone: the other 3D companions join the scene as guests,
     with gestures, expressions, lip sync and touches.
+- New look, in warm amber:
+  - a bar around the companion on hover: mood, energy and bond rings; chat,
+    room, avatar and hide; a pill with microphone, pause, group chat, who is
+    on the desktop, settings and a grip ("Barra sempre visibile" keeps it on).
+    The two buttons that used to sit on the avatar are gone;
+  - a chat window for each companion and one for the group, side by side
+    without covering each other; no "Ora parli con" in the group chat;
+  - settings in a wider window with a sidebar in groups; "Personaggi" with
+    persona and avatar cards and photos of each avatar's face, taken the first
+    time a companion wears it; "Visione" for the screen and the active app;
+    "Tasti rapidi" with Ctrl + Alt + C (chat), Ctrl + Alt + H (show or hide
+    the companions) and the microphone shortcut;
+  - the chat shows the companion's face, your messages in amber, the rings at
+    the bottom, "Compatta" and "Dimentica tutto" in a "⋯" menu, and "Riprova"
+    on a message that got no reply.
 - Photo mode in the room (📷 in the title bar): the interface hides, a small
   panel picks a pose and an expression, and "Scatta" saves a PNG of the scene
   with the avatar where you choose. 3D avatars only for now.

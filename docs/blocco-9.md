@@ -197,3 +197,16 @@ Regole di sempre:
   coprirebbe le finestre sotto.
 - **Miniature:** lo scatto fuori schermo va fatto senza disturbare il companion (un
   render a parte, dopo il caricamento) e una volta sola per avatar.
+
+## Com'è andata (chiusura, 14 ottobre)
+- **9a:** l'ambra scelta è la variante "Ambra" (`#e49b45`); i componenti comuni in `ui.css`.
+- **9b:** HUD come da piano. Dopo la prova: il tasto chat della capsula apre la chat con quel
+  companion, quello della pillola la chat di gruppo (solo con almeno due); niente "Ora parli
+  con" nel gruppo; poi chat singole e chat di gruppo in finestre separate, affiancate.
+- **9c:** barra laterale a gruppi (Companion, AI, Voce e parlato, Sensi e ricordi, Avatar,
+  Comandi), con Tasti rapidi in fondo invece che fra Movimenti e Live2D. Ctrl+Alt+C e
+  Ctrl+Alt+H accese di base. Dopo la prova: la foto 3D con il modello fermo, dritto e con
+  gli occhi aperti (`holdStill`), e `THUMB_VERSION` per rifare le foto vecchie.
+- **9d:** come da piano, più "Riprova" sugli invii senza risposta e i visi accanto ai
+  fumetti nella chat di gruppo.
+- **Verifica:** `npm test`, smoke e audit (124 controlli) verdi.
