@@ -38,7 +38,9 @@ const memoryFooter   = document.getElementById('memory-footer')
 const memoryInfo     = document.getElementById('memory-info')
 const compactBtn     = document.getElementById('compact-btn')
 const forgetBtn      = document.getElementById('forget-btn')
-const moodChip       = document.getElementById('mood-chip')
+const moreBtn        = document.getElementById('more-btn')
+const moreMenu       = document.getElementById('more-menu')
+const Faces          = window.CompanionFaces
 
 // Provider, modello e chiave: la stessa scheda della pagina Modello nelle
 // Impostazioni (provider-form.js). Qui serve solo al primo avvio, finche'
@@ -66,6 +68,7 @@ async function init() {
   document.body.classList.toggle('group-chat', isGroupKey(currentKey))
   if (isGroupKey(currentKey)) document.getElementById('welcome')?.remove()
   updateBadge()
+  loadFaces()
   updateMemoryFooter()
   showMicButton()
   if (api && api.getMood) api.getMood().then(showMood).catch(() => {})
@@ -92,26 +95,62 @@ if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
   // un'altra persona (chat-mode dal main).
   config = { ...config, ...cfg }
   updateBadge()
+  // Un avatar cambiato arriva da qui: il viso nell'intestazione lo segue.
+  loadFaces()
   if (isConfigured() && !setupOverlay.classList.contains('hidden')) {
     setupOverlay.classList.add('hidden')
     inputEl.focus()
   }
 })
 
-// Umore del companion accanto alla memoria. Lo decide il main: qui si mostra.
+// ── Visi (Blocco 9d) ────────────────────────────────────────────────────────
+// La miniatura dell'avatar di ogni companion (Blocco 9c), o le sue iniziali:
+// nell'intestazione, nel benvenuto e, nel gruppo, accanto ai suoi fumetti.
+let faceInfo = { personas: [], avatars: [] }
+async function loadFaces() {
+  try {
+    const [p, a] = await Promise.all([api.personasGet(), api.listAvatars()])
+    faceInfo = { personas: (p && p.list) || [], avatars: a || [] }
+  } catch (_) { /* restano le iniziali */ }
+  renderFaces()
+}
+if (api && api.onAvatarsChanged) api.onAvatarsChanged(loadFaces)
+const ownId = () => (currentKey && !isGroupKey(currentKey) ? currentKey.slice(2) : '')
+function nameOf(id) {
+  const c = (config.companions || []).find(x => x.id === id) || faceInfo.personas.find(x => x.id === id)
+  return (c && c.name) || (config.persona && config.persona.id === id ? config.persona.name : 'Companion')
+}
+const faceOf = (id) => Faces.face(Faces.avatarOf(id, faceInfo.personas, faceInfo.avatars), nameOf(id))
+function renderFaces() {
+  const ids = isGroupKey(currentKey) ? (config.companions || []).slice(0, 3).map(c => c.id) : [ownId()]
+  document.getElementById('faces').replaceChildren(...ids.map(faceOf))
+  fillWelcome()
+}
+/** Il benvenuto della chat vuota: il viso e il nome di chi ti parla. */
+function fillWelcome() {
+  const w = messagesEl.querySelector('.welcome')
+  if (!w || isGroupKey(currentKey)) return
+  w.querySelector('.welcome-face').replaceChildren(faceOf(ownId()))
+  w.querySelector('.welcome-title').textContent = 'Ciao, sono ' + nameOf(ownId()) + '.'
+}
+
+// Umore, energia e rapporto del companion: tre anelli accanto alla memoria,
+// con il dettaglio nel tooltip. Li decide il main: qui si mostrano.
+function ring(id, value, title) {
+  const el = document.getElementById(id)
+  el.style.setProperty('--value', String(Math.max(0, Math.min(1, value))))
+  el.title = title
+}
 function showMood(mood) {
   if (!mood) return
-  moodChip.textContent = mood.icon + ' ' + mood.label
   const energy = mood.energy >= 0.7 ? 'piena' : mood.energy >= 0.4 ? 'normale' : 'bassa'
-  moodChip.title = 'Umore del companion: ' + mood.label + ' · energia ' + energy
+  ring('r-mood', Faces.moodValue(mood), 'Umore: ' + mood.label + (mood.icon && mood.icon !== '·' ? ' ' + mood.icon : ''))
+  ring('r-energy', mood.energy || 0, 'Energia ' + energy + ' (' + Math.round((mood.energy || 0) * 100) + '%)')
   // Rapporto (Blocco 6b): livello, giorni insieme e serie.
   const r = mood.rapport
-  const chip = document.getElementById('rapport-chip')
-  chip.classList.toggle('hidden', !r)
-  if (!r) return
-  chip.textContent = r.label + (r.days ? ' · ' + r.days + ' g' : '')
-  chip.title = 'Rapporto: ' + r.label + ' (livello ' + (r.level + 1) + ' di ' + r.levels + ')' +
-    ' · insieme da ' + r.days + (r.days === 1 ? ' giorno' : ' giorni') + ' · serie di ' + r.streak
+  document.getElementById('r-bond').hidden = !r
+  if (r) ring('r-bond', (r.level + 1) / r.levels, 'Rapporto: ' + r.label + ' (livello ' + (r.level + 1) + ' di ' + r.levels + ')' +
+    ' · insieme da ' + r.days + (r.days === 1 ? ' giorno' : ' giorni') + ' · serie di ' + r.streak)
 }
 if (api && api.onMoodChanged) api.onMoodChanged(showMood)
 
@@ -126,18 +165,36 @@ async function updateMemoryFooter() {
   } catch(e) { /* memoria non disponibile: nascondi footer */ }
 }
 
+// Il menu "⋯": Compatta e Dimentica tutto. Si chiude con Esc o cliccando fuori.
+function setMenu(open) {
+  moreMenu.classList.toggle('hidden', !open)
+  moreBtn.setAttribute('aria-expanded', String(open))
+  if (!open && forgetBtn.classList.contains('armed')) disarmForget()
+}
+moreBtn.addEventListener('click', () => {
+  const open = moreMenu.classList.contains('hidden')
+  setMenu(open)
+  if (open) compactBtn.focus()
+})
+document.addEventListener('click', (e) => {
+  if (!moreMenu.classList.contains('hidden') && !e.target.closest('#more-menu, #more-btn')) setMenu(false)
+})
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !moreMenu.classList.contains('hidden')) { setMenu(false); moreBtn.focus() }
+})
+
+const COMPACT_LABEL = compactBtn.querySelector('span').textContent
 compactBtn.addEventListener('click', async () => {
   compactBtn.disabled = true
-  compactBtn.textContent = '…'
+  compactBtn.querySelector('span').textContent = 'Compatto…'
   const res = await api.memoryCompactNow()
+  setMenu(false)
   if (res?.ok && res.compacted) memoryInfo.textContent = '✓ Memoria compattata'
   else if (res?.ok) memoryInfo.textContent = 'Niente da compattare'
   else memoryInfo.textContent = 'Errore: ' + (res?.error || 'sconosciuto')
-  setTimeout(async () => {
-    compactBtn.textContent = 'Compatta'
-    compactBtn.disabled = false
-    await updateMemoryFooter()
-  }, 2000)
+  compactBtn.querySelector('span').textContent = COMPACT_LABEL
+  compactBtn.disabled = false
+  setTimeout(() => { updateMemoryFooter() }, 2000)
 })
 
 const headerTitle = document.querySelector('#header-info h1')
@@ -188,6 +245,7 @@ function renderConversation() {
   messagesEl.innerHTML = ''
   const items = conv().items
   if (!items.length && welcomeTemplate && !isGroupKey(currentKey)) messagesEl.appendChild(welcomeTemplate.cloneNode(true))
+  fillWelcome()
   for (const it of items) messagesEl.appendChild(messageEl(it))
   if (typing) messagesEl.appendChild(typing)
   typingEl = document.getElementById('typing')
@@ -205,6 +263,7 @@ function setChatMode(data) {
   groupTo = null
   renderConversation()
   updateBadge()
+  renderFaces()
   setTyping(sending && sendingKey === currentKey)
 }
 if (api && api.onChatMode) api.onChatMode(setChatMode)
@@ -228,19 +287,20 @@ clearBtn.addEventListener('click', () => {
 
 // Due clic invece di un confirm(): il primo arma il pulsante e dice cosa
 // succede, il secondo (entro qualche secondo) cancella davvero.
-const FORGET_LABEL = forgetBtn.textContent
+const forgetLabel = forgetBtn.querySelector('span')
+const FORGET_LABEL = forgetLabel.textContent
 let forgetTimer = null
 function disarmForget() {
   clearTimeout(forgetTimer)
   forgetTimer = null
   forgetBtn.classList.remove('armed')
-  forgetBtn.textContent = FORGET_LABEL
+  forgetLabel.textContent = FORGET_LABEL
   updateMemoryFooter()
 }
 forgetBtn.addEventListener('click', async () => {
   if (!forgetBtn.classList.contains('armed')) {
     forgetBtn.classList.add('armed')
-    forgetBtn.textContent = 'Sicuro? Clic di nuovo'
+    forgetLabel.textContent = 'Sicuro? Clic di nuovo'
     memoryInfo.textContent = 'Cancella tutta la memoria, per sempre.'
     memoryInfo.title = 'Riassunto, conversazioni e archivio spariscono dal disco. Non si torna indietro.'
     forgetTimer = setTimeout(disarmForget, 4000)
@@ -248,7 +308,8 @@ forgetBtn.addEventListener('click', async () => {
   }
   clearTimeout(forgetTimer)
   forgetBtn.classList.remove('armed')
-  forgetBtn.textContent = FORGET_LABEL
+  forgetLabel.textContent = FORGET_LABEL
+  setMenu(false)
   const res = await api.memoryClear().catch(e => ({ ok: false, error: e.message }))
   if (!res?.ok) { addMessage('error', 'Cancellazione memoria fallita: ' + (res?.error || 'errore sconosciuto')); return }
   resetChatView('Memoria cancellata. Ripartiamo da zero.')
@@ -261,12 +322,8 @@ forgetBtn.addEventListener('click', async () => {
 const groupBar = document.getElementById('group-bar')
 let groupTo = null
 const isGroup = () => isGroupKey(currentKey)
-/** Un colore per nome, sempre lo stesso. */
-function hueOf(name) {
-  let h = 0
-  for (const ch of String(name || '')) h = (h * 31 + ch.codePointAt(0)) % 360
-  return h
-}
+/** Un colore per nome, sempre lo stesso (faces.js). */
+const hueOf = Faces.hueOf
 function renderGroupBar() {
   const list = config.companions || []
   // Le pastiglie solo nella chat di gruppo.
@@ -294,8 +351,11 @@ function renderGroupBar() {
 }
 
 // ── Messages ─────────────────────────────────────────────────────────────────
-/** Il fumetto di un messaggio; nel gruppo, con nome e colore di chi parla. */
-function messageEl({ role, text, who, group }) {
+/**
+ * Il fumetto di un messaggio; nel gruppo, con il viso, il nome e il colore di
+ * chi parla. Un errore di invio ha il suo "Riprova".
+ */
+function messageEl({ role, text, who, group, pid, retry }) {
   const el = document.createElement('div')
   el.className = `msg ${role}`
   if (who && group) {
@@ -306,12 +366,26 @@ function messageEl({ role, text, who, group }) {
     el.append(tag)
   }
   el.append(text)
-  return el
+  if (retry) {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'retry'
+    b.textContent = 'Riprova'
+    el.append(b)
+  }
+  if (role !== 'assistant' || !group || !pid) return el
+  const row = document.createElement('div')
+  row.className = 'msg-row'
+  row.append(faceOf(pid), el)
+  return row
 }
 
-/** Un messaggio nella conversazione key (di base quella a schermo). */
-function addMessage(role, text, who, key = currentKey) {
-  const item = { role, text: String(text == null ? '' : text), who, group: isGroupKey(key) }
+/**
+ * Un messaggio nella conversazione key (di base quella a schermo). extra:
+ * pid (chi parla, per il viso nel gruppo), retry (errore con "Riprova").
+ */
+function addMessage(role, text, who, key = currentKey, extra = {}) {
+  const item = { role, text: String(text == null ? '' : text), who, group: isGroupKey(key), ...extra }
   conv(key).items.push(item)
   if (key !== currentKey) return
   // Il benvenuto lascia il posto alla conversazione appena scrivi.
@@ -404,7 +478,30 @@ async function sendMessage(spoken) {
   setAttachment(null)
   // Nella conversazione resta il testo: la schermata va solo con questo messaggio.
   pushHistory(key, { role: 'user', content: (image ? text + ' [immagine dello schermo]' : text).slice(0, 8000) })
+  await requestReply(key, to, image)
+}
 
+/** Un errore di invio, con "Riprova": rimanda la stessa conversazione. */
+function sendFailed(key, to, text) {
+  conv(key).retryTo = to
+  addMessage('error', text, null, key, { retry: true })
+  try { api.executeAction({ type: 'none', animation: 'idle' }) } catch (_) {}
+}
+messagesEl.addEventListener('click', (e) => {
+  if (!e.target.closest('.msg.error .retry') || sending) return
+  const c = conv()
+  // Solo l'ultimo errore si riprova: gli altri restano come promemoria.
+  let i = c.items.length - 1
+  while (i >= 0 && !c.items[i].retry) i--
+  if (i < 0) return
+  c.items.splice(i, 1)
+  renderConversation()
+  requestReply(currentKey, c.retryTo, null)
+})
+
+/** Chiede la risposta per la conversazione key (l'ultimo messaggio e' gia' nella cronologia). */
+async function requestReply(key, to, image) {
+  const group = isGroupKey(key)
   sending = true
   sendingKey = key
   setTyping(true)
@@ -419,8 +516,7 @@ async function sendMessage(spoken) {
   } catch (e) {
     setTyping(false)
     sending = false
-    addMessage('error', `Errore IPC: ${e.message || e}`, null, key)
-    try { api.executeAction({ type: 'none', animation: 'idle' }) } catch (_) {}
+    sendFailed(key, to, 'Messaggio non arrivato: ' + (e.message || e))
     return
   }
 
@@ -429,8 +525,7 @@ async function sendMessage(spoken) {
 
   const { ok, result, error } = resp || {}
   if (!ok) {
-    addMessage('error', `Errore: ${error || 'risposta vuota'}`, null, key)
-    try { api.executeAction({ type: 'none', animation: 'idle' }) } catch (_) {}
+    sendFailed(key, to, 'Nessuna risposta: ' + (error || 'risposta vuota'))
     return
   }
 
@@ -450,7 +545,7 @@ function showReply(result, key = currentKey) {
   pushHistory(key, { role: 'assistant', content: (result.reply || '').slice(0, 8000), ...(result.personaId ? { speaker: result.personaId } : {}) })
   // Lo strumento usato per rispondere, prima della risposta (Blocco 7f).
   if (result.toolNote) addMessage('system', result.toolNote, null, key)
-  addMessage('assistant', result.reply, result.name, key)
+  addMessage('assistant', result.reply, result.name, key, { pid: result.personaId })
   // Uno strumento MCP annullato o rifiutato (Blocco 7f).
   if (result.notice) addMessage('system', result.notice, null, key)
   updateMemoryFooter().catch(() => {})
@@ -493,7 +588,7 @@ if (api && api.onInitiative) api.onInitiative((data) => {
   const between = ['peer', 'peer-reply', 'hello'].includes(data.kind) && (config.companions || []).length > 1
   const key = between ? 'group' : singleKey(data.personaId || (config.persona && config.persona.id) || 'default')
   pushHistory(key, { role: 'assistant', content: reply.slice(0, 8000), ...(data.personaId ? { speaker: data.personaId } : {}) })
-  addMessage('assistant', reply, data.name, key)
+  addMessage('assistant', reply, data.name, key, { pid: data.personaId })
   updateMemoryFooter().catch(() => {})
 })
 

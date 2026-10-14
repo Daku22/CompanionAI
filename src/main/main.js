@@ -2123,12 +2123,17 @@ handle('avatars:scan-import', async () => {
 handle('avatars:commit-import', (_event, data) => {
   const { token, candidateId } = data || {}
   if (typeof token !== 'string' || typeof candidateId !== 'string') throw new Error('Selezione avatar non valida')
-  return avatarLibrary.commit(token, candidateId).then((record) => { sendSettings('avatars-changed'); return record })
+  return avatarLibrary.commit(token, candidateId).then((record) => { sendAvatarsChanged(); return record })
 })
 handle('avatars:remove', (_event, ids) => {
   if (!Array.isArray(ids) || !ids.length || ids.length > 200) throw new Error('Selezione avatar non valida')
-  return avatarLibrary.remove(ids).then((removed) => { sendSettings('avatars-changed'); return removed })
+  return avatarLibrary.remove(ids).then((removed) => { sendAvatarsChanged(); return removed })
 })
+/** Elenco o miniature cambiati: le gallerie delle Impostazioni e i visi nelle chat. */
+function sendAvatarsChanged() {
+  sendSettings('avatars-changed')
+  sendAllChats('avatars-changed')
+}
 
 // Miniature del viso (Blocco 9c): le scatta il companion la prima volta che
 // mostra un avatar, le Impostazioni le leggono da avatar://thumbs/.
@@ -2141,7 +2146,7 @@ handle('avatars:save-thumb', async (e, id, png) => {
   const buf = checkThumbPng(png)
   if (!buf || !(await avatarLibrary.list()).some(a => a.id === id)) return { ok: false }
   await avatarLibrary.saveThumb(id, buf)
-  sendSettings('avatars-changed')
+  sendAvatarsChanged()
   return { ok: true }
 })
 // "Usa" nella galleria: l'avatar va a un companion sul desktop (di base quello

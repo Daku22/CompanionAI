@@ -420,6 +420,16 @@ async function auditMic() {
   check(found.length === 0, 'impostazioni: nessun errore in console' + (found.length ? ':\n      - ' + found.join('\n      - ') : ''))
 }
 
+// Schermata di una chat: una finestra nascosta non disegna, quindi si apre per
+// lo scatto e si richiude come era.
+async function chatShot(page, name) {
+  const hidden = await page.evaluate('document.visibilityState !== "visible"')
+  if (hidden) { await page.evaluate('window.companion.toggleChat(); true'); await sleep(800) }
+  const r = await page.send('Page.captureScreenshot', { format: 'png' })
+  fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(r.result.data, 'base64'))
+  if (hidden) { await page.evaluate('window.companion.toggleChat(); true'); await sleep(400) }
+}
+
 // Movimento del mouse finto sulla pagina: companion-input.js decide se catturarlo.
 const hover = async (x, y) => {
   await comp.evaluate(`window.dispatchEvent(new MouseEvent('mousemove', { clientX: ${x}, clientY: ${y} })); true`)
@@ -1262,16 +1272,33 @@ try {
   const listed = await comp.evaluate('window.companion.listAnimations()')
   check(saved === 'happy-convertita.vrma' && listed.some(a => a.slot === 'happy' && a.name === saved), 'import: glb convertito in .vrma e salvato (' + saved + ')')
 
-  // 5. Umore, memoria.
-  const chip = await chat.evaluate(`document.getElementById('mood-chip').textContent`)
-  check(chip && chip !== '·', 'umore mostrato nella chat (' + chip + ')')
+  // 5. Umore, memoria. La chat nuova (Blocco 9d): tre anelli, il viso
+  // nell'intestazione, i tuoi fumetti in ambra, Compatta e Dimentica nel "⋯".
+  const look = await chat.evaluate(`(() => {
+    const mood = document.getElementById('r-mood')
+    const face = document.querySelector('#faces .face img')
+    const user = document.querySelector('.msg.user')
+    return { mood: mood.title, value: mood.style.getPropertyValue('--value'), energy: document.getElementById('r-energy').title,
+      face: face ? face.src.slice(0, 16) : null, user: user ? getComputedStyle(user).backgroundColor : null }
+  })()`)
+  check(/^Umore: /.test(look.mood) && Number(look.value) > 0 && /^Energia /.test(look.energy), 'umore ed energia negli anelli della chat (' + look.mood + ', ' + look.energy + ')')
+  check(look.face === 'avatar://thumbs/' && look.user === 'rgb(228, 155, 69)', 'chat: il viso dell\'avatar nell\'intestazione, i tuoi fumetti in ambra (' + JSON.stringify(look) + ')')
+  await chat.evaluate(`document.getElementById('more-btn').click(); true`)
+  await sleep(300)
+  const menu = await chat.evaluate(`({ open: !document.getElementById('more-menu').classList.contains('hidden'),
+    items: [...document.querySelectorAll('#more-menu [role=menuitem]')].map(b => b.textContent.trim()) })`)
+  await chatShot(chat, '9d-chat')
+  await chat.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); true`)
+  await sleep(200)
+  const menuClosed = await chat.evaluate(`document.getElementById('more-menu').classList.contains('hidden')`)
+  check(menu.open && menu.items.join('|') === 'Compatta la memoria|Dimentica tutto' && menuClosed, 'chat: il menu "⋯" con Compatta e Dimentica, Esc lo chiude (' + menu.items.join(', ') + ')')
   const compact = await chat.evaluate('window.companion.memoryCompactNow()')
   check(compact && compact.ok === true, 'compatta memoria')
   const forget = await chat.evaluate('window.companion.memoryClear()')
   check(forget && forget.ok === true, 'dimentica tutto')
 
   // 5b. Persone, rapporto, diario, memoria leggibile (Blocco 6).
-  const rapportChip = await chat.evaluate(`document.getElementById('rapport-chip').textContent`)
+  const rapportChip = await chat.evaluate(`document.getElementById('r-bond').hidden ? '' : document.getElementById('r-bond').title`)
   check(/Sconosciuto/.test(rapportChip || ''), 'rapporto mostrato nella chat (' + rapportChip + ')')
   const made = await chat.evaluate(`window.companion.personasChange({ op: 'create', name: 'Prova Audit', prompt: 'Sei di poche parole.' })`)
   const auditId = made && made.ok && (made.personas.list.find(p => p.name === 'Prova Audit') || {}).id
@@ -1335,6 +1362,13 @@ try {
   await sleep(500)
   const peerWho = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant')].slice(${beforePeer}).map(m => m.querySelector('.who')?.textContent || '')`)
   check(peered === true && peerWho.length === 2 && peerWho[0] !== peerWho[1], 'si commentano: ' + JSON.stringify(peerWho))
+  // Chat di gruppo ridisegnata (Blocco 9d): i visi in alto e accanto ai fumetti.
+  {
+    const g = await chat.evaluate(`({ head: document.querySelectorAll('#faces .face').length,
+      rows: document.querySelectorAll('.msg-row .face').length, msgs: document.querySelectorAll('.msg.assistant').length })`)
+    check(g.head === 2 && g.rows === g.msgs && g.msgs >= 4, 'chat di gruppo: ' + g.head + ' visi in alto, uno accanto a ogni fumetto (' + g.rows + '/' + g.msgs + ')')
+    await chatShot(chat, '9d-gruppo')
+  }
   chat = singleChat
   // Tutti nella stanza (Blocco 8e): l'altro entra come ospite nella scena, e
   // tornando sul desktop riprende la sua finestra.

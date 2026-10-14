@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: avatar:">
   <title>Chat</title>
   <link rel="stylesheet" href="ui.css">
   <style>
@@ -85,14 +85,16 @@
       border-bottom: 1px solid var(--line);
       flex-shrink: 0;
     }
-    #avatar-dot {
-      width: 30px; height: 30px; border-radius: 10px;
-      background: var(--accent-soft); color: var(--accent);
-      border: 1px solid var(--accent-line);
-      display: grid; place-items: center;
-      font-family: var(--font-display); font-size: 14px; font-weight: 600;
-      flex-shrink: 0;
-    }
+    /* Il viso del companion (Blocco 9d): la miniatura del suo avatar, o le
+       iniziali; nel gruppo i visi affiancati, un po' sovrapposti. */
+    .face { display: block; overflow: hidden; flex: none; background: var(--bg-raised); }
+    .face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #faces { display: flex; flex-shrink: 0; }
+    #faces .face { width: 32px; height: 32px; border-radius: 11px; box-shadow: 0 0 0 1px var(--accent-line); }
+    #faces .face.initials { font-size: 13px; }
+    body.group-chat #faces .face { width: 28px; height: 28px; border-radius: 50%; box-shadow: 0 0 0 2px #19181a; }
+    body.group-chat #faces .face + .face { margin-left: -9px; }
+    body.group-chat #faces .face.initials { font-size: 11px; }
     #header-info { flex: 1; min-width: 0; }
     #header-info h1 { font-family: var(--font-display); font-size: 13.5px; font-weight: 600; letter-spacing: -0.005em; color: var(--text); }
     #provider-badge {
@@ -139,17 +141,25 @@
       text-wrap: pretty; overflow-wrap: anywhere;
       animation: rise 0.24s var(--ease);
     }
+    /* Tu in ambra pieno; il companion su una superficie calda. */
     .msg.user {
       align-self: flex-end;
-      background: var(--accent-soft); color: #f3e9dc;
-      border: 1px solid rgba(var(--accent-rgb), 0.22);
+      background: var(--accent); color: var(--accent-ink); font-weight: 450;
       border-bottom-right-radius: 5px;
+      box-shadow: 0 8px 18px -12px rgba(var(--accent-rgb), 0.7);
     }
+    .msg.user::selection { background: rgba(36, 20, 7, 0.22); }
     .msg.assistant {
       align-self: flex-start;
-      background: var(--surface-hi); color: var(--text);
+      background: rgba(255, 240, 222, 0.065); color: var(--text);
+      border: 1px solid var(--line);
       border-bottom-left-radius: 5px;
     }
+    /* Nel gruppo, accanto al fumetto, il viso di chi parla. */
+    .msg-row { display: flex; align-items: flex-end; gap: 7px; align-self: flex-start; max-width: 90%; animation: rise 0.24s var(--ease); }
+    .msg-row .msg { max-width: none; min-width: 0; animation: none; }
+    .msg-row .face { width: 22px; height: 22px; border-radius: 50%; margin-bottom: 2px; }
+    .msg-row .face.initials { font-size: 9.5px; }
     .msg.system {
       align-self: center; max-width: 92%;
       background: transparent; color: var(--text-3);
@@ -157,13 +167,24 @@
     }
     .msg.error {
       align-self: stretch; max-width: none;
+      display: flex; align-items: center; gap: 10px;
       background: var(--danger-soft); color: var(--danger);
       border-left: 2px solid var(--danger);
       font-size: 12px; border-radius: 4px 10px 10px 4px;
     }
+    .msg.error .retry {
+      margin-left: auto; flex: none; padding: 3px 10px; border-radius: 7px;
+      border: 1px solid rgba(229, 144, 127, 0.4); background: transparent; color: var(--danger); font-size: 11.5px; font-weight: 500;
+      transition: background 0.2s var(--ease), transform 0.12s var(--ease);
+    }
+    .msg.error .retry:hover { background: var(--danger-soft); }
+    .msg.error .retry:active { transform: scale(0.96); }
 
     /* Chat vuota: chi sono e tre cose da provare, in basso vicino al campo. */
     .welcome { margin-top: auto; padding: 4px 2px 6px; animation: rise 0.32s var(--ease); }
+    .welcome-face { width: 56px; height: 56px; border-radius: 18px; overflow: hidden; margin-bottom: 12px; box-shadow: var(--shadow-sm), 0 0 0 1px var(--accent-line); }
+    .welcome-face .face { width: 100%; height: 100%; }
+    .welcome-face .face.initials { font-size: 20px; }
     .welcome-title { font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: -0.015em; margin-bottom: 4px; }
     .welcome-sub { font-size: 12.5px; color: var(--text-2); line-height: 1.5; max-width: 36ch; text-wrap: pretty; margin-bottom: 12px; }
     .suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -180,14 +201,14 @@
     #typing {
       display: none; align-self: flex-start;
       padding: 11px 13px;
-      background: var(--surface-hi);
+      background: rgba(255, 240, 222, 0.065); border: 1px solid var(--line);
       border-radius: 14px; border-bottom-left-radius: 5px;
       gap: 4px; align-items: center;
     }
     #typing.visible { display: flex; animation: rise 0.24s var(--ease); }
     #typing span {
       width: 5px; height: 5px;
-      background: var(--text-2); border-radius: 50%;
+      background: var(--accent-hi); border-radius: 50%;
       animation: pulse 1.2s infinite;
     }
     #typing span:nth-child(2) { animation-delay: 0.2s; }
@@ -198,31 +219,45 @@
     }
 
     /* ── Footer memoria ───────────────────────────────────────────────────── */
+    /* Umore, energia e rapporto in tre anelli (come nell'HUD), la memoria, e
+       Compatta e Dimentica nel menu "⋯". */
     #memory-footer {
-      padding: 0 10px 10px 14px;
-      display: flex; align-items: center; gap: 2px;
+      position: relative;
+      padding: 0 8px 9px 12px;
+      display: flex; align-items: center; gap: 6px;
       flex-shrink: 0;
       font-size: 11px;
     }
     #memory-footer.hidden { display: none; }
+    #memory-footer .rings { display: flex; gap: 3px; }
+    .ring.sm { width: 24px; height: 24px; cursor: default; }
+    .ring.sm svg.i { width: 11px; height: 11px; stroke-width: 1.9; }
+    #r-energy { --ring-color: #d9c27a; }
+    #r-bond { --ring-color: #d98a7a; }
     #memory-info {
-      flex: 1; min-width: 0; margin-left: 8px;
+      flex: 1; min-width: 0; margin-left: 4px;
       color: var(--text-3); font-variant-numeric: tabular-nums;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    #mood-chip { color: var(--text-2); white-space: nowrap; cursor: default; }
-    .text-btn {
-      padding: 3px 7px; border-radius: 6px; border: none;
-      background: transparent; color: var(--text-2); font-size: 11px; white-space: nowrap;
+    #memory-footer:has(#forget-btn.armed) #memory-info { color: var(--danger); }
+    #more-btn[aria-expanded="true"] { background: var(--surface-hi); color: var(--text); }
+    #more-menu {
+      position: absolute; right: 8px; bottom: calc(100% + 6px); z-index: 5;
+      min-width: 190px; padding: 5px; border-radius: 12px;
+      display: flex; flex-direction: column; gap: 2px;
+      animation: rise 0.18s var(--ease);
+    }
+    #more-menu.hidden { display: none; }
+    #more-menu button {
+      display: flex; align-items: center; gap: 9px; text-align: left;
+      border: 0; background: transparent; color: var(--text-2);
+      padding: 7px 10px; border-radius: 8px; font-size: 12px; white-space: nowrap;
       transition: background 0.2s var(--ease), color 0.2s var(--ease);
     }
-    .text-btn:hover:not(:disabled) { background: var(--surface-hi); color: var(--text); }
-    .text-btn:disabled { opacity: 0.45; cursor: default; }
-    #forget-btn:hover:not(:disabled), #forget-btn.armed { background: var(--danger-soft); color: var(--danger); }
-    /* Pulsante armato: l'avviso prende il posto di umore e "Compatta". */
-    #rapport-chip { color: var(--text-3); white-space: nowrap; cursor: default; }
-    #memory-footer:has(#forget-btn.armed) :is(#mood-chip, #rapport-chip, #compact-btn) { display: none; }
-    #memory-footer:has(#forget-btn.armed) #memory-info { margin-left: 0; color: var(--danger); }
+    #more-menu button svg.i { width: 14px; height: 14px; }
+    #more-menu button:hover:not(:disabled) { background: var(--surface-hi); color: var(--text); }
+    #more-menu button:disabled { opacity: 0.45; cursor: default; }
+    #more-menu #forget-btn:hover:not(:disabled), #more-menu #forget-btn.armed { background: var(--danger-soft); color: var(--danger); }
 
     /* ── Input ─────────────────────────────────────────────────────────────── */
     #input-area {
@@ -299,7 +334,7 @@
 
   <!-- ── Header ───────────────────────────────────────────────────────────── -->
   <header id="header">
-    <div id="avatar-dot" aria-hidden="true">C</div>
+    <div id="faces" aria-hidden="true"></div>
     <div id="header-info">
       <h1>Companion</h1>
       <div id="provider-badge">—</div>
@@ -322,6 +357,7 @@
   <!-- ── Messages ─────────────────────────────────────────────────────────── -->
   <main id="messages" aria-live="polite">
     <section class="welcome" id="welcome" aria-label="Per iniziare">
+      <div class="welcome-face" aria-hidden="true"></div>
       <p class="welcome-title">Ciao, sono qui.</p>
       <p class="welcome-sub">Posso aprire cartelle e siti, cercare sul web, muovermi sullo schermo o fare due chiacchiere.</p>
       <div class="suggestions">
@@ -354,17 +390,37 @@
 
   <!-- ── Footer memoria ───────────────────────────────────────────────────── -->
   <footer id="memory-footer" class="hidden">
-    <span id="mood-chip" title="Umore del companion">·</span>
-    <span id="rapport-chip" class="hidden"></span>
+    <div class="rings">
+      <div class="ring sm" id="r-mood" title="Umore">
+        <svg class="track" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="value" cx="18" cy="18" r="15"/></svg>
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19s-6.5-4.2-6.5-9A3.6 3.6 0 0 1 12 7.6 3.6 3.6 0 0 1 18.5 10c0 4.8-6.5 9-6.5 9z"/></svg>
+      </div>
+      <div class="ring sm" id="r-energy" title="Energia">
+        <svg class="track" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="value" cx="18" cy="18" r="15"/></svg>
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3.5 6.5 13H12l-1 7.5L17.5 11H12z"/></svg>
+      </div>
+      <div class="ring sm" id="r-bond" title="Rapporto" hidden>
+        <svg class="track" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="value" cx="18" cy="18" r="15"/></svg>
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3"/><circle cx="15.5" cy="10.5" r="2.5"/><path d="M4 18c.6-2.6 2.6-4.3 5-4.3s4.4 1.7 5 4.3M13.6 14.2c2.6-.4 4.8 1.2 5.4 3.8"/></svg>
+      </div>
+    </div>
     <div id="memory-info">Memoria: —</div>
-    <button class="text-btn" id="compact-btn">Compatta</button>
-    <button class="text-btn" id="forget-btn" title="Cancella riassunto, turni e archivio">Dimentica tutto</button>
+    <button class="icon-btn" id="more-btn" type="button" title="Memoria: compatta o dimentica" aria-label="Altro" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="3"/></svg>
+    </button>
+    <div id="more-menu" class="glass hidden" role="menu" aria-label="Memoria">
+      <button role="menuitem" type="button" id="compact-btn" title="Riassume le conversazioni passate e tiene intere le ultime">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M7 12h10M9 17h6"/></svg><span>Compatta la memoria</span></button>
+      <button role="menuitem" type="button" id="forget-btn" title="Cancella riassunto, turni e archivio">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg><span>Dimentica tutto</span></button>
+    </div>
   </footer>
 
 </div>
 
 <script src="mic-recorder.js"></script>
 <script src="provider-form.js"></script>
+<script src="faces.js"></script>
 <script src="chat.js"></script>
 </body>
 </html>

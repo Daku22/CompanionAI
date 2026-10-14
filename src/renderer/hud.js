@@ -23,12 +23,8 @@
   })
   document.addEventListener('mouseleave', () => setCapture(false))
 
-  // Umore: da 0 (giu') a 1 (su), dalle emozioni del companion.
-  function moodValue(m) {
-    const e = (m && m.emotions) || {}
-    const v = 0.5 + ((e.joy || 0) + (e.affection || 0) * 0.6 + (e.calm || 0) * 0.3 - (e.sadness || 0) - (e.annoyance || 0)) / 2
-    return Math.max(0.04, Math.min(1, v))
-  }
+  // Umore: da 0 (giu') a 1 (su), come nella chat (faces.js).
+  const moodValue = window.CompanionFaces.moodValue
   const ring = (id, value, title) => {
     const el = document.getElementById(id)
     el.style.setProperty('--value', String(Math.max(0, Math.min(1, value))))
