@@ -38,7 +38,6 @@ const { createCompanion } = require('./companion')
 const Companions = require('./companions')
 const Group = require('./group-chat')
 
-let chatWindow      = null
 let tray            = null
 let avatarLibrary   = null
 let sceneLibrary    = null
@@ -155,6 +154,8 @@ function loadConfig() {
   cfg.initiativeVoice = cfg.initiativeVoice === true
   // App attiva (Blocco 7c): spenta di base, con l'elenco delle finestre da non leggere.
   cfg.activeApp = cfg.activeApp === true
+  // La barra a pillola sempre visibile (Blocco 9b): spenta, compare al passaggio del mouse.
+  cfg.hudPinned = cfg.hudPinned === true
   cfg.activeAppIgnore = ActiveApp.cleanIgnore(cfg.activeAppIgnore) || ActiveApp.IGNORE_DEFAULT
   // Server MCP (Blocco 7f): li aggiunge l'utente, spenti di base.
   cfg.mcpServers = Mcp.cleanServers(cfg.mcpServers)
@@ -300,6 +301,9 @@ async function switchPersona(id) {
     const c = current || companions[0]
     if (c) {
       await c.setPersona(id)
+      // La sua chat singola passa alla persona nuova.
+      const w = chatOf(c)
+      if (w) try { w.webContents.send('chat-mode', { mode: 'single', personaId: id }) } catch (_) {}
       // L'avatar lo cambia il companion, come dal menu ('' = il predefinito).
       let avatarId = p.avatarModel
       if (!avatarId && avatarLibrary) {
@@ -411,7 +415,7 @@ function dialogParent() {
 }
 
 // Le preferenze di comportamento, uguali per tutti (applyWindowOptions).
-const prefs = { idleLife: true, touch: true, followMouse: true, perch: true }
+const prefs = { idleLife: true, touch: true, followMouse: true, perch: true, hudPinned: false, paused: false }
 // Solo per audit.mjs: un cursore finto per la sbirciata.
 let testCursor = null
 
@@ -421,7 +425,8 @@ const companionCtx = {
   memoryModel: () => memoryModelFrom(loadConfig()),
   diaryPath: (id) => diaryPath(id),
   persona: (id) => (personas ? personas.list.find(p => p.id === id) || null : null),
-  chat: () => (chatWindow && !chatWindow.isDestroyed() ? chatWindow : null),
+  chatOf: (c) => chatOf(c),
+  chatFocused: () => allChats().some(w => w.isFocused()),
   isChatTarget: (c) => chatTarget() === c,
   lastForeign: () => lastForeign,
   testCursor: () => testCursor,
@@ -475,6 +480,8 @@ function openCompanion(id) {
   companions.push(c)
   c.initMemory()
   c.createWindow()
+  // La sua chat singola, nascosta finche' non la si apre (Blocco 9b).
+  ensureChatFor(c)
   c.initMood().catch(e => console.error('[mood] caricamento fallito:', e.message))
   // Con la stanza aperta entra subito anche lui, come ospite.
   if (roomHost()) onViewChanged()
@@ -530,6 +537,7 @@ function closeCompanion(c) {
   if (speakingCompanion === c) { if (voiceService) voiceService.stop(); speakingCompanion = null }
   const i = companions.indexOf(c)
   if (i >= 0) companions.splice(i, 1)
+  closeChatFor(c)
   if (c.alive()) c.win.destroy()
 }
 
@@ -552,6 +560,7 @@ async function setCompanionOpen(id, on) {
     if (open) return { ok: true }
     if (companions.length >= Companions.MAX_OPEN) return { ok: false, error: 'Sul desktop ci stanno al massimo ' + Companions.MAX_OPEN + ' companion.' }
     const c = openCompanion(id)
+    ensureGroupChat()
     // Appena arrivato saluta gli altri, quando la sua finestra e' pronta.
     if (c && c.alive()) c.win.webContents.once('did-finish-load', () => setTimeout(() => {
       greetArrival(c).catch(e => console.error('[iniziativa] saluto non riuscito:', e.message))
@@ -587,12 +596,177 @@ function companionsMenu() {
   }
 }
 
-// ─── Chat Window ─────────────────────────────────────────────────────────────
+// ─── HUD: barra a pillola e capsule (Blocco 9b) ─────────────────────────────
+// Una finestra sola per tutti i companion: compare attorno a quello sotto il
+// mouse (o, con "Barra sempre visibile", attorno a quello della chat) e lo
+// segue. Lascia passare i clic tranne sui comandi (hud.js). Mai durante la
+// sbirciata o nella stanza, dove i comandi stanno nella barra della stanza.
+const HUD_LINGER_MS = 1200       // fuori da companion e comandi, resta ancora un attimo
+const HUD_STATE_EVERY = 30       // tick del cursore fra un aggiornamento dello stato e l'altro (~1 s)
+let hudWindow = null
+let hudFor = null                // il companion a cui e' attaccato
+let hudShown = false
+let hudHot = false               // il mouse e' sopra i comandi
+let hudHideAt = 0
+let hudDragging = false
+let hudLayoutKey = ''
+let hudTicks = 0
+let paused = false               // "Pausa" dalla pillola: zitti e fermi
+let unread = 0                   // messaggi arrivati con la chat chiusa
 
-function createChatWindow() {
+function createHudWindow() {
+  hudWindow = new BrowserWindow({
+    width: 300, height: 320, show: false,
+    transparent: true, frame: false, resizable: false, hasShadow: false,
+    skipTaskbar: true, alwaysOnTop: true, focusable: false,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') },
+  })
+  hudWindow.loadFile(path.join(__dirname, '../renderer/hud.html'))
+  hudWindow.setAlwaysOnTop(true, 'screen-saver')
+  hudWindow.setIgnoreMouseEvents(true, { forward: true })
+}
+
+function sendHud(data) {
+  if (!hudWindow || hudWindow.isDestroyed()) return
+  try { hudWindow.webContents.send('hud-state', data) } catch (_) {}
+}
+
+function hudState(c) {
+  const voice = voiceConfig(loadConfig())
+  return {
+    name: (c.persona() || {}).name || c.personaId,
+    mood: c.publicMood(),
+    mic: { enabled: !!voice.micEnabled && !!voiceService && voiceService.sttInstalled(), listening: micBusy },
+    paused, unread,
+    // Il tasto della chat di gruppo c'e' solo con piu' companion sul desktop.
+    group: companions.length > 1,
+  }
+}
+
+const insideRect = (p, r) => !!r && p.x >= r.x && p.y >= r.y && p.x < r.x + r.width && p.y < r.y + r.height
+// Dove l'HUD non va: sbirciando, nella stanza, nascosto.
+const hudAllowed = (c) => !!c && c.alive() && c.win.isVisible() && c.viewMode === 'desktop' && !c.peekState()
+
+function placeHud(c) {
+  const b = c.bounds
+  const p = Companions.hudPlacement(b, screen.getDisplayMatching(b).workArea)
+  const cur = hudWindow.getBounds()
+  if (cur.x !== p.bounds.x || cur.y !== p.bounds.y || cur.width !== p.bounds.width || cur.height !== p.bounds.height) hudWindow.setBounds(p.bounds)
+  const key = JSON.stringify([p.avatar, p.pill])
+  if (key !== hudLayoutKey) { hudLayoutKey = key; sendHud({ layout: { avatar: p.avatar, pill: p.pill } }) }
+}
+
+function hideHud() {
+  if (!hudShown) return
+  hudShown = false
+  hudHot = false
+  sendHud({ shown: false })
+  // La pagina sfuma, poi la finestra sparisce e smette di prendere il mouse.
+  setTimeout(() => { if (!hudShown && hudWindow && !hudWindow.isDestroyed()) { hudWindow.hide(); hudWindow.setIgnoreMouseEvents(true, { forward: true }) } }, 200)
+}
+
+/** Ogni tick del cursore: a chi attaccarsi, dove stare, quando sparire. */
+function hudTick(cursor) {
+  if (!hudWindow || hudWindow.isDestroyed()) return
+  // La maniglia ha preso il companion: si posa quando si lascia il tasto.
+  if (hudDragging && hudFor && winWindows.available() && !winWindows.isKeyDown(0x01)) { hudDragging = false; hudFor.endDrag() }
+  const under = companions.find(c => hudAllowed(c) && insideRect(cursor, c.bounds))
+  let target = under || ((hudHot || hudDragging) && hudAllowed(hudFor) ? hudFor : null)
+  if (!target && prefs.hudPinned && hudAllowed(chatTarget())) target = chatTarget()
+  const now = Date.now()
+  if (target) {
+    hudHideAt = now + HUD_LINGER_MS
+    if (target !== hudFor || !hudShown) { hudFor = target; sendHud(hudState(target)) }
+    placeHud(target)
+    if (!hudShown) {
+      hudShown = true
+      hudWindow.showInactive()
+      hudWindow.moveTop()
+      sendHud({ shown: true })
+    }
+  } else if (hudShown) {
+    if (hudFor && hudAllowed(hudFor) && now < hudHideAt) placeHud(hudFor)
+    else hideHud()
+  }
+  if (hudShown && hudFor && ++hudTicks % HUD_STATE_EVERY === 0) sendHud(hudState(hudFor))
+}
+
+on('hud:capture', (_e, capture) => {
+  hudHot = capture === true
+  if (hudWindow && !hudWindow.isDestroyed()) hudWindow.setIgnoreMouseEvents(!hudHot, { forward: true })
+})
+
+on('hud:action', async (_e, cmd) => {
+  const c = hudFor
+  if (!c || !c.alive()) return
+  switch (cmd) {
+    case 'chat': await openChatWith(c); break          // la chat singola con lui
+    case 'group-chat': openGroupChat(); break           // la chat di gruppo
+    case 'mic': {
+      const v = voiceConfig(loadConfig())
+      if (!v.micEnabled || !voiceService || !voiceService.sttInstalled()) { openSettings('microfono'); break }
+      // Come un tocco breve della scorciatoia: apre, e il clic dopo chiude.
+      if (micHold) endMicHold('stop')
+      else {
+        const w = chatOf(c)
+        if (!v.enabled && w && !w.isVisible()) showChat(w, c)
+        if (w) lastChat = w
+        micHold = { started: Date.now(), toggle: true, poll: null }
+        sendMicCommand('start')
+      }
+      break
+    }
+    case 'pause':
+      paused = !paused
+      prefs.paused = paused
+      if (paused && voiceService) voiceService.stop()
+      console.log('[hud] ' + (paused ? 'in pausa' : 'ripresa'))
+      sendHud({ paused })
+      break
+    case 'people':
+      if (personas && hudWindow) Menu.buildFromTemplate(companionsMenu().submenu).popup({ window: hudWindow })
+      break
+    case 'settings': openSettings(); break
+    case 'room': c.setView('room'); hideHud(); break
+    case 'avatar': c.send('menu-command', { cmd: 'avatars' }); break
+    case 'hide': c.win.hide(); hideHud(); break
+    case 'drag': hudDragging = true; c.startDrag(); break
+  }
+})
+
+/** Un messaggio arrivato in una chat chiusa: il numero sulla pillola. */
+function countUnread(win) {
+  if (liveWin(win) && win.isVisible()) return
+  unread++
+  sendHud({ unread })
+}
+
+// ─── Finestre della chat (Blocco 9b) ─────────────────────────────────────────
+// Una finestra per ogni companion (la sua chat singola, che segue la sua
+// persona) e una per la chat di gruppo, finche' sul desktop ce ne sono almeno
+// due. Si possono tenere aperte insieme. Nascono nascoste, cosi' i messaggi
+// spontanei arrivati a chat chiusa ci sono quando la si apre.
+/** @type {Map<any, Electron.BrowserWindow>} companion -> la sua chat */
+const chatWins = new Map()
+let groupChatWindow = null
+let lastChat = null   // l'ultima chat mostrata o toccata: microfono, tray, scorciatoie
+
+const liveWin = (w) => !!w && !w.isDestroyed()
+const allChats = () => [...chatWins.values(), groupChatWindow].filter(liveWin)
+const chatOf = (c) => { const w = c && chatWins.get(c); return liveWin(w) ? w : null }
+const groupChat = () => (liveWin(groupChatWindow) ? groupChatWindow : null)
+/** Il companion di una finestra di chat singola (null per quella di gruppo). */
+function chatOwnerOf(event) {
+  const w = event && event.sender ? BrowserWindow.fromWebContents(event.sender) : null
+  for (const [c, cw] of chatWins) if (cw === w) return c
+  return null
+}
+/** La chat da usare quando non si sa quale: l'ultima mostrata, o quella della persona attiva. */
+const currentChat = () => (liveWin(lastChat) ? lastChat : chatOf(chatTarget()) || allChats()[0] || null)
+
+function createChatWindow(query) {
   const area = screen.getPrimaryDisplay().workArea
-
-  chatWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 380, height: 520,
     x: area.x + area.width - 420, y: area.y + area.height - 580,
     transparent: true,
@@ -609,16 +783,81 @@ function createChatWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   })
-
-  chatWindow.loadFile(path.join(__dirname, '../renderer/chat.html'))
-  chatWindow.setAlwaysOnTop(true, 'screen-saver')
+  win.loadFile(path.join(__dirname, '../renderer/chat.html'), { query })
+  win.setAlwaysOnTop(true, 'screen-saver')
   // Nella stanza la scena lascia alla chat il lato destro solo se si vede.
-  chatWindow.on('show', () => { const h = roomHost(); if (h) h.sendViewMode() })
-  chatWindow.on('hide', () => { const h = roomHost(); if (h) h.sendViewMode() })
+  win.on('show', () => {
+    lastChat = win
+    const h = roomHost()
+    if (h) h.sendViewMode()
+    // Aperta una chat, i messaggi sono letti.
+    if (unread) { unread = 0; sendHud({ unread }) }
+  })
+  win.on('focus', () => { lastChat = win })
+  win.on('hide', () => { const h = roomHost(); if (h) h.sendViewMode() })
+  if (process.argv.includes('--dev')) win.webContents.openDevTools({ mode: 'detach' })
+  return win
+}
 
-  if (process.argv.includes('--dev')) {
-    chatWindow.webContents.openDevTools({ mode: 'detach' })
+/** La chat singola di c, creata la prima volta. */
+function ensureChatFor(c) {
+  if (!chatOf(c)) chatWins.set(c, createChatWindow({ mode: 'single', persona: c.personaId }))
+  return chatOf(c)
+}
+/** La chat di gruppo, se ci sono almeno due companion. */
+function ensureGroupChat() {
+  if (companions.length < 2) return null
+  if (!groupChat()) groupChatWindow = createChatWindow({ mode: 'group' })
+  return groupChatWindow
+}
+function closeChatFor(c) {
+  const w = chatWins.get(c)
+  chatWins.delete(c)
+  if (lastChat === w) lastChat = null
+  if (liveWin(w)) w.destroy()
+  // Rimasto uno solo, il gruppo si chiude (la sua conversazione resta, se torna).
+  if (companions.length < 2 && groupChat() && groupChatWindow.isVisible()) groupChatWindow.hide()
+}
+
+/** Mostra una chat vicino a un companion (o agganciata nella stanza). */
+function showChat(win, near) {
+  if (!liveWin(win)) return
+  const host = roomHost()
+  if (host && win === chatOf(host)) {
+    // Nella stanza la chat del companion di casa ha il suo posto, a destra.
+    host.dockChat()
+  } else {
+    try {
+      // In alto a sinistra del companion, ma dentro lo schermo su cui si trova:
+      // con il companion vicino al bordo la chat finiva in parte fuori vista.
+      const c = near || chatTarget()
+      const pos = c && c.alive() ? c.win.getPosition() : [100, 100]
+      const area = c ? c.workArea() : screen.getPrimaryDisplay().workArea
+      const [w, h] = win.getSize()
+      const clampX = (v) => Math.max(area.x, Math.min(v, area.x + area.width - w))
+      let x = clampX(pos[0] - 210)
+      const y = Math.max(area.y, Math.min(pos[1] - 270, area.y + area.height - h))
+      // Due chat aperte insieme non si coprono: la nuova va di lato.
+      const others = allChats().filter(o => o !== win && o.isVisible()).map(o => o.getBounds())
+      const covers = (cx) => others.some(o => cx < o.x + o.width && o.x < cx + w && y < o.y + o.height && o.y < y + h)
+      if (covers(x)) x = [x - w - 10, x + w + 10].map(clampX).find(cx => !covers(cx)) ?? x
+      win.setPosition(Math.round(x), Math.round(y))
+    } catch (_) {}
   }
+  win.show()
+  win.focus()
+}
+
+/** Apre o chiude una chat (di base l'ultima usata). */
+function toggleChat(win = currentChat()) {
+  if (!liveWin(win)) return
+  if (win.isVisible()) win.hide()
+  else showChat(win, [...chatWins].find(([, w]) => w === win)?.[0])
+}
+
+/** Manda a ogni finestra di chat. */
+function sendAllChats(channel, data) {
+  for (const w of allChats()) try { w.webContents.send(channel, data) } catch (_) {}
 }
 
 // ─── Impostazioni ────────────────────────────────────────────────────────────
@@ -764,9 +1003,9 @@ function syncMicShortcut(voice) {
 }
 
 function sendMicCommand(cmd) {
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    try { chatWindow.webContents.send('mic-command', { cmd }) } catch (_) {}
-  }
+  // Il microfono registra nella chat usata per ultima.
+  const w = currentChat()
+  if (w) try { w.webContents.send('mic-command', { cmd }) } catch (_) {}
 }
 
 function onMicShortcut(vk) {
@@ -776,9 +1015,10 @@ function onMicShortcut(vk) {
     if (micHold.toggle) endMicHold('stop')
     return
   }
-  if (!chatWindow || chatWindow.isDestroyed()) return
+  const w = currentChat()
+  if (!w) return
   // Con la voce spenta la risposta si vede solo nella chat: la si apre.
-  if (!voiceConfig(loadConfig()).enabled && !chatWindow.isVisible()) toggleChat()
+  if (!voiceConfig(loadConfig()).enabled && !w.isVisible()) toggleChat(w)
   micHold = { started: Date.now(), toggle: !winWindows.available(), poll: null }
   sendMicCommand('start')
   if (micHold.toggle) return
@@ -828,7 +1068,8 @@ let speakingCompanion = null
 /** Legge ad alta voce una risposta del companion c, se la voce e' accesa. */
 function speakReply(c, text) {
   const voice = voiceFor(c)
-  if (!voice.enabled || !voiceService) return
+  // In pausa dalla pillola (Blocco 9b) nessuno parla.
+  if (!voice.enabled || !voiceService || paused) return
   speakingCompanion = c
   voiceService.speak(text, speakOptions(voice))
     .catch(e => console.error('[voce] ' + e.message))
@@ -884,34 +1125,6 @@ function buildTrayMenu() {
   ]))
 }
 
-// ─── Toggle Chat ─────────────────────────────────────────────────────────────
-
-function toggleChat() {
-  if (!chatWindow || chatWindow.isDestroyed()) return
-  if (chatWindow.isVisible()) {
-    chatWindow.hide()
-  } else if (roomHost()) {
-    // Nella stanza la chat ha il suo posto, a destra.
-    roomHost().dockChat()
-    chatWindow.show()
-    chatWindow.focus()
-  } else {
-    try {
-      // In alto a sinistra del companion, ma dentro lo schermo su cui si trova:
-      // con il companion vicino al bordo la chat finiva in parte fuori vista.
-      const c = chatTarget()
-      const pos = c && c.alive() ? c.win.getPosition() : [100, 100]
-      const area = c ? c.workArea() : screen.getPrimaryDisplay().workArea
-      const [w, h] = chatWindow.getSize()
-      const x = Math.max(area.x, Math.min(pos[0] - 210, area.x + area.width - w))
-      const y = Math.max(area.y, Math.min(pos[1] - 270, area.y + area.height - h))
-      chatWindow.setPosition(Math.round(x), Math.round(y))
-    } catch (_) {}
-    chatWindow.show()
-    chatWindow.focus()
-  }
-}
-
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
 // Ogni canale accetta messaggi solo dalle pagine di src/renderer/ (vedi
 // isTrustedSender in guards.js): gli handler salvano chiavi, leggono la memoria
@@ -937,7 +1150,38 @@ function on(channel, fn) {
   ipcMain.on(channel, (event, ...args) => { if (trusted(event, channel)) fn(event, ...args) })
 }
 
-on('toggle-chat', () => toggleChat())
+// toggle-chat: dal companion (doppio clic, barra della stanza) apre o chiude
+// la sua chat singola; da una finestra di chat (la X) apre o chiude quella.
+on('toggle-chat', (e) => {
+  const c = companionOf(e)
+  if (c) {
+    const w = chatOf(c)
+    if (w && w.isVisible()) w.hide()
+    else openChatWith(c).catch(err => console.error('[chat]', err.message))
+    return
+  }
+  const sender = e && e.sender ? BrowserWindow.fromWebContents(e.sender) : null
+  if (sender && allChats().includes(sender)) { toggleChat(sender); return }
+  toggleChat()
+})
+
+/**
+ * Apre la chat singola con c (Blocco 9b), nella sua finestra: diventa la
+ * persona attiva (quella delle Impostazioni e dell'umore in primo piano).
+ */
+async function openChatWith(c) {
+  if (personas && c.personaId !== personas.activeId) await switchPersona(c.personaId)
+  const w = ensureChatFor(c)
+  if (w && !w.isVisible()) showChat(w, c)
+  else if (w) w.focus()
+}
+
+/** Apre la chat di gruppo, nella sua finestra, con tutti quelli sul desktop. */
+function openGroupChat() {
+  const w = ensureGroupChat()
+  if (w && !w.isVisible()) showChat(w, chatTarget())
+  else if (w) w.focus()
+}
 
 // Config
 // Un companion vede come avatar quello della sua persona.
@@ -1003,10 +1247,10 @@ handle('ollama:open-page', (_e, which) => {
 // al modello arriva solo se l'utente la invia.
 const VISION_LONG_SIDE = 1568
 handle('vision:capture', async () => {
-  const anchor = dialogParent() || chatWindow
+  const anchor = dialogParent() || currentChat()
   if (!anchor || anchor.isDestroyed()) return { ok: false, error: 'Nessuna finestra' }
   const display = screen.getDisplayMatching(anchor.getBounds())
-  const wins = [...companions.map(c => c.win), chatWindow, settingsWindow].filter(w => w && !w.isDestroyed() && w.isVisible())
+  const wins = [...companions.map(c => c.win), ...allChats(), settingsWindow].filter(w => w && !w.isDestroyed() && w.isVisible())
   const scale = VISION_LONG_SIDE / Math.max(display.size.width, display.size.height)
   try {
     for (const w of wins) w.setOpacity(0)
@@ -1435,7 +1679,7 @@ async function replyFrom(c, { cfg, apiKey, history, group, others }) {
   }
 }
 
-handle('ai:send-message', async (_e, { history, image, to }) => {
+handle('ai:send-message', async (_e, { history, image, to, mode }) => {
   const cfg = loadConfig()
   const apiKey = cfg.keys?.[cfg.provider] || ''
   // Le risposte dei companion portano chi le ha dette (speaker): ognuno vede
@@ -1459,10 +1703,15 @@ handle('ai:send-message', async (_e, { history, image, to }) => {
   if (!present.length) return { ok: false, error: 'Nessun companion aperto.' }
   const open = present.map(c => ({ id: c.personaId, name: (c.persona() || {}).name || c.personaId }))
   const names = Object.fromEntries(open.map(o => [o.id, o.name]))
-  // Con un companion solo risponde quello della chat, come prima.
-  const ids = present.length === 1 ? [present[0].personaId]
+  // Due chat separate (Blocco 9b): quella singola con un companion, e quella
+  // di gruppo con tutti quelli sul desktop. Nella singola risponde e ricorda
+  // solo lui; nel gruppo risponde chi e' chiamato (group-chat.js) e sentono tutti.
+  const group = mode === 'group' && present.length > 1
+  const single = !group && (present.find(c => c.personaId === to) || chatTarget() || present[0])
+  const ids = single ? [single.personaId]
     : Group.pickResponders(last.content, open, { to: typeof to === 'string' ? to : null, last: lastSpeakerId || (chatTarget() || {}).personaId })
   const responders = ids.map(id => present.find(c => c.personaId === id)).filter(Boolean)
+  const hearers = single ? [single] : present
   const turnId = ++groupTurn
 
   // Un messaggio nuovo zittisce la risposta di prima, chiunque stesse parlando.
@@ -1474,7 +1723,7 @@ handle('ai:send-message', async (_e, { history, image, to }) => {
   lastChatAt = Date.now()
   // Tutti sentono il messaggio: memoria, e il giorno insieme per il rapporto.
   // Con una schermata il testo ha gia' "[immagine dello schermo]" (lo mette la chat).
-  for (const c of present) {
+  for (const c of hearers) {
     if (c.memory) await c.memory.addTurn(last.content, 'user').catch(() => {})
     c.updateRapport(r => Rapport.onDay(r))
   }
@@ -1491,7 +1740,7 @@ handle('ai:send-message', async (_e, { history, image, to }) => {
   const first = responders[0]
   let result
   try {
-    result = await replyFrom(first, { cfg, apiKey, history: historyOf(first), group: present.length > 1 ? groupFor(first) : '', others: present })
+    result = await replyFrom(first, { cfg, apiKey, history: historyOf(first), group: group ? groupFor(first) : '', others: hearers })
   } catch (err) {
     console.error('[Main] Errore in route():', err)
     return { ok: false, error: describeError(err, cfg.provider) }
@@ -1502,19 +1751,22 @@ handle('ai:send-message', async (_e, { history, image, to }) => {
   const second = responders[1]
   if (second && result?.reply) {
     const extra = [{ role: 'assistant', content: result.reply, speaker: first.personaId }]
-    replyFrom(second, { cfg, apiKey, history: historyOf(second, extra), group: groupFor(second, names[first.personaId]), others: present })
+    replyFrom(second, { cfg, apiKey, history: historyOf(second, extra), group: groupFor(second, names[first.personaId]), others: hearers })
       .then(async (r) => {
         if (!r || !r.reply || turnId !== groupTurn) return
         await waitForSpeech()
         if (turnId !== groupTurn) return
-        if (chatWindow && !chatWindow.isDestroyed()) {
-          try { chatWindow.webContents.send('group-reply', { ...r, personaId: second.personaId, name: names[second.personaId] }) } catch (_) {}
+        // La seconda risposta va dove e' stata la prima: chat di gruppo o singola.
+        const w = group ? groupChat() : chatOf(single)
+        if (w) {
+          try { w.webContents.send('group-reply', { ...r, personaId: second.personaId, name: names[second.personaId] }) } catch (_) {}
+          countUnread(w)
         }
         speakReply(second, r.reply)
       })
       .catch(err => console.error('[gruppo] seconda risposta non riuscita:', err.message))
   }
-  return { ok: true, result: { ...result, personaId: first.personaId, name: names[first.personaId] }, group: present.length > 1 }
+  return { ok: true, result: { ...result, personaId: first.personaId, name: names[first.personaId] }, group }
 })
 
 // Impostazioni e voce. Gli indirizzi dei file, gli hash e la cartella li
@@ -1589,6 +1841,7 @@ handle('mic:transcribe', async (_e, pcm) => {
 // Mentre ascolta il companion tace e lo dice con un fumetto.
 on('mic:state', (_e, state) => {
   micBusy = state === 'listening' || state === 'transcribing'
+  if (hudShown && hudFor) sendHud(hudState(hudFor))
   if (state === 'listening') {
     if (voiceService) voiceService.stop()
     const c = chatTarget()
@@ -1728,15 +1981,15 @@ handle('app:login-item:set', (_e, enabled) => {
 })
 
 // Memoria — esposizione al renderer
-// La memoria della chat e' quella del companion con cui parla.
-const chatMemory = () => { const c = chatTarget(); return c ? c.memory : null }
-handle('memory:stats', () => {
-  const mm = chatMemory()
+// La memoria di una chat singola e' quella del suo companion.
+const chatMemory = (e) => { const c = chatOwnerOf(e) || chatTarget(); return c ? c.memory : null }
+handle('memory:stats', (e) => {
+  const mm = chatMemory(e)
   return mm ? mm.getStats() : { error: 'memory not initialized' }
 })
 
-handle('memory:get-context', async () => {
-  const mm = chatMemory()
+handle('memory:get-context', async (e) => {
+  const mm = chatMemory(e)
   return mm ? await mm.getContext() : []
 })
 
@@ -1777,12 +2030,12 @@ handle('memory:edit', async (_e, input) => {
 
 // L'umore di chi chiede: un companion il suo, la chat quello con cui parla.
 handle('mood:get', (e) => {
-  const c = companionOf(e) || chatTarget()
+  const c = companionOf(e) || chatOwnerOf(e) || chatTarget()
   return c ? c.publicMood() : null
 })
 
-handle('memory:compact-now', async () => {
-  const mm = chatMemory()
+handle('memory:compact-now', async (e) => {
+  const mm = chatMemory(e)
   if (!mm) return { ok: false, error: 'memory not initialized' }
   try {
     // A mano si riassume tutto tranne gli ultimi turni, di qualunque eta':
@@ -1794,8 +2047,8 @@ handle('memory:compact-now', async () => {
   }
 })
 
-handle('memory:clear', async () => {
-  const c = chatTarget()
+handle('memory:clear', async (e) => {
+  const c = chatOwnerOf(e) || chatTarget()
   if (!c || !c.memory) return { ok: false, error: 'memory not initialized' }
   try {
     // Dimenticare tutto vale anche per come si sentiva, per il rapporto e il diario.
@@ -1996,9 +2249,9 @@ function initiativeTick() {
   // Rientro: prima via per almeno AWAY_MS, poi di nuovo al PC.
   if (systemIdleMs >= Initiative.RULES.AWAY_MS) awaySeen = true
   else if (awaySeen && systemIdleMs < Initiative.RULES.PRESENT_MS) { awaySeen = false; returnedAt = now }
-  if (initiativeBusy || exchanging) return
+  if (initiativeBusy || exchanging || paused) return
   const returned = returnedAt > 0 && now - returnedAt < RETURN_VALID_MS
-  const typing = !!(chatWindow && !chatWindow.isDestroyed() && chatWindow.isFocused())
+  const typing = allChats().some(w => w.isFocused())
   const enabled = loadConfig().initiative
   // In ordine sparso, cosi' non parla sempre lo stesso; uno per controllo.
   // Anche gli ospiti della stanza (finestra nascosta, ma presenti).
@@ -2059,8 +2312,12 @@ async function speakFirst(c, kind, peer = null, said = null) {
     const anim = result.action && INITIATIVE_ANIMS.includes(result.action.animation) ? result.action.animation : 'wave'
     c.endPeek('message')
     c.animate({ type: 'none', animation: anim, bubble: reply.length > 140 ? reply.slice(0, 139) + '…' : reply })
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      try { chatWindow.webContents.send('companion-initiative', { reply, personaId: c.personaId, name }) } catch (_) {}
+    // I commenti fra companion vanno nella chat di gruppo, il resto in quella singola.
+    const between = (kind === 'peer' || kind === 'peer-reply' || kind === 'hello') && companions.length > 1
+    const target = between ? ensureGroupChat() : ensureChatFor(c)
+    if (target) {
+      try { target.webContents.send('companion-initiative', { reply, personaId: c.personaId, name, kind }) } catch (_) {}
+      countUnread(target)
     }
     lastSpeakerId = c.personaId
     if (cfg.initiativeVoice) speakReply(c, reply)
@@ -2158,11 +2415,13 @@ function startCursorFeed() {
   if (cursorTimer) clearInterval(cursorTimer)
   cursorTimer = setInterval(() => {
     if (!companions.length) return
-    const cursor = screen.getCursorScreenPoint()
+    // Il cursore finto dell'audit (test:peek) vale anche per sguardo e HUD.
+    const cursor = testCursor || screen.getCursorScreenPoint()
     // Chi ascolta guarda chi sta parlando (Blocco 8d).
     const speaker = speakingCompanion && speakingCompanion.alive() && speakingCompanion.win.isVisible() && Date.now() < speechEndsAt ? speakingCompanion : null
     const head = speaker && speaker.viewMode === 'desktop' ? Companions.headPoint(speaker.bounds) : null
     for (const c of companions) c.cursorTick(cursor, head && c !== speaker && c.viewMode === 'desktop' ? head : null)
+    hudTick(cursor)
   }, CURSOR_TICK_MS)
   if (cursorTimer.unref) cursorTimer.unref()
 }
@@ -2357,6 +2616,7 @@ function applyWindowOptions(cfg) {
   prefs.touch = cfg.touchReactions !== false
   prefs.followMouse = cfg.followMouse !== false
   prefs.perch = cfg.perch !== false
+  prefs.hudPinned = cfg.hudPinned === true
   applyDance(cfg)
   // Spento Kimodo, la memoria video si libera subito.
   if (!cfg.kimodo && kimodo) kimodo.stop()
@@ -2366,9 +2626,7 @@ function applyWindowOptions(cfg) {
 /** Manda la config a chat e Impostazioni: intestazione, pulsante del microfono, interruttori. */
 function sendChatConfig(cfg) {
   const pub = publicConfig(cfg)
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    try { chatWindow.webContents.send('config-changed', pub) } catch (_) {}
-  }
+  sendAllChats('config-changed', pub)
   sendSettings('config-changed', pub)
 }
 
@@ -2619,7 +2877,8 @@ if (!isPrimaryInstance) {
 } else {
   app.on('second-instance', () => {
     for (const c of companions) if (c.alive()) c.win.show()
-    if (chatWindow && !chatWindow.isDestroyed() && !chatWindow.isVisible()) toggleChat()
+    const w = currentChat()
+    if (w && !w.isVisible()) toggleChat(w)
   })
 }
 
@@ -2773,7 +3032,8 @@ app.whenReady().then(() => {
   const toOpen = Companions.cleanOpen(loadConfig().openPersonas, known, personas.activeId)
   if (!toOpen.includes(personas.activeId)) toOpen.splice(Companions.MAX_OPEN - 1, 1, personas.activeId)
   for (const id of toOpen) openCompanion(id)
-  createChatWindow()
+  ensureGroupChat()
+  createHudWindow()
   createTray()
   startIdleLife()
   startInitiative()
@@ -2797,6 +3057,6 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     if (!companions.some(c => c.alive()) && personas) { companions.length = 0; openCompanion(personas.activeId) }
-    if (!chatWindow || chatWindow.isDestroyed()) createChatWindow()
+    for (const c of companions) ensureChatFor(c)
   }
 })

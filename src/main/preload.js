@@ -162,6 +162,20 @@ contextBridge.exposeInMainWorld('companion', {
     ipcRenderer.on('companion-initiative', handler)
     return () => ipcRenderer.removeListener('companion-initiative', handler)
   },
+  // L'HUD attorno al companion (Blocco 9b).
+  hudAction:  (cmd) => ipcRenderer.send('hud:action', String(cmd || '')),
+  hudCapture: (on)  => ipcRenderer.send('hud:capture', on === true),
+  onHudState: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('hud-state', handler)
+    return () => ipcRenderer.removeListener('hud-state', handler)
+  },
+  // Quale chat mostrare: singola con un companion, o di gruppo (Blocco 9b).
+  onChatMode: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('chat-mode', handler)
+    return () => ipcRenderer.removeListener('chat-mode', handler)
+  },
   // La seconda risposta nella chat di gruppo (Blocco 8c).
   onGroupReply: (cb) => {
     const handler = (_e, data) => cb(data)

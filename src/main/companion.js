@@ -121,9 +121,9 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   function broadcastMood() {
     const data = { ...moodLib.publicMood(mood), rapport: Rapport.publicRapport(rapport) }
     send('mood-changed', data)
-    // La chat mostra l'umore di chi le sta parlando.
-    const chat = ctx.chat()
-    if (chat && ctx.isChatTarget(c)) try { chat.webContents.send('mood-changed', data) } catch (_) {}
+    // La sua chat singola mostra il suo umore.
+    const chat = ctx.chatOf(c)
+    if (chat) try { chat.webContents.send('mood-changed', data) } catch (_) {}
   }
 
   /** Applica una trasformazione pura all'umore, poi salva e avvisa. */
@@ -479,11 +479,10 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
 
   function idleTick() {
     // Seduto su una finestra resta seduto: i gesti a riposo sono pose in piedi.
-    if (!ctx.prefs.idleLife || awaitingReply || walkTimer || drag || perch || peek || dancingNow || highFiveActive || Date.now() < requestedPoseUntil) return
+    if (!ctx.prefs.idleLife || ctx.prefs.paused || awaitingReply || walkTimer || drag || perch || peek || dancingNow || highFiveActive || Date.now() < requestedPoseUntil) return
     if (!alive() || !win.isVisible()) return
     // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
-    const chat = ctx.chat()
-    if (chat && chat.isFocused()) { markActivity(); return }
+    if (ctx.chatFocused()) { markActivity(); return }
     const now = Date.now()
     const decision = decideIdle({
       quietMs: now - lastActivityAt,
@@ -934,13 +933,13 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
 
   /** Dice alla pagina la modalita' e quanto spazio a destra occupa la chat. */
   function sendViewMode() {
-    const chat = ctx.chat()
+    const chat = ctx.chatOf(c)
     const chatShown = !!chat && chat.isVisible()
     send('view-mode', { mode: viewMode, chatInset: viewMode === 'room' && chatShown ? room.CHAT_INSET : 0, maximized: !!roomRestore })
   }
 
   function dockChat() {
-    const chat = ctx.chat()
+    const chat = ctx.chatOf(c)
     if (!isRoomWindow() || !chat) return
     try { chat.setBounds(room.chatDock(win.getBounds())) } catch (_) {}
   }
@@ -991,7 +990,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     win.setBounds(bounds)
     win.show()
     win.focus()
-    const chat = ctx.chat()
+    const chat = ctx.chatOf(c)
     if (chat) {
       chatDesktopBounds = chat.getBounds()
       // Figlia della stanza: le sta davanti, sparisce quando la stanza si
@@ -1022,7 +1021,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     win.setSkipTaskbar(true)
     win.setIgnoreMouseEvents(true, { forward: true })
     if (cfg.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver')
-    const chat = ctx.chat()
+    const chat = ctx.chatOf(c)
     if (chat) {
       chat.setParentWindow(null)
       chat.setAlwaysOnTop(true, 'screen-saver')

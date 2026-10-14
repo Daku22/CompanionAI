@@ -1235,11 +1235,24 @@ try {
   const rects = []
   for (const t of pages) {
     const p = await connect(t)
-    rects.push(await p.evaluate('({ x: window.screenX, y: window.screenY, width: window.outerWidth, height: window.outerHeight })'))
+    rects.push({ ...(await p.evaluate('({ x: window.screenX, y: window.screenY, width: window.outerWidth, height: window.outerHeight })')), first: t.url.includes('slot=0') })
   }
   const apart = rects.length === 2 && !(rects[0].x < rects[1].x + rects[1].width && rects[1].x < rects[0].x + rects[0].width &&
     rects[0].y < rects[1].y + rects[1].height && rects[1].y < rects[0].y + rects[0].height)
   check(!!(opened && opened.ok && opened.personas.open.length === 2 && apart), 'due companion sul desktop, uno accanto all\'altro: ' + JSON.stringify(rects))
+  // La chat di gruppo ha la sua finestra (Blocco 9b), separata da quelle
+  // singole: i controlli del gruppo la usano, poi si torna alla chat di prima.
+  const pageOf = async (match) => {
+    for (let i = 0; i < 40; i++) {
+      const t = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find(x => x.url.includes(match))
+      if (t) return connect(t)
+      await sleep(250)
+    }
+    return null
+  }
+  const singleChat = chat
+  const groupChatPage = await pageOf('mode=group')
+  chat = groupChatPage
   // Arrivato, il nuovo saluta e uno degli altri gli risponde (Blocco 8d).
   let hello = []
   for (let i = 0; i < 80 && hello.length < 2; i++) {
@@ -1259,6 +1272,7 @@ try {
   await sleep(500)
   const peerWho = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant')].slice(${beforePeer}).map(m => m.querySelector('.who')?.textContent || '')`)
   check(peered === true && peerWho.length === 2 && peerWho[0] !== peerWho[1], 'si commentano: ' + JSON.stringify(peerWho))
+  chat = singleChat
   // Tutti nella stanza (Blocco 8e): l'altro entra come ospite nella scena, e
   // tornando sul desktop riprende la sua finestra.
   await comp.evaluate(`window.companion.setView('room'); true`)
@@ -1271,6 +1285,47 @@ try {
   const afterRoom = await comp.evaluate('window.__companion3DTest.guests()')
   check(guestList.length === 1 && guestList[0].loaded && guestList[0].name === 'Prova Audit' && afterRoom.length === 0,
     'tutti nella stanza: ospite ' + JSON.stringify(guestList) + ', poi di nuovo sul desktop')
+  // HUD (Blocco 9b): il mouse sopra il secondo companion, la barra compare
+  // attorno a lui; "chat" sulla pillola apre la chat con lui.
+  {
+    const second = rects.find(r => !r.first)
+    await comp.evaluate(`window.companion.testPeek({ cursor: { x: ${second.x + second.width / 2}, y: ${second.y + second.height / 2} } })`)
+    const hudTarget = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find(t => t.url.includes('hud.html'))
+    const hud = hudTarget && await connect(hudTarget)
+    let hs = null
+    for (let i = 0; i < 30 && !(hs && hs.shown && hs.name); i++) {
+      await sleep(200)
+      hs = hud && await hud.evaluate(`({ shown: document.body.classList.contains('shown'), name: document.getElementById('name').textContent,
+        x: window.screenX, w: window.outerWidth, rings: getComputedStyle(document.getElementById('r-energy')).getPropertyValue('--value') })`)
+    }
+    const around = hs && hs.x <= second.x && hs.x + hs.w >= second.x + second.width
+    // La foto dell'HUD su uno sfondo caldo (la finestra e' trasparente).
+    await hud.evaluate(`document.documentElement.style.background = 'radial-gradient(120% 90% at 30% 10%, #4a3a2c, #1e1915 60%, #121012)'; true`)
+    await sleep(300)
+    const hudShot = await hud.send('Page.captureScreenshot', { format: 'png' })
+    fs.writeFileSync(path.join(OUT, '9b-hud-pagina.png'), Buffer.from(hudShot.result.data, 'base64'))
+    await hud.evaluate(`document.documentElement.style.background = ''; true`)
+    const groupButton = await hud.evaluate(`!document.getElementById('b-group').hidden`)
+    await hud.evaluate(`document.querySelector('#cap-right [data-cmd="chat"]').click(); true`)
+    await sleep(800)
+    // La chat singola di Prova Audit e' una finestra sua.
+    const ownChat = await pageOf('persona=' + auditId)
+    const chatOpen = ownChat && await ownChat.evaluate('document.visibilityState')
+    const title = ownChat && await ownChat.evaluate(`document.querySelector('#header-info h1').textContent`)
+    await shot('9b-hud')
+    await comp.evaluate('window.companion.testPeek({ cursor: null })')
+    check(!!(hs && hs.shown && hs.name === 'Prova Audit' && around && hs.rings && chatOpen === 'visible' && title === 'Prova Audit' && groupButton),
+      'HUD attorno al companion sotto il mouse: ' + JSON.stringify(hs) + ', chat singola ' + chatOpen + ' (' + title + '), tasto del gruppo ' + groupButton)
+    // Finestre separate: la chat singola di Prova Audit e' vuota, quella di
+    // gruppo ha i suoi messaggi, e restano aperte insieme; mai "Ora parli con".
+    await groupChatPage.evaluate('window.companion.toggleChat(); true').catch(() => {})
+    const singleCount = await ownChat.evaluate(`document.querySelectorAll('.msg.assistant').length`)
+    const groupCount = await groupChatPage.evaluate(`document.querySelectorAll('.msg.assistant .who').length`)
+    const noSwitchNote = !(await groupChatPage.evaluate(`[...document.querySelectorAll('.msg.system')].some(m => /Ora parli con/.test(m.textContent))`))
+    const chatPages = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(t => t.url.includes('chat.html')).length
+    check(singleCount === 0 && groupCount >= 4 && noSwitchNote && chatPages === 3,
+      'chat in finestre separate: ' + chatPages + ' finestre, singola ' + singleCount + ', gruppo ' + groupCount + ' risposte')
+  }
   const closed = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'close', id: '${auditId}' })`)
   await sleep(500)
   const left = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(t => t.url.includes('companion.html'))

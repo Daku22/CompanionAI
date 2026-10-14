@@ -99,6 +99,9 @@
     }
     #drag-zone:active { cursor: grabbing; }
     /* I pulsanti compaiono solo con il mouse sull'avatar o su di loro. */
+    /* I due tasti sull'avatar sono passati all'HUD (Blocco 9b): restano nella
+       pagina, nascosti, perche' il menu degli avatar si apre ancora da qui. */
+    #click-zone, #switch-zone { display: none !important; }
     #click-zone, #switch-zone { opacity: 0; transform: scale(0.9); }
     body.hover-avatar #click-zone, body.hover-avatar #switch-zone, body.menu-open #switch-zone { opacity: 1; transform: scale(1); }
     /* Chat (destra) e avatar (sinistra): vetro scuro, icona disegnata. */

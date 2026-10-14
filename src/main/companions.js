@@ -81,4 +81,26 @@ function nudgeAside(me, others, area, gap = 12) {
 /** Dove guardare un altro companion: piu' o meno la sua testa. */
 const headPoint = (r) => ({ x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height * 0.22) })
 
-module.exports = { MAX_OPEN, cleanOpen, freeSpot, overlaps, onSomeArea, blockedWalk, nudgeAside, headPoint }
+// L'HUD attorno al companion (Blocco 9b): capsule ai lati, pillola sotto.
+const HUD = { CAPSULE_W: 50, PILL_W: 300, PILL_H: 48, GAP: 8 }
+
+/**
+ * Dove mettere la finestra dell'HUD: larga quanto il companion piu' le due
+ * capsule (o quanto la pillola), alta quanto lui piu' la pillola, che va
+ * sotto o, se sotto non c'e' spazio (seduto sulla taskbar), sopra. Dentro
+ * l'area di lavoro; avatar e' dove sta il companion dentro l'HUD.
+ * @param {{ x: number, y: number, width: number, height: number }} av il companion
+ * @param {{ x: number, y: number, width: number, height: number }} area
+ */
+function hudPlacement(av, area) {
+  const width = Math.max(av.width + 2 * (HUD.CAPSULE_W + HUD.GAP), HUD.PILL_W)
+  const height = av.height + HUD.PILL_H + HUD.GAP
+  const pill = av.y + av.height + HUD.GAP + HUD.PILL_H <= area.y + area.height ? 'below' : 'above'
+  const wantX = Math.round(av.x + av.width / 2 - width / 2)
+  const wantY = pill === 'below' ? av.y : av.y - HUD.PILL_H - HUD.GAP
+  const x = Math.max(area.x, Math.min(wantX, area.x + area.width - width))
+  const y = Math.max(area.y, Math.min(wantY, area.y + area.height - height))
+  return { bounds: { x, y, width, height }, avatar: { x: av.x - x, y: av.y - y, width: av.width, height: av.height }, pill }
+}
+
+module.exports = { MAX_OPEN, cleanOpen, freeSpot, overlaps, onSomeArea, blockedWalk, nudgeAside, headPoint, HUD, hudPlacement }

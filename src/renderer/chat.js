@@ -3,7 +3,26 @@ const api = window.companion
 
 // ── State ───────────────────────────────────────────────────────────────────
 let config = {}
-let conversationHistory = []
+
+// ── Conversazioni (Blocco 9b) ───────────────────────────────────────────────
+// Una per ogni companion (la chat singola: 'p:<id>') e una di gruppo
+// ('group'), ognuna con la sua cronologia e i suoi messaggi; a schermo c'e'
+// quella corrente. Le risposte che arrivano tardi vanno nella loro, anche se
+// nel frattempo l'utente e' passato a un'altra.
+const conversations = new Map()
+let currentKey = null
+const singleKey = (id) => 'p:' + id
+const isGroupKey = (key) => key === 'group'
+function conv(key = currentKey) {
+  if (!conversations.has(key)) conversations.set(key, { history: [], items: [] })
+  return conversations.get(key)
+}
+function pushHistory(key, entry) {
+  const c = conv(key)
+  c.history.push(entry)
+  // Cap history: ultime 40 voci per evitare payload enormi / 400 provider
+  if (c.history.length > 40) c.history = c.history.slice(-40)
+}
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 const setupOverlay   = document.getElementById('setup-overlay')
@@ -40,6 +59,12 @@ async function init() {
   }
 
   providerForm.load(config)
+  // Quale chat e' questa finestra (Blocco 9b): quella di gruppo, o quella
+  // singola di un companion, dall'indirizzo che le ha dato il main.
+  const params = new URLSearchParams(location.search)
+  currentKey = params.get('mode') === 'group' ? 'group' : singleKey(params.get('persona') || (config.persona ? config.persona.id : 'default'))
+  document.body.classList.toggle('group-chat', isGroupKey(currentKey))
+  if (isGroupKey(currentKey)) document.getElementById('welcome')?.remove()
   updateBadge()
   updateMemoryFooter()
   showMicButton()
@@ -63,11 +88,10 @@ function showSetup() {
 // configurazione si chiude da sola.
 if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
   if (!cfg) return
-  // Un'altra persona: la conversazione a schermo era dell'altra (Blocco 6a).
-  const switched = config.persona && cfg.persona && config.persona.id !== cfg.persona.id
+  // Ogni finestra resta la sua chat: cambia solo se il suo companion passa a
+  // un'altra persona (chat-mode dal main).
   config = { ...config, ...cfg }
   updateBadge()
-  if (switched) { resetChatView('Ora parli con ' + cfg.persona.name + '.'); updateMemoryFooter() }
   if (isConfigured() && !setupOverlay.classList.contains('hidden')) {
     setupOverlay.classList.add('hidden')
     inputEl.focus()
@@ -118,9 +142,13 @@ compactBtn.addEventListener('click', async () => {
 
 const headerTitle = document.querySelector('#header-info h1')
 function updateBadge() {
-  const group = (config.companions || []).length > 1
-  if (group) headerTitle.textContent = config.companions.map(c => c.name).join(' · ')
-  else if (config.persona) headerTitle.textContent = config.persona.name
+  const list = config.companions || []
+  if (isGroupKey(currentKey)) headerTitle.textContent = list.map(c => c.name).join(' · ')
+  else {
+    const id = currentKey ? currentKey.slice(2) : null
+    const one = list.find(c => c.id === id)
+    headerTitle.textContent = one ? one.name : config.persona ? config.persona.name : 'Companion'
+  }
   renderGroupBar()
   const p = (config.providers || {})[config.provider]
   providerBadge.textContent = p ? `${p.name} · ${providerForm.labelOf(config.provider, config.model) || config.model}` : '—'
@@ -141,23 +169,53 @@ closeBtn.addEventListener('click',    () => api.toggleChat())
 settingsBtn.addEventListener('click', () => api.openSettings('modello'))
 
 // ── Chat vuota: i suggerimenti scrivono nel campo, l'invio resta a te ───────
-for (const chip of document.querySelectorAll('.welcome .chip')) {
-  chip.addEventListener('click', () => {
-    inputEl.value = chip.textContent
-    inputEl.dispatchEvent(new Event('input'))
-    inputEl.focus()
-    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
-  })
-}
+// Il benvenuto si ricrea per ogni conversazione vuota: i clic si ascoltano qui.
+const welcomeTemplate = document.getElementById('welcome') ? document.getElementById('welcome').cloneNode(true) : null
+messagesEl.addEventListener('click', (e) => {
+  const chip = e.target.closest('.welcome .chip')
+  if (!chip) return
+  inputEl.value = chip.textContent
+  inputEl.dispatchEvent(new Event('input'))
+  inputEl.focus()
+  inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
+})
 let typingEl = document.getElementById('typing')
-function resetChatView(notice) {
-  conversationHistory = []
+
+/** Ridisegna la conversazione corrente: i suoi messaggi, o il benvenuto. */
+function renderConversation() {
   // Preserva il nodo typing: innerHTML lo distruggerebbe e i messaggi dopo il clear fallirebbero
-  const typing = document.getElementById('typing')
+  const typing = document.getElementById('typing') || typingEl
   messagesEl.innerHTML = ''
-  addMessage('system', notice)
+  const items = conv().items
+  if (!items.length && welcomeTemplate && !isGroupKey(currentKey)) messagesEl.appendChild(welcomeTemplate.cloneNode(true))
+  for (const it of items) messagesEl.appendChild(messageEl(it))
   if (typing) messagesEl.appendChild(typing)
   typingEl = document.getElementById('typing')
+  messagesEl.scrollTop = messagesEl.scrollHeight
+}
+
+/**
+ * Chat singola con un companion, o di gruppo. La conversazione di ciascuna
+ * resta com'era; nel gruppo nessun messaggio "Ora parli con".
+ */
+function setChatMode(data) {
+  const key = data && data.mode === 'group' ? 'group' : singleKey(data && data.personaId ? data.personaId : config.persona ? config.persona.id : 'default')
+  if (key === currentKey) return
+  currentKey = key
+  groupTo = null
+  renderConversation()
+  updateBadge()
+  setTyping(sending && sendingKey === currentKey)
+}
+if (api && api.onChatMode) api.onChatMode(setChatMode)
+
+function resetChatView(notice) {
+  const c = conv()
+  c.history = []
+  c.items = []
+  renderConversation()
+  document.getElementById('welcome')?.remove()
+  if (notice) addMessage('system', notice)
   setTyping(false)
   inputEl.focus()
 }
@@ -202,7 +260,7 @@ forgetBtn.addEventListener('click', async () => {
 // manda il messaggio solo a lui. Ogni risposta porta il nome di chi parla.
 const groupBar = document.getElementById('group-bar')
 let groupTo = null
-const isGroup = () => (config.companions || []).length > 1
+const isGroup = () => isGroupKey(currentKey)
 /** Un colore per nome, sempre lo stesso. */
 function hueOf(name) {
   let h = 0
@@ -211,8 +269,10 @@ function hueOf(name) {
 }
 function renderGroupBar() {
   const list = config.companions || []
-  groupBar.classList.toggle('hidden', list.length < 2)
-  if (list.length < 2) { groupTo = null; groupBar.replaceChildren(); return }
+  // Le pastiglie solo nella chat di gruppo.
+  const show = isGroup() && list.length > 1
+  groupBar.classList.toggle('hidden', !show)
+  if (!show) { groupTo = null; groupBar.replaceChildren(); return }
   if (groupTo && !list.some(c => c.id === groupTo)) groupTo = null
   const chip = (id, label, title) => {
     const b = document.createElement('button')
@@ -234,12 +294,11 @@ function renderGroupBar() {
 }
 
 // ── Messages ─────────────────────────────────────────────────────────────────
-function addMessage(role, text, who) {
-  // Il benvenuto lascia il posto alla conversazione appena scrivi.
-  if (role === 'user') document.getElementById('welcome')?.remove()
+/** Il fumetto di un messaggio; nel gruppo, con nome e colore di chi parla. */
+function messageEl({ role, text, who, group }) {
   const el = document.createElement('div')
   el.className = `msg ${role}`
-  if (who && isGroup()) {
+  if (who && group) {
     const tag = document.createElement('span')
     tag.className = 'who'
     tag.style.setProperty('--hue', String(hueOf(who)))
@@ -247,6 +306,17 @@ function addMessage(role, text, who) {
     el.append(tag)
   }
   el.append(text)
+  return el
+}
+
+/** Un messaggio nella conversazione key (di base quella a schermo). */
+function addMessage(role, text, who, key = currentKey) {
+  const item = { role, text: String(text == null ? '' : text), who, group: isGroupKey(key) }
+  conv(key).items.push(item)
+  if (key !== currentKey) return
+  // Il benvenuto lascia il posto alla conversazione appena scrivi.
+  if (role === 'user') document.getElementById('welcome')?.remove()
+  const el = messageEl(item)
   const typing = document.getElementById('typing')
   if (typing && typing.parentNode === messagesEl) messagesEl.insertBefore(el, typing)
   else messagesEl.appendChild(el)
@@ -274,6 +344,7 @@ sendBtn.addEventListener('click', sendMessage)
 
 // ── Send ─────────────────────────────────────────────────────────────────────
 let sending = false
+let sendingKey = null
 const warnedModels = new Set()
 /** @param {string} [spoken] il testo detto nel microfono, al posto di quello scritto */
 // ── Guarda lo schermo (Blocco 7b) ───────────────────────────────────────────
@@ -325,27 +396,30 @@ async function sendMessage(spoken) {
     inputEl.style.height = 'auto'
   }
 
+  // La risposta torna in questa conversazione, anche se nel frattempo si cambia.
+  const key = currentKey
+  const group = isGroupKey(key)
+  const to = group ? groupTo : key.slice(2)
   addMessage('user', image ? text + ' 🖼' : text)
   setAttachment(null)
   // Nella conversazione resta il testo: la schermata va solo con questo messaggio.
-  conversationHistory.push({ role: 'user', content: (image ? text + ' [immagine dello schermo]' : text).slice(0, 8000) })
-  // Cap history: ultime 40 voci per evitare payload enormi / 400 provider
-  if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
+  pushHistory(key, { role: 'user', content: (image ? text + ' [immagine dello schermo]' : text).slice(0, 8000) })
 
   sending = true
+  sendingKey = key
   setTyping(true)
 
   // Animazione "think" immediata sul companion (quello scelto, nel gruppo)
-  try { api.executeAction({ type: 'none', animation: 'think' }, groupTo || undefined) } catch (_) {}
+  try { api.executeAction({ type: 'none', animation: 'think' }, to || undefined) } catch (_) {}
 
   let resp
   try {
-    const payload = { history: conversationHistory, ...(image ? { image } : {}), ...(groupTo ? { to: groupTo } : {}) }
+    const payload = { history: conv(key).history, mode: group ? 'group' : 'single', ...(image ? { image } : {}), ...(to ? { to } : {}) }
     resp = await api.sendMessage(payload)
   } catch (e) {
     setTyping(false)
     sending = false
-    addMessage('error', `Errore IPC: ${e.message || e}`)
+    addMessage('error', `Errore IPC: ${e.message || e}`, null, key)
     try { api.executeAction({ type: 'none', animation: 'idle' }) } catch (_) {}
     return
   }
@@ -355,31 +429,30 @@ async function sendMessage(spoken) {
 
   const { ok, result, error } = resp || {}
   if (!ok) {
-    addMessage('error', `Errore: ${error || 'risposta vuota'}`)
+    addMessage('error', `Errore: ${error || 'risposta vuota'}`, null, key)
     try { api.executeAction({ type: 'none', animation: 'idle' }) } catch (_) {}
     return
   }
 
-  showReply(result)
+  showReply(result, key)
   // Il modello ha risposto fuori formato: l'azione e' andata persa. Lo si dice
   // una volta per modello, altrimenti sembra che l'avatar ignori le richieste.
   if (result.via === 'fallback' && !warnedModels.has(config.model)) {
     warnedModels.add(config.model)
-    addMessage('system', 'Questo modello non ha risposto nel formato del companion, quindi niente animazione. Se succede spesso, scegline un altro nelle impostazioni (⚙).')
+    addMessage('system', 'Questo modello non ha risposto nel formato del companion, quindi niente animazione. Se succede spesso, scegline un altro nelle impostazioni (⚙).', null, key)
   }
 
   runAction(result.action, result.personaId)
 }
 
-/** Una risposta nella conversazione: chi l'ha detta, lo strumento usato, gli avvisi. */
-function showReply(result) {
-  conversationHistory.push({ role: 'assistant', content: (result.reply || '').slice(0, 8000), ...(result.personaId ? { speaker: result.personaId } : {}) })
-  if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
+/** Una risposta nella conversazione key: chi l'ha detta, lo strumento usato, gli avvisi. */
+function showReply(result, key = currentKey) {
+  pushHistory(key, { role: 'assistant', content: (result.reply || '').slice(0, 8000), ...(result.personaId ? { speaker: result.personaId } : {}) })
   // Lo strumento usato per rispondere, prima della risposta (Blocco 7f).
-  if (result.toolNote) addMessage('system', result.toolNote)
-  addMessage('assistant', result.reply, result.name)
+  if (result.toolNote) addMessage('system', result.toolNote, null, key)
+  addMessage('assistant', result.reply, result.name, key)
   // Uno strumento MCP annullato o rifiutato (Blocco 7f).
-  if (result.notice) addMessage('system', result.notice)
+  if (result.notice) addMessage('system', result.notice, null, key)
   updateMemoryFooter().catch(() => {})
 }
 
@@ -405,7 +478,7 @@ function runAction(action, personaId) {
 // La seconda risposta nella chat di gruppo: arriva quando il primo ha finito.
 if (api && api.onGroupReply) api.onGroupReply((data) => {
   if (!data || typeof data.reply !== 'string' || !data.reply) return
-  showReply(data)
+  showReply(data, 'group')
   runAction(data.action, data.personaId)
 })
 
@@ -415,9 +488,12 @@ if (api && api.onGroupReply) api.onGroupReply((data) => {
 if (api && api.onInitiative) api.onInitiative((data) => {
   const reply = data && typeof data.reply === 'string' ? data.reply : ''
   if (!reply) return
-  conversationHistory.push({ role: 'assistant', content: reply.slice(0, 8000), ...(data.personaId ? { speaker: data.personaId } : {}) })
-  if (conversationHistory.length > 40) conversationHistory = conversationHistory.slice(-40)
-  addMessage('assistant', reply, data.name)
+  // I commenti fra companion stanno nella chat di gruppo; il resto (buongiorno,
+  // bentornato, silenzio) nella chat singola di chi scrive.
+  const between = ['peer', 'peer-reply', 'hello'].includes(data.kind) && (config.companions || []).length > 1
+  const key = between ? 'group' : singleKey(data.personaId || (config.persona && config.persona.id) || 'default')
+  pushHistory(key, { role: 'assistant', content: reply.slice(0, 8000), ...(data.personaId ? { speaker: data.personaId } : {}) })
+  addMessage('assistant', reply, data.name, key)
   updateMemoryFooter().catch(() => {})
 })
 

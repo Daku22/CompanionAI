@@ -1420,6 +1420,8 @@ if (api && api.onMenuCommand) {
     else if (data.cmd === 'scene-adjust') openSceneAdjust();
     else if (data.cmd === 'avatar' && typeof data.id === 'string') switchModel(data.id);
     else if (data.cmd === 'import') importAvatar();
+    // Dall'HUD (Blocco 9b): il menu degli avatar, come il vecchio tasto sull'avatar.
+    else if (data.cmd === 'avatars') document.getElementById('switch-zone').click();
     else if (data.cmd === 'import-animation') importAnimation();
     else if (data.cmd === 'camera-reset') resetCamera();
     else if (data.cmd === 'preview-clip' && typeof data.url === 'string' && data.url.startsWith('motion://')) {

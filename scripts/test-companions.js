@@ -76,4 +76,22 @@ test("sguardo: verso la testa dell'altro", () => {
   assert.deepEqual(C.headPoint({ x: 100, y: 500, width: 180, height: 260 }), { x: 190, y: 557 })
 })
 
+test('HUD: capsule ai lati, pillola sotto, dentro lo schermo', () => {
+  const area = { x: 0, y: 0, width: 1920, height: 1040 }
+  const av = { x: 800, y: 500, width: 180, height: 260 }
+  const p = C.hudPlacement(av, area)
+  assert.equal(p.pill, 'below')
+  assert.equal(p.bounds.width, Math.max(180 + 2 * (C.HUD.CAPSULE_W + C.HUD.GAP), C.HUD.PILL_W))
+  assert.equal(p.bounds.height, 260 + C.HUD.PILL_H + C.HUD.GAP)
+  assert.equal(p.bounds.x + p.avatar.x, av.x, "avatar al suo posto dentro l'HUD")
+  assert.equal(p.avatar.y, 0)
+  // Seduto sulla taskbar: sotto non c'e' spazio, la pillola va sopra.
+  const low = C.hudPlacement({ ...av, y: 1040 - 260 }, area)
+  assert.equal(low.pill, 'above')
+  assert.equal(low.avatar.y, C.HUD.PILL_H + C.HUD.GAP)
+  // Vicino al bordo destro l'HUD resta dentro.
+  const edge = C.hudPlacement({ ...av, x: 1900 - 180 }, area)
+  assert.ok(edge.bounds.x + edge.bounds.width <= 1920)
+})
+
 console.log(`=== ${passed} test superati ===`)

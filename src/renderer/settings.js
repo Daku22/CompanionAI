@@ -521,6 +521,7 @@
     $('active-app-section').classList.toggle('hidden', cfg.activeApp !== true)
     if (document.activeElement !== $('active-app-ignore')) $('active-app-ignore').value = (cfg.activeAppIgnore || []).join(', ')
     $('initiative-voice').checked = cfg.initiativeVoice === true
+    $('hud-pinned').checked = cfg.hudPinned === true
     danceMusic.checked = cfg.danceMusic === true
     $('dance-section').classList.toggle('hidden', !danceMusic.checked)
     if (document.activeElement !== danceApps) danceApps.value = (cfg.danceApps || []).join(', ')
@@ -553,6 +554,7 @@
   $('active-app-ignore').addEventListener('change', (e) => saveGeneral({ activeAppIgnore: e.target.value.split(/[,;\n]+/) }))
   $('active-app-ignore').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur() })
   $('initiative-voice').addEventListener('change', (e) => saveGeneral({ initiativeVoice: e.target.checked }))
+  $('hud-pinned').addEventListener('change', (e) => saveGeneral({ hudPinned: e.target.checked }))
   danceMusic.addEventListener('change', () => saveGeneral({ danceMusic: danceMusic.checked }))
   danceApps.addEventListener('change', () => saveGeneral({ danceApps: danceApps.value.split(/[,;\n]+/) }))
   danceApps.addEventListener('keydown', (e) => { if (e.key === 'Enter') danceApps.blur() })
