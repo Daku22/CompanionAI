@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
+const { writeAtomic } = require('./write-atomic')
 
 const MAX_IMPORT_BYTES = 250 * 1024 * 1024
 const IMAGE_EXTENSIONS = new Set(['.png', '.webp', '.jpg', '.jpeg'])
@@ -107,6 +108,17 @@ async function fbxFiles(sourcePath) {
   return { base: parent, files: [path.join(path.basename(base), path.basename(sourcePath)), ...images] }
 }
 
+// Miniature del viso (Blocco 9c): <root>/thumbs/<nome>.png, servite come
+// avatar://thumbs/<nome>.png. Il nome e' un hash dell'id: gli id integrati
+// hanno spazi e maiuscole, e "Dust" (VRM) e "dust" (2D) su Windows sarebbero
+// lo stesso file. THUMB_VERSION cambia quando cambia il modo di scattare: le
+// foto vecchie (un 3D girato a meta' animazione) si rifanno.
+const THUMBS_DIR = 'thumbs'
+const THUMB_VERSION = 2
+function thumbName(id) {
+  return crypto.createHash('sha256').update(THUMB_VERSION + ':' + String(id)).digest('hex').slice(0, 32) + '.png'
+}
+
 /** URL avatar:// di un file dentro la cartella di un avatar importato. */
 function avatarUrl(id, entry, scheme = 'avatar') {
   return scheme + '://' + id + '/' + entry.split('/').map(encodeURIComponent).join('/')
@@ -148,6 +160,25 @@ class AvatarLibrary {
         return item
       }))
     return [...this.builtins, ...stored]
+  }
+
+  thumbPath(id) { return path.join(this.root, THUMBS_DIR, thumbName(id)) }
+
+  /** L'elenco con l'URL della miniatura di chi ce l'ha (?v= cambia se si rifa'). */
+  async withThumbs(list) {
+    return Promise.all(list.map(async a => {
+      try {
+        const stat = await fs.promises.stat(this.thumbPath(a.id))
+        return { ...a, thumb: this.scheme + '://' + THUMBS_DIR + '/' + thumbName(a.id) + '?v=' + Math.round(stat.mtimeMs) }
+      } catch (_) { return a }
+    }))
+  }
+
+  /** Salva la miniatura di un avatar (un PNG gia' controllato da checkThumbPng). */
+  async saveThumb(id, png) {
+    const file = this.thumbPath(id)
+    await fs.promises.mkdir(path.dirname(file), { recursive: true })
+    await writeAtomic(file, png)
   }
 
   async scan(source) {
@@ -224,6 +255,7 @@ class AvatarLibrary {
     for (const id of removed) {
       await fs.promises.rm(path.join(this.root, id), { recursive: true, force: true })
         .catch(error => console.warn(this.tag + ' cartella ' + id + ' non eliminata:', error.message))
+      await fs.promises.rm(this.thumbPath(id), { force: true }).catch(() => {})
     }
     return removed
   }
@@ -322,4 +354,4 @@ class AvatarLibrary {
   }
 }
 
-module.exports = { AvatarLibrary, SPRITE_PACK_FORMAT, avatarUrl, fbxFiles, gltfReferences, live2dReferences, MAX_IMPORT_BYTES }
+module.exports = { AvatarLibrary, SPRITE_PACK_FORMAT, avatarUrl, thumbName, fbxFiles, gltfReferences, live2dReferences, MAX_IMPORT_BYTES }

@@ -156,6 +156,8 @@ contextBridge.exposeInMainWorld('companion', {
   personasGet:    ()         => ipcRenderer.invoke('personas:get'),
   personasChange: (input)    => ipcRenderer.invoke('personas:change', input),
   personasDiary:  (id)       => ipcRenderer.invoke('personas:diary', String(id || '')),
+  // Il rapporto di ogni persona, per le card di Personaggi (Blocco 9c).
+  personasRapport: ()        => ipcRenderer.invoke('personas:rapport'),
   // Iniziativa (Blocco 6d): un messaggio che il companion scrive per primo.
   onInitiative: (cb) => {
     const handler = (_e, data) => cb(data)
@@ -205,6 +207,16 @@ contextBridge.exposeInMainWorld('companion', {
   commitAvatarImport: (data) => ipcRenderer.invoke('avatars:commit-import', data),
   // Solo gli id: il main elimina unicamente avatar importati, mai gli integrati.
   removeAvatars:    (ids)    => ipcRenderer.invoke('avatars:remove', ids),
+  // Miniature del viso (Blocco 9c): il companion chiede se manca, poi la manda.
+  avatarThumbNeeded: (id)    => ipcRenderer.invoke('avatars:thumb-needed', String(id || '')),
+  saveAvatarThumb:  (id, png) => ipcRenderer.invoke('avatars:save-thumb', String(id || ''), typeof png === 'string' ? png : ''),
+  // "Usa" dalla galleria delle Impostazioni, sul companion di una persona.
+  useAvatar:        (id, personaId) => ipcRenderer.invoke('avatars:use', String(id || ''), typeof personaId === 'string' ? personaId : ''),
+  onAvatarsChanged: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on('avatars-changed', handler)
+    return () => ipcRenderer.removeListener('avatars-changed', handler)
+  },
 
   // Animazioni .vrma: elenco, scelta di un file da importare (il main lo legge e
   // manda solo nome e dati), salvataggio del .vrma convertito dal renderer.

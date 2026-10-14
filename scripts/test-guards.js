@@ -12,6 +12,7 @@ const {
   isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES,
   voiceConfig, VOICE_DEFAULTS, allowPermission, MIC_SHORTCUTS, checkLive2DChoices, LIVE2D_GESTURES, LIVE2D_EMOTIONS,
   allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT, chibiAvatars, chibiUnavailable,
+  APP_SHORTCUTS, shortcutsConfig, mergeShortcuts, SETTINGS_PAGES, settingsPage, checkThumbPng,
 } = require('../src/main/guards')
 
 let passed = 0
@@ -377,6 +378,49 @@ test('chibi: solo avatar 3D con scheletro umano, e il motivo per gli altri', () 
   assert.match(chibiUnavailable({ kind: 'sprite-pack' }), /2D/)
   assert.match(chibiUnavailable({ kind: 'sprite' }), /2D/)
   assert.ok(chibiUnavailable(null))
+})
+
+test('scorciatoie: predefinite, ammesse, mai due azioni sullo stesso tasto', () => {
+  assert.deepEqual(shortcutsConfig({}), { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H' })
+  assert.deepEqual(shortcutsConfig({ shortcuts: { chat: 'F8', hide: 'Alt+F4' } }), { chat: 'F8', hide: 'Ctrl+Alt+H' })
+  assert.deepEqual(mergeShortcuts(undefined, { chat: 'F7' }), { chat: 'F7', hide: 'Ctrl+Alt+H' })
+  assert.deepEqual(mergeShortcuts({ chat: 'F7' }, { hide: 'F7' }), { chat: 'F7', hide: 'Ctrl+Alt+H' }, "F7 e' gia' della chat")
+  assert.deepEqual(mergeShortcuts({ chat: 'off' }, { hide: 'off' }), { chat: 'off', hide: 'off' }, "spente tutte e due si puo'")
+  assert.deepEqual(mergeShortcuts({}, { chat: 'Ctrl+Alt+Delete', hide: 'toString' }), { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H' })
+  // Mai un tasto del microfono: le due liste non si toccano.
+  for (const key of Object.keys(APP_SHORTCUTS)) if (key !== 'off') assert.ok(!(key in MIC_SHORTCUTS), key)
+  const base = { provider: 'openrouter', model: 'm', keys: {} }
+  assert.deepEqual(mergeConfig(base, { shortcuts: { chat: 'F8' } }).shortcuts, { chat: 'F8', hide: 'Ctrl+Alt+H' })
+  assert.equal(mergeConfig(base, { shortcuts: 'F8' }).shortcuts, undefined)
+})
+
+test('impostazioni: ogni pagina nella barra laterale, con il suo nome', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'settings.html'), 'utf8')
+  const pages = [...html.matchAll(/class="page[^"]*" id="page-([a-z0-9]+)"/g)].map(m => m[1])
+  const nav = [...html.matchAll(/data-page="([a-z0-9]+)"/g)].map(m => m[1])
+  assert.deepEqual([...pages].sort(), [...SETTINGS_PAGES].sort(), "le pagine dell'HTML sono quelle di SETTINGS_PAGES")
+  assert.deepEqual(nav, SETTINGS_PAGES, "la barra laterale segue l'ordine di SETTINGS_PAGES")
+  assert.equal(settingsPage('persone'), 'personaggi', 'il nome di prima porta a Personaggi')
+  assert.equal(settingsPage('tasti'), 'tasti')
+  assert.equal(settingsPage('constructor'), '')
+  assert.equal(settingsPage(undefined), '')
+})
+
+test('miniature: solo PNG veri, fino a 512 px per lato', () => {
+  const png = (w, h) => {
+    const b = Buffer.alloc(33)
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0)
+    b.writeUInt32BE(13, 8); b.write('IHDR', 12, 'ascii'); b.writeUInt32BE(w, 16); b.writeUInt32BE(h, 20)
+    return 'data:image/png;base64,' + b.toString('base64')
+  }
+  assert.ok(checkThumbPng(png(256, 256)))
+  assert.ok(checkThumbPng(png(512, 300)))
+  assert.equal(checkThumbPng(png(513, 256)), null, 'troppo grande')
+  assert.equal(checkThumbPng(png(0, 256)), null)
+  assert.equal(checkThumbPng(png(256, 256).replace('image/png', 'image/jpeg')), null)
+  assert.equal(checkThumbPng('data:image/png;base64,' + Buffer.from('GIF89a, e abbastanza byte per la lunghezza').toString('base64')), null, "non e' un PNG")
+  assert.equal(checkThumbPng('data:image/png;base64,' + 'A'.repeat(2 * 1024 * 1024)), null, 'oltre il limite')
+  assert.equal(checkThumbPng(null), null)
 })
 
 console.log('\n=== ' + passed + ' test superati ===')

@@ -872,6 +872,7 @@ async function loadVRMModel(avatar) {
       body.add(currentGltf);
       showBubble('Modello statico: nessuno scheletro umano da animare', 3600);
       reportAvatar(avatar, false);
+      requestThumb(avatar, staticShot, 1500);
       return;
     }
   }
@@ -903,6 +904,90 @@ async function loadVRMModel(avatar) {
   if (seq !== loadSeq) return;
   if (chibi) applyChibi(true);
   body.add(vrm.scene);
+  requestThumb(avatar, headShot, 1500);
+}
+
+// ─── Miniatura del viso (Blocco 9c) ─────────────────────────────────────────
+// La prima volta che si mostra un avatar se ne fotografa il viso
+// (avatar-thumb.js). Mai nella stanza: lo sfondo finirebbe nella foto.
+function requestThumb(avatar, capture, delay) {
+  if (!window.CompanionThumb) return;
+  window.CompanionThumb.request(avatar.id, capture, { delay, still: () => currentAvatarId === avatar.id && !roomMode });
+}
+
+/**
+ * Il modello fermo per la foto: bacino, busto, collo, testa e occhi dritti,
+ * rivolto in avanti, occhi aperti e viso neutro (senza espressioni, che a
+ * volte chiudono gli occhi). Restituisce la funzione che rimette tutto com'era:
+ * un'animazione a meta' girava la testa, e nella foto il viso non si vedeva.
+ */
+function holdStill(vrm) {
+  const h = vrm.humanoid;
+  const bones = [];
+  for (const name of ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftEye', 'rightEye']) {
+    const node = h.getNormalizedBoneNode(name);
+    if (node) { bones.push([node, node.quaternion.clone()]); node.quaternion.identity(); }
+  }
+  const yaw = vrm.scene.rotation.y;
+  vrm.scene.rotation.y = baseYaw(vrm);
+  const look = vrm.lookAt;
+  const gaze = look ? [look.yaw, look.pitch] : null;
+  if (look && look.applier) look.applier.applyYawPitch(0, 0);
+  const em = vrm.expressionManager;
+  const faces = em ? em.expressions.map(e => [e.expressionName, em.getValue(e.expressionName) || 0]) : [];
+  for (const [name] of faces) em.setValue(name, 0);
+  const apply = () => { h.update(); if (em) em.update(); vrm.scene.updateMatrixWorld(true); };
+  apply();
+  return () => {
+    for (const [node, q] of bones) node.quaternion.copy(q);
+    vrm.scene.rotation.y = yaw;
+    if (look && look.applier) look.applier.applyYawPitch(gaze[0], gaze[1]);
+    for (const [name, value] of faces) em.setValue(name, value);
+    apply();
+  };
+}
+
+/**
+ * Il viso di un avatar 3D: il modello fermo e dritto (holdStill), una camera
+ * a parte davanti alla testa, poi si rimette tutto e si ridisegna la scena
+ * com'era, prima che il browser la mostri.
+ */
+function headShot() {
+  const h = currentVrm && currentVrm.humanoid;
+  const head = h && h.getRawBoneNode('head');
+  const hips = h && h.getRawBoneNode('hips');
+  if (!head || !hips) return staticShot();
+  const release = holdStill(currentVrm);
+  try { return faceShot(head, hips); } finally { release(); renderer.render(scene, camera); }
+}
+function faceShot(head, hips) {
+  const headPos = head.getWorldPosition(new THREE.Vector3());
+  const unit = Math.max(0.15, headPos.y - hips.getWorldPosition(new THREE.Vector3()).y);
+  // Con il chibi la testa e' piu' grande del corpo: l'inquadratura la segue.
+  const big = head.getWorldScale(new THREE.Vector3()).y / Math.max(1e-6, hips.getWorldScale(new THREE.Vector3()).y);
+  const frame = unit * 0.62 * Math.max(1, big);
+  // L'osso della testa e' alla base del cranio: il viso e' un po' piu' su.
+  const center = headPos.clone();
+  center.y += frame * 0.22;
+  // Davanti al viso: il modello e' rivolto in avanti, qualunque giro abbia la camera.
+  const parent = currentVrm.scene.parent;
+  const dir = new THREE.Vector3(0, 0, 1);
+  if (parent) dir.applyQuaternion(parent.getWorldQuaternion(new THREE.Quaternion()));
+  dir.setY(0).normalize();
+  const canvas = renderer.domElement;
+  const aspect = canvas.width / canvas.height;
+  const shot = new THREE.PerspectiveCamera(30, aspect, 0.01, 100);
+  // Il quadrato centrale e' largo quanto il lato corto: la distanza tiene il viso dentro.
+  shot.position.copy(center).addScaledVector(dir, (frame / 2) / Math.tan(15 * Math.PI / 180) / Math.min(1, aspect));
+  shot.lookAt(center);
+  renderer.render(scene, shot);
+  return window.CompanionThumb.centerSquare(canvas);
+}
+
+/** Un modello senza scheletro: la parte alta della sagoma, come per il 2D. */
+function staticShot() {
+  renderer.render(scene, camera);
+  return window.CompanionThumb.cropFace(renderer.domElement, 0.3);
 }
 
 /** Dice al main quale avatar e' in vista; risponde se va in chibi. */
@@ -1165,6 +1250,8 @@ async function switchModel(avatarId, { save = true } = {}) {
     show2D();
     try {
       await window.loadLive2DAvatar(avatar);
+      // Dopo il saluto, a riposo (companion-live2d.js).
+      requestThumb(avatar, () => window.thumbLive2D(), 2500);
     } catch (error) {
       console.error('Avatar Live2D non caricato:', error);
       window.show2DPlaceholder();
@@ -1178,6 +1265,8 @@ async function switchModel(avatarId, { save = true } = {}) {
     try {
       const { manifest, baseUrl } = await spriteSource(avatar);
       await window.load2DAvatar(manifest, baseUrl);
+      // Dopo il saluto, che dura 2,6 secondi (companion-2d.js).
+      requestThumb(avatar, () => window.thumb2D(), 3200);
     } catch (error) {
       console.error('Avatar 2D non caricato:', error);
       window.show2DPlaceholder();

@@ -1,5 +1,5 @@
-// settings.js — la finestra Impostazioni: Modello (provider, modello e
-// chiave), Generale (avvio, vita autonoma, meteo), Voce e Microfono.
+// settings.js — la finestra Impostazioni: una pagina per voce della barra
+// laterale (SETTINGS_PAGES in guards.js), da Generale a Tasti rapidi.
 //
 // Il Modello si salva con il suo pulsante, come nella chat al primo avvio
 // (provider-form.js e' la stessa scheda). Il resto si salva subito (config,
@@ -10,6 +10,9 @@
 (function () {
   const api = window.companion
   const $ = (id) => document.getElementById(id)
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e }
+  // Un colore per nome, sempre lo stesso: le icone sono iniziali, non loghi.
+  const hueOf = (name) => [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
   const enabled = $('voice-enabled')
   const speed = $('voice-speed')
   const volume = $('voice-volume')
@@ -18,11 +21,12 @@
   const cpml = $('cpml')
   const speakerSel = $('xtts-speaker')
 
-  // Schede. La chat apre Modello (#modello nell'indirizzo, o settings-page
+  // Pagine. La chat apre Modello (#modello nell'indirizzo, o settings-page
   // con la finestra gia' aperta); altrimenti si riapre sull'ultima scelta.
   const tabs = [...document.querySelectorAll('nav .item[data-page]')]
   function showPage(name) {
-    if (!tabs.some(t => t.dataset.page === name)) name = 'modello'
+    if (name === 'persone') name = 'personaggi'   // il nome di prima del Blocco 9c
+    if (!tabs.some(t => t.dataset.page === name)) name = 'generale'
     for (const t of tabs) {
       t.classList.toggle('active', t.dataset.page === name)
       if (t.dataset.page === name) t.setAttribute('aria-current', 'page')
@@ -32,31 +36,246 @@
     try { localStorage.setItem('settings-page', name) } catch (_) { /* niente memoria: si riparte da Modello */ }
   }
   for (const t of tabs) t.addEventListener('click', () => showPage(t.dataset.page))
+  // Rimandi da una pagina all'altra ("si sceglie in Tasti rapidi").
+  for (const b of document.querySelectorAll('[data-goto]')) b.addEventListener('click', () => showPage(b.dataset.goto))
   let lastPage = location.hash.slice(1)
   if (!lastPage) try { lastPage = localStorage.getItem('settings-page') || '' } catch (_) {}
   showPage(lastPage)
   if (api.onSettingsPage) api.onSettingsPage(showPage)
 
-  // ─── Persone (Blocco 6a) ──────────────────────────────────────────────────
-  // Il main tiene l'elenco (personas.js); qui si sceglie, si rinomina, si
-  // scrive la personalita', si crea, si elimina e si attiva.
-  const personaSel = $('persona-select')
+  // ─── Personaggi (Blocco 9c; le persone dal Blocco 6a) ─────────────────────
+  // Due schede a card con la foto del viso: le persone e gli avatar. Il main
+  // tiene gli elenchi (personas.js, AvatarLibrary); qui si crea, si rinomina,
+  // si scrive la personalita', si attiva, si mette sul desktop e si veste.
   const personaName = $('persona-name')
   const personaPrompt = $('persona-prompt')
   const personaState = $('persona-state')
+  const avatarForSel = $('avatar-for')
   let personaData = null
-  function showPersonas(data, pick) {
+  let personaId = ''   // la persona aperta nel dettaglio; '' = la galleria
+  let avatars = []     // dal main, con la miniatura di chi ce l'ha
+  let rapport = {}     // id della persona -> { level, label, levels }
+  const KIND = { vrm: 'VRM', gltf: '3D', fbx: '3D', live2d: 'Live2D', 'sprite-pack': '2D', sprite: '2D' }
+
+  /** L'avatar di una persona: il suo, o il predefinito se non c'e' (piu'). */
+  const avatarOf = (id) => avatars.find(a => a.id === id) || avatars.find(a => a.default) || avatars[0] || null
+  const initials = (name) => String(name).trim().split(/\s+/).slice(0, 2).map(w => Array.from(w)[0] || '').join('').toUpperCase() || '?'
+  /** La foto del viso dell'avatar, o le iniziali colorate di name. */
+  function faceOf(avatar, name) {
+    if (avatar && avatar.thumb) {
+      const img = el('img')
+      img.src = avatar.thumb
+      img.alt = ''
+      img.draggable = false
+      return img
+    }
+    const d = el('div', 'initials', initials(name))
+    d.style.setProperty('--hue', hueOf(name))
+    return d
+  }
+  const rapportLine = (id) => {
+    const r = rapport[id]
+    return r ? 'Rapporto: ' + r.label.toLowerCase() + ' (' + (r.level + 1) + ' di ' + r.levels + ')' : ''
+  }
+
+  function personaCard(p) {
+    const open = personaData.open || []
+    const max = personaData.maxOpen || 3
+    const isActive = p.id === personaData.activeId
+    const isOpen = open.includes(p.id)
+    const card = el('article', 'card' + (isActive ? ' current' : ''))
+    const media = el('button', 'card-media')
+    media.type = 'button'
+    media.setAttribute('aria-label', 'Modifica ' + p.name)
+    media.append(faceOf(avatarOf(p.avatarModel), p.name))
+    if (isActive) media.append(el('span', 'badge', 'Attiva'))
+    media.addEventListener('click', () => openPersona(p.id))
+    const body = el('div', 'card-body')
+    body.append(el('div', 'card-title', p.name), el('div', 'card-meta', rapportLine(p.id)))
+    const actions = el('div', 'card-actions')
+    const sw = el('label', 'mini')
+    const box = el('input')
+    box.type = 'checkbox'
+    box.checked = isOpen
+    box.disabled = isOpen ? open.length <= 1 : open.length >= max
+    sw.title = box.disabled ? (isOpen ? 'È l\'unico sul desktop: almeno uno resta.' : 'Sul desktop ce ne sono già ' + open.length + '.') : 'Sul desktop, con il suo avatar e la sua voce'
+    box.addEventListener('change', () => changePersona({ op: box.checked ? 'open' : 'close', id: p.id }, box.checked ? p.name + ' è sul desktop.' : p.name + ' non è più sul desktop.'))
+    sw.append(box, 'Sul desktop')
+    actions.append(sw)
+    if (!isActive) {
+      const act = el('button', '', 'Attiva')
+      act.type = 'button'
+      act.title = 'La chat e le Impostazioni parlano di lei'
+      act.addEventListener('click', () => changePersona({ op: 'activate', id: p.id }, 'Attiva: ' + p.name + '.'))
+      actions.append(act)
+    }
+    body.append(actions)
+    card.append(media, body)
+    return card
+  }
+  function renderPersonaCards() {
+    if (!personaData) return
+    const add = el('button', 'card-add')
+    add.type = 'button'
+    add.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'
+    add.append('Nuova persona')
+    add.addEventListener('click', newPersona)
+    $('persona-cards').replaceChildren(...personaData.list.map(personaCard), add)
+  }
+  function openPersona(id) {
+    personaId = id
+    $('persona-gallery').classList.add('hidden')
+    $('persona-detail').classList.remove('hidden')
+    $('persona-cards-state').textContent = ''
+    personaState.textContent = ''
+    showPersona(true)
+  }
+  function closePersona() {
+    personaId = ''
+    $('persona-detail').classList.add('hidden')
+    $('persona-gallery').classList.remove('hidden')
+    renderPersonaCards()
+  }
+  $('persona-back').addEventListener('click', closePersona)
+  async function newPersona() {
+    const before = new Set(personaData.list.map(p => p.id))
+    if (!(await changePersona({ op: 'create', name: 'Nuova persona' }, ''))) return
+    const made = personaData.list.find(p => !before.has(p.id))
+    if (!made) return
+    openPersona(made.id)
+    personaState.textContent = 'Creata: dalle un nome e una personalità.'
+    personaName.focus()
+    personaName.select()
+  }
+
+  // Avatar: le card di tutti, e "Usa" su un companion sul desktop.
+  function renderAvatarFor() {
+    if (!personaData) return
+    const open = personaData.open || []
+    const names = Object.fromEntries(personaData.list.map(p => [p.id, p.name]))
+    const keep = avatarForSel.value || personaData.activeId
+    avatarForSel.replaceChildren(...open.map(id => new Option(names[id] || id, id)))
+    avatarForSel.value = open.includes(keep) ? keep : open.includes(personaData.activeId) ? personaData.activeId : (open[0] || '')
+    avatarForSel.disabled = open.length < 2
+    renderAvatarCards()
+  }
+  function renderAvatarCards() {
+    const who = personaData && personaData.list.find(p => p.id === avatarForSel.value)
+    const wearing = who ? (avatarOf(who.avatarModel) || {}).id : null
+    $('avatar-cards').replaceChildren(...avatars.map(a => {
+      const inUse = a.id === wearing
+      const card = el('article', 'card' + (inUse ? ' current' : ''))
+      const media = el('button', 'card-media')
+      media.type = 'button'
+      media.setAttribute('aria-label', (inUse ? '' : 'Usa ') + a.name)
+      media.append(faceOf(a, a.name), el('span', 'badge quiet kind', KIND[a.kind] || '3D'))
+      if (inUse) media.append(el('span', 'badge', 'In uso'))
+      media.addEventListener('click', () => { if (!inUse) useAvatar(a) })
+      const body = el('div', 'card-body')
+      body.append(el('div', 'card-title', a.name), el('div', 'card-meta', a.builtin ? 'Integrato' : 'Importato'))
+      const actions = el('div', 'card-actions')
+      if (inUse) actions.append(el('span', 'on-label', 'Lo indossa ' + who.name))
+      else {
+        const use = el('button', 'primary', 'Usa')
+        use.type = 'button'
+        use.addEventListener('click', () => useAvatar(a))
+        actions.append(use)
+      }
+      if (!a.builtin) {
+        const del = el('button', 'danger', 'Elimina')
+        del.type = 'button'
+        del.addEventListener('click', (e) => removeAvatar(a, e.currentTarget))
+        actions.append(del)
+      }
+      body.append(actions)
+      card.append(media, body)
+      return card
+    }))
+  }
+  avatarForSel.addEventListener('change', renderAvatarCards)
+  function avatarNote(text, error) {
+    const s = $('avatar-state')
+    s.className = 'state' + (error ? ' error' : '')
+    s.textContent = text
+  }
+  async function useAvatar(a) {
+    const r = await api.useAvatar(a.id, avatarForSel.value).catch(() => null)
+    // La card "In uso" si aggiorna quando il companion l'ha caricato (config-changed).
+    avatarNote(r && r.ok ? r.name + ' indossa ' + a.name + '.' : 'Non riuscito: nessun companion sul desktop.', !(r && r.ok))
+  }
+  async function removeAvatar(a, btn) {
+    if (!confirmClick(btn, 'Clicca di nuovo per eliminare ' + a.name + ' da questo PC.')) return
+    try { await api.removeAvatars([a.id]); avatarNote(a.name + ' eliminato.') } catch (e) { avatarNote('Non eliminato: ' + e.message, true) }
+    refreshAvatars()
+  }
+  $('avatar-import').addEventListener('click', async () => {
+    avatarNote('')
+    $('avatar-candidates').classList.add('hidden')
+    let scan
+    try { scan = await api.scanAvatarImport() } catch (e) { avatarNote('Importazione non riuscita: ' + e.message, true); return }
+    if (!scan || scan.canceled) return
+    const choices = scan.candidates || []
+    if (choices.length === 1) { commitImport(scan.token, choices[0]); return }
+    // Piu' modelli nella cartella: si sceglie qui quale.
+    $('avatar-candidate-list').replaceChildren(...choices.map(c => {
+      const b = el('button', '', c.name + ' (' + (KIND[c.kind] || c.kind) + ')')
+      b.type = 'button'
+      b.addEventListener('click', () => { $('avatar-candidates').classList.add('hidden'); commitImport(scan.token, c) })
+      return b
+    }))
+    $('avatar-candidates').classList.remove('hidden')
+  })
+  $('avatar-candidates-cancel').addEventListener('click', () => $('avatar-candidates').classList.add('hidden'))
+  async function commitImport(token, candidate) {
+    avatarNote('Importo ' + candidate.name + '…')
+    try {
+      const a = await api.commitAvatarImport({ token, candidateId: candidate.id })
+      await refreshAvatars()
+      const r = await api.useAvatar(a.id, avatarForSel.value).catch(() => null)
+      avatarNote(r && r.ok ? 'Importato: ' + r.name + ' lo indossa già.' : 'Importato.')
+    } catch (e) { avatarNote('Importazione non riuscita: ' + e.message, true) }
+  }
+  async function refreshAvatars() {
+    try { avatars = await api.listAvatars() } catch (_) { /* restano quelli di prima */ }
+    renderPersonaCards()
+    renderAvatarCards()
+    if (personaId) showPersona()
+  }
+  async function refreshPersonaggi() {
+    try { rapport = await api.personasRapport() } catch (_) { /* senza rapporto le card restano */ }
+    refreshAvatars()
+  }
+  if (api.onAvatarsChanged) api.onAvatarsChanged(refreshAvatars)
+  for (const t of tabs) if (t.dataset.page === 'personaggi') t.addEventListener('click', refreshPersonaggi)
+
+  // Le due schede, con le frecce da tastiera come una tablist.
+  const segTabs = [...document.querySelectorAll('.seg [role=tab]')]
+  function showTab(name) {
+    for (const t of segTabs) {
+      t.setAttribute('aria-selected', String(t.dataset.tab === name))
+      t.tabIndex = t.dataset.tab === name ? 0 : -1
+    }
+    $('tab-persone').classList.toggle('hidden', name !== 'persone')
+    $('tab-avatar').classList.toggle('hidden', name !== 'avatar')
+  }
+  for (const t of segTabs) {
+    t.addEventListener('click', () => showTab(t.dataset.tab))
+    t.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+      const next = segTabs[(segTabs.indexOf(t) + (e.key === 'ArrowRight' ? 1 : -1) + segTabs.length) % segTabs.length]
+      next.focus()
+      showTab(next.dataset.tab)
+    })
+  }
+  showTab('persone')
+
+  function showPersonas(data) {
     if (!data) return
     personaData = data
-    const keep = pick || personaSel.value || data.activeId
-    personaSel.replaceChildren(...data.list.map(p => {
-      const o = document.createElement('option')
-      o.value = p.id
-      o.textContent = p.name + (p.id === data.activeId ? ' (attiva)' : (data.open || []).includes(p.id) ? ' (sul desktop)' : '')
-      return o
-    }))
-    personaSel.value = data.list.some(p => p.id === keep) ? keep : data.activeId
-    showPersona()
+    if (personaId && !data.list.some(p => p.id === personaId)) closePersona()
+    renderPersonaCards()
+    if (personaId) showPersona()
+    renderAvatarFor()
     // Memoria: un selettore suo, che tiene la scelta fatta li'.
     const memKeep = memorySel.value || data.activeId
     memorySel.replaceChildren(...data.list.map(p => new Option(p.name + (p.id === data.activeId ? ' (attiva)' : ''), p.id)))
@@ -111,12 +330,17 @@
     const name = rest.join(':')
     return engine === 'xtts' ? { engine, xttsSpeaker: name } : { engine: 'kokoro', kokoroVoice: name }
   }
-  function showPersona() {
-    const p = personaData.list.find(x => x.id === personaSel.value)
+  /** Il dettaglio della persona aperta; fill riscrive anche i campi (all'apertura e dopo il salvataggio). */
+  function showPersona(fill) {
+    const p = personaData.list.find(x => x.id === personaId)
     if (!p) return
-    personaName.value = p.name
-    personaPrompt.value = p.prompt
-    fillPersonaVoices(p.voice)
+    if (fill) {
+      personaName.value = p.name
+      personaPrompt.value = p.prompt
+      fillPersonaVoices(p.voice)
+    }
+    $('persona-title').textContent = p.name
+    $('persona-face').replaceChildren(faceOf(avatarOf(p.avatarModel), p.name))
     const isActive = p.id === personaData.activeId
     // Sul desktop (Blocco 8b): fino a maxOpen insieme, almeno uno.
     const open = personaData.open || []
@@ -127,16 +351,26 @@
     $('persona-open-note').textContent = isOpen && open.length <= 1 ? 'È l\'unico sul desktop: almeno uno resta.'
       : !isOpen && toggle.disabled ? 'Sul desktop ce ne sono già ' + open.length + ': toglierne uno per mettere questo.'
         : 'Fino a ' + (personaData.maxOpen || 3) + ' companion insieme, ognuno con il suo avatar, la sua voce e la sua memoria.'
-    $('persona-activate').disabled = isActive
+    $('persona-activate').classList.toggle('hidden', isActive)
     $('persona-remove').disabled = isActive
-    $('persona-active').textContent = isActive ? 'È quella attiva.' : ''
+    $('persona-remove').title = isActive ? 'Per eliminarla, attiva prima un\'altra persona' : ''
+    $('persona-active').textContent = [isActive ? 'Attiva: la chat e le Impostazioni parlano di lei.' : '', rapportLine(p.id)].filter(Boolean).join(' ')
   }
-  async function changePersona(input, done, pick) {
-    personaState.textContent = ''
+  /** Una modifica alle persone; il messaggio va dove si guarda (dettaglio o galleria). */
+  async function changePersona(input, done) {
+    const out = personaId ? personaState : $('persona-cards-state')
+    out.className = 'state'
+    out.textContent = ''
     const r = await api.personasChange(input).catch(() => null)
-    if (!r || !r.ok) { personaState.textContent = (r && r.error) || 'Non riuscito.'; if (personaData) showPersona(); return }
-    showPersonas(r.personas, pick)
-    personaState.textContent = done
+    if (!r || !r.ok) {
+      out.classList.add('error')
+      out.textContent = (r && r.error) || 'Non riuscito.'
+      showPersonas(personaData)
+      return false
+    }
+    showPersonas(r.personas)
+    out.textContent = done
+    return true
   }
   // Diario della persona scelta: sola lettura, la pagina piu' recente in alto.
   async function showDiary(id) {
@@ -156,9 +390,6 @@
   }
   // Connettori MCP (Blocco 7f), come in Claude: i tuoi connettori, quello
   // personalizzato (nome e URL) e il catalogo dei piu' usati.
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e }
-  // Un colore per nome, sempre lo stesso: le icone sono iniziali, non loghi.
-  const hueOf = (name) => [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
   const badge = (name) => {
     const b = el('span', 'mcp-badge', String(name).replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?')
     b.style.setProperty('--hue', hueOf(name))
@@ -438,28 +669,26 @@
     $('memory-state').textContent = r && r.ok ? 'Riassunto salvato.' : (r && r.error) || 'Non riuscito.'
   })
   if (api.onDiaryChanged) api.onDiaryChanged((id) => { if (id === memorySel.value) showDiary(id) })
-  personaSel.addEventListener('change', () => { personaState.textContent = ''; showPersona() })
-  $('persona-save').addEventListener('click', () =>
-    changePersona({ op: 'update', id: personaSel.value, name: personaName.value, prompt: personaPrompt.value, voice: personaVoiceChoice() }, 'Salvata.'))
-  $('persona-activate').addEventListener('click', () => changePersona({ op: 'activate', id: personaSel.value }, 'Attivata.'))
-  $('persona-open').addEventListener('change', (e) => changePersona({ op: e.target.checked ? 'open' : 'close', id: personaSel.value }, e.target.checked ? 'Ora è sul desktop.' : 'Tolta dal desktop.'))
-  $('persona-new').addEventListener('click', async () => {
-    const before = new Set(personaData.list.map(p => p.id))
-    await changePersona({ op: 'create', name: 'Nuova persona' }, 'Creata: dalle un nome e una personalità.')
-    const made = personaData.list.find(p => !before.has(p.id))
-    if (made) { personaSel.value = made.id; showPersona(); personaName.focus(); personaName.select() }
+  $('persona-save').addEventListener('click', async () => {
+    if (await changePersona({ op: 'update', id: personaId, name: personaName.value, prompt: personaPrompt.value, voice: personaVoiceChoice() }, 'Salvata.')) showPersona(true)
   })
-  $('persona-remove').addEventListener('click', (e) => {
+  $('persona-activate').addEventListener('click', () => changePersona({ op: 'activate', id: personaId }, 'Attivata.'))
+  $('persona-open').addEventListener('change', (e) => changePersona({ op: e.target.checked ? 'open' : 'close', id: personaId }, e.target.checked ? 'Ora è sul desktop.' : 'Tolta dal desktop.'))
+  $('persona-remove').addEventListener('click', async (e) => {
     if (!confirmClick(e.currentTarget, 'Clicca di nuovo per eliminare questa persona, con la sua memoria e il suo umore.')) return
-    changePersona({ op: 'remove', id: personaSel.value }, 'Eliminata.')
+    const name = personaName.value
+    if (!(await changePersona({ op: 'remove', id: personaId }, ''))) return
+    closePersona()
+    $('persona-cards-state').textContent = (name || 'La persona') + ' è stata eliminata.'
   })
   api.personasGet().then(d => showPersonas(d)).catch(() => {})
+  refreshPersonaggi()
 
   // Conferma con un secondo clic, al posto di confirm(): il primo arma il
   // pulsante e scrive l'avviso sotto la sua riga, il secondo (entro 5
   // secondi) agisce. Restituisce true solo al secondo clic.
   function confirmClick(btn, warning) {
-    const row = btn.closest('.row') || btn
+    const row = btn.closest('.row, .card-actions') || btn
     let note = row.nextElementSibling
     if (!note || !note.classList.contains('confirm-note')) {
       note = document.createElement('p')
@@ -502,6 +731,32 @@
     setTimeout(() => { if (pfState.classList.contains('ok')) { pfState.textContent = ''; pfState.className = 'state' } }, 4000)
   })
 
+  // ─── Tasti rapidi (Blocco 9c) ──────────────────────────────────────────────
+  // La chat e i companion: scorciatoie dell'app (shortcuts nella config). Il
+  // microfono sta con la voce (voice.micShortcut): la sua riga e' piu' sotto.
+  const KEY_NOTES = { chat: 'L\'ultima chat che hai usato.', hide: 'Tutti insieme, con i loro comandi.' }
+  function showKeys(cfg) {
+    const choices = cfg.appShortcuts || []
+    const want = cfg.shortcuts || {}
+    for (const key of ['chat', 'hide']) {
+      const sel = $('key-' + key)
+      if (sel.options.length !== choices.length) sel.replaceChildren(...choices.map(s => new Option(s.label, s.id)))
+      sel.value = want[key] || 'off'
+      // Quella dell'altra azione non si sceglie: due azioni sullo stesso tasto no.
+      const other = want[key === 'chat' ? 'hide' : 'chat']
+      for (const o of sel.options) o.disabled = o.value !== 'off' && o.value === other
+      const busy = sel.value !== 'off' && (cfg.shortcutsActive || {})[key] !== sel.value
+      const note = $('key-' + key + '-note')
+      note.classList.toggle('warn', busy)
+      note.textContent = busy ? 'La usa già un altro programma: scegline un\'altra.' : KEY_NOTES[key]
+    }
+  }
+  for (const key of ['chat', 'hide']) {
+    $('key-' + key).addEventListener('change', async (e) => {
+      try { showKeys(await api.setConfig({ shortcuts: { [key]: e.target.value } })) } catch (_) {}
+    })
+  }
+
   // ─── Generale ──────────────────────────────────────────────────────────────
   // Si salva subito: niente pulsante. Il main cerca la citta' del meteo e
   // risponde con weatherStatus (trovata, o perche' no).
@@ -529,6 +784,7 @@
     $('weather-section').classList.toggle('hidden', !weatherOn.checked)
     if (document.activeElement !== weatherCity) weatherCity.value = cfg.weatherCity || ''
     $('weather-status').textContent = cfg.weather && cfg.weatherStatus ? '→ ' + cfg.weatherStatus : ''
+    showKeys(cfg)
   }
   async function saveGeneral(partial) {
     try { showGeneral(await api.setConfig(partial)) } catch (_) {}
@@ -654,10 +910,14 @@
     for (const el of document.querySelectorAll('.mic-ready')) el.classList.toggle('hidden', !s.installed)
     $('mic-test').disabled = !voice.micEnabled
     const note = $('shortcut-note')
-    if (!voice.micEnabled) note.textContent = 'Accendi il microfono per usare la scorciatoia e la prova.'
+    const taken = s.installed && voice.micEnabled && voice.micShortcut !== 'off' && micShortcutActive !== voice.micShortcut
+    shortcutSel.disabled = !s.installed
+    note.classList.toggle('warn', taken)
+    if (!s.installed) note.textContent = 'Serve il microfono: si installa nella pagina Microfono.'
+    else if (!voice.micEnabled) note.textContent = 'Accendi il microfono (pagina Microfono) per usarla.'
     else if (voice.micShortcut === 'off') note.textContent = 'Parli solo con il pulsante del microfono nella chat.'
-    else if (micShortcutActive !== voice.micShortcut) note.textContent = 'Questa scorciatoia la usa già un altro programma: scegline un\'altra.'
-    else note.textContent = 'Funziona anche con la chat chiusa: tieni premuto, parla, lascia.'
+    else if (taken) note.textContent = 'La usa già un altro programma: scegline un\'altra.'
+    else note.textContent = 'Tieni premuto, parla, lascia: funziona anche con la chat chiusa.'
   }
 
   function showKokoro(s) {

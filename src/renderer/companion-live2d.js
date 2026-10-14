@@ -476,6 +476,14 @@
     if (api && api.live2dReportModel) api.live2dReportModel({ id: avatar.id, name: avatar.name, groups, expressions })
   }
 
+  // Miniatura del viso (Blocco 9c): la parte alta del modello, dal canvas
+  // appena disegnato (avatar-thumb.js).
+  window.thumbLive2D = () => {
+    if (!l2dApp || !model) return null
+    l2dApp.render()
+    return window.CompanionThumb.cropFace(l2dApp.canvas, 0.3)
+  }
+
   /** Toglie l'avatar Live2D (si passa a un 2D a strip o a un 3D). */
   window.unloadLive2DAvatar = () => {
     loadSeq++

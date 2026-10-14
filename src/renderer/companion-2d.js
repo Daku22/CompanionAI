@@ -818,6 +818,28 @@ window.load2DAvatar = async (manifest, baseUrl) => {
   setTimeout(() => { if (State.name === 'wave') setAnim('idle'); }, 2600);
 };
 
+// Miniatura del viso (Blocco 9c): la parte alta del primo fotogramma di
+// riposo, dalla strip a piena risoluzione (avatar-thumb.js); la finestra del
+// companion e' piccola, e ritagliata da li' la foto veniva sfocata. La testa
+// dei 2D e' grande: share piu' alto. Se l'immagine non si legge, dal canvas.
+window.thumb2D = () => {
+  const tex = animations.idle && animations.idle.textures[0];
+  const source = tex && tex.source && tex.source.resource;
+  if (source) {
+    try {
+      const frame = document.createElement('canvas');
+      frame.width = tex.frame.width;
+      frame.height = tex.frame.height;
+      frame.getContext('2d').drawImage(source, tex.frame.x, tex.frame.y, tex.frame.width, tex.frame.height, 0, 0, frame.width, frame.height);
+      const png = window.CompanionThumb.cropFace(frame, 0.45);
+      if (png) return png;
+    } catch (_) { /* immagine di un'altra origine senza CORS */ }
+  }
+  if (!app.renderer || !charC.children.length) return null;
+  app.render();
+  return window.CompanionThumb.cropFace(app.canvas, 0.45);
+};
+
 // Sagoma di ripiego, se un avatar non si carica: meglio di una finestra vuota.
 window.show2DPlaceholder = () => {
   disposeStrips();

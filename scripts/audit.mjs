@@ -696,7 +696,7 @@ try {
   }
 
   // Impostazioni, scheda Memoria: aperta per nome, un selettore suo con le
-  // persone, riassunto e diario lì e non più in Persone.
+  // persone, riassunto e diario lì e non in Personaggi.
   {
     await chat.evaluate(`window.companion.openSettings('memoria'); true`)
     let st = null
@@ -710,7 +710,7 @@ try {
       mem = await st.evaluate(`({ visible: !document.getElementById('page-memoria').classList.contains('hidden'),
         personas: document.getElementById('memory-persona').options.length,
         inMemoria: !!document.querySelector('#page-memoria #memory-summary') && !!document.querySelector('#page-memoria #diary-list'),
-        inPersone: !!document.querySelector('#page-persone #memory-summary') })`)
+        inPersone: !!document.querySelector('#page-personaggi #memory-summary') })`)
     }
     check(mem.visible && mem.personas >= 1 && mem.inMemoria && !mem.inPersone, 'Impostazioni, scheda Memoria: ' + JSON.stringify(mem))
     // Tavolozza ambra (Blocco 9a): il pulsante pieno usa l'accento dai token.
@@ -718,6 +718,69 @@ try {
     check(primary === 'rgb(228, 155, 69)', 'tavolozza ambra sui pulsanti pieni (' + primary + ')')
     const shot = await st.send('Page.captureScreenshot', { format: 'png' })
     fs.writeFileSync(path.join(OUT, '4a-memoria-impostazioni.png'), Buffer.from(shot.result.data, 'base64'))
+
+    // Impostazioni nuove (Blocco 9c): ogni pagina si apre per nome (anche
+    // "persone", il nome di prima), e le card mostrano la foto del viso
+    // dell'avatar in vista, scattata dal companion la prima volta.
+    const stShot = async (name) => {
+      const r = await st.send('Page.captureScreenshot', { format: 'png' })
+      fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(r.result.data, 'base64'))
+    }
+    const names = await st.evaluate(`[...document.querySelectorAll('nav .item')].map(b => b.dataset.page)`)
+    const opened = []
+    for (const name of [...names, 'persone']) {
+      await chat.evaluate(`window.companion.openSettings('${name}'); true`)
+      await sleep(300)
+      const shown = await st.evaluate(`[...document.querySelectorAll('.page')].filter(p => !p.classList.contains('hidden')).map(p => p.id.slice(5))`)
+      if (shown.length === 1 && shown[0] === (name === 'persone' ? 'personaggi' : name)) opened.push(name)
+    }
+    check(names.length >= 11 && opened.length === names.length + 1, 'Impostazioni: ' + opened.length + ' pagine aperte per nome, "persone" compresa (' + names.join(', ') + ')')
+    const outer = await st.evaluate('[window.outerWidth, window.outerHeight]')
+    check(outer[0] >= 900 && outer[1] >= 640, 'Impostazioni: finestra ' + outer.join('x'))
+    await st.evaluate(`document.querySelector('nav .item[data-page="personaggi"]').click(); true`)
+    let gal = null
+    for (let i = 0; i < 60 && !(gal && gal.thumb && gal.worn); i++) {
+      await sleep(500)
+      gal = await st.evaluate(`(() => {
+        const ok = (img) => !!(img && img.src.startsWith('avatar://thumbs/') && img.complete && img.naturalWidth === 256)
+        return { cards: document.querySelectorAll('#persona-cards .card').length, add: !!document.querySelector('#persona-cards .card-add'),
+          thumb: ok(document.querySelector('#persona-cards .card.current img')),
+          worn: ok(document.querySelector('#avatar-cards .card.current img')),
+          avatars: document.querySelectorAll('#avatar-cards .card').length,
+          meta: (document.querySelector('#persona-cards .card .card-meta') || {}).textContent || '' }
+      })()`)
+    }
+    check(gal.cards >= 1 && gal.add && gal.thumb && gal.worn && /Rapporto/.test(gal.meta),
+      'Personaggi: card delle persone con la foto del viso, e l\'avatar in uso con la sua (' + JSON.stringify(gal) + ')')
+    await stShot('9c-personaggi')
+    const thumbs = path.join(USER_DATA, 'avatars', 'thumbs')
+    for (const f of fs.existsSync(thumbs) ? fs.readdirSync(thumbs) : []) fs.copyFileSync(path.join(thumbs, f), path.join(OUT, '9c-miniatura-' + f))
+    await st.evaluate(`document.getElementById('tab-btn-avatar').click(); true`)
+    await sleep(400)
+    await stShot('9c-avatar')
+    await st.evaluate(`document.getElementById('tab-btn-persone').click(); document.querySelector('#persona-cards .card.current .card-media').click(); true`)
+    await sleep(400)
+    const detail = await st.evaluate(`({ open: !document.getElementById('persona-detail').classList.contains('hidden'),
+      name: document.getElementById('persona-name').value, face: !!document.querySelector('#persona-face img') })`)
+    check(detail.open && detail.name && detail.face, 'Personaggi: un clic sulla card apre la persona (' + JSON.stringify(detail) + ')')
+    await stShot('9c-persona')
+    await st.evaluate(`document.getElementById('persona-back').click(); true`)
+
+    // Tasti rapidi: le due scorciatoie nuove, mai due sullo stesso tasto.
+    await st.evaluate(`document.querySelector('nav .item[data-page="tasti"]').click(); true`)
+    await sleep(300)
+    const pick = (id, value) => st.evaluate(`(() => { const s = document.getElementById('${id}'); s.value = '${value}'; s.dispatchEvent(new Event('change')); return true })()`)
+    await pick('key-chat', 'F8')
+    await sleep(600)
+    const keys = await st.evaluate(`({ chat: document.getElementById('key-chat').value, hide: document.getElementById('key-hide').value,
+      f8: [...document.getElementById('key-hide').options].find(o => o.value === 'F8').disabled,
+      mic: document.getElementById('mic-shortcut').options.length, note: document.getElementById('key-chat-note').textContent })`)
+    const saved = await chat.evaluate('window.companion.getConfig().then(c => c.shortcuts)')
+    check(keys.chat === 'F8' && saved.chat === 'F8' && keys.f8 && keys.hide === 'Ctrl+Alt+H' && keys.mic >= 3,
+      'Tasti rapidi: chat su F8, che il nascondi non puo\' prendere (' + JSON.stringify(keys) + ')')
+    await stShot('9c-tasti')
+    await pick('key-chat', 'Ctrl+Alt+C')
+    await sleep(400)
     await st.evaluate('window.close(); true').catch(() => {})
   }
 

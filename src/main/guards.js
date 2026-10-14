@@ -171,6 +171,66 @@ const MIC_SHORTCUTS = {
   'F9': { label: 'F9', vk: 0x78 },
   'off': { label: 'Nessuna (solo il pulsante della chat)', vk: 0 },
 }
+// Scorciatoie dell'app (Blocco 9c): aprire e chiudere la chat, mostrare e
+// nascondere i companion. Si sceglie fra queste, come per il microfono (con
+// cui non si sovrappongono): Ctrl+Alt e' AltGr sulla tastiera italiana, e con
+// C, H, J e K non scrive niente.
+const APP_SHORTCUTS = {
+  'Ctrl+Alt+C': 'Ctrl + Alt + C',
+  'Ctrl+Alt+H': 'Ctrl + Alt + H',
+  'Ctrl+Alt+J': 'Ctrl + Alt + J',
+  'Ctrl+Alt+K': 'Ctrl + Alt + K',
+  'F7': 'F7',
+  'F8': 'F8',
+  'off': 'Nessuna',
+}
+const SHORTCUT_DEFAULTS = { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H' }
+const isShortcut = (v) => typeof v === 'string' && Object.prototype.hasOwnProperty.call(APP_SHORTCUTS, v)
+
+/** Le scorciatoie della config, con i predefiniti al posto di quelle mancanti. */
+function shortcutsConfig(cfg) {
+  const s = cfg && cfg.shortcuts && typeof cfg.shortcuts === 'object' ? cfg.shortcuts : {}
+  return Object.fromEntries(Object.entries(SHORTCUT_DEFAULTS).map(([k, def]) => [k, isShortcut(s[k]) ? s[k] : def]))
+}
+
+/** Una scelta nuova vale solo se non e' gia' di un'altra azione. */
+function mergeShortcuts(current, incoming) {
+  const next = shortcutsConfig({ shortcuts: current })
+  for (const key of Object.keys(SHORTCUT_DEFAULTS)) {
+    const want = incoming[key]
+    if (!isShortcut(want)) continue
+    if (want !== 'off' && Object.entries(next).some(([k, v]) => k !== key && v === want)) continue
+    next[key] = want
+  }
+  return next
+}
+
+// Pagine delle Impostazioni (Blocco 9c), nell'ordine della barra laterale.
+// "persone" e' il nome di prima di Personaggi: chi la chiede cosi' arriva li'.
+const SETTINGS_PAGES = ['generale', 'personaggi', 'modello', 'strumenti', 'voce', 'microfono', 'visione', 'memoria', 'movimenti', 'live2d', 'tasti']
+const SETTINGS_ALIASES = { persone: 'personaggi' }
+/** La pagina da aprire, o '' se il nome non e' di una pagina. */
+function settingsPage(name) {
+  const page = typeof name === 'string' ? (SETTINGS_ALIASES[name] || name) : ''
+  return SETTINGS_PAGES.includes(page) ? page : ''
+}
+
+// Miniature del viso degli avatar (Blocco 9c): un PNG fino a 512 px per lato,
+// scattato dal companion. Firma e misure si controllano prima di scriverlo.
+const THUMB_RE = /^data:image\/png;base64,([A-Za-z0-9+/]+=*)$/
+const THUMB_MAX_SIDE = 512
+/** Il PNG di una miniatura (Buffer), o null se non lo e'. */
+function checkThumbPng(dataUrl) {
+  const m = typeof dataUrl === 'string' && dataUrl.length <= 1536 * 1024 ? dataUrl.match(THUMB_RE) : null
+  if (!m) return null
+  const buf = Buffer.from(m[1], 'base64')
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+  if (buf.length < 33 || !signature.every((b, i) => buf[i] === b) || buf.toString('ascii', 12, 16) !== 'IHDR') return null
+  const w = buf.readUInt32BE(16)
+  const h = buf.readUInt32BE(20)
+  return w > 0 && h > 0 && w <= THUMB_MAX_SIDE && h <= THUMB_MAX_SIDE ? buf : null
+}
+
 const VOICE_ENGINES = ['kokoro', 'xtts']
 const KOKORO_VOICES = ['if_sara', 'im_nicola']
 const XTTS_SPEAKER_RE = /^[\p{L}][\p{L} .'-]{0,40}$/u
@@ -307,6 +367,7 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.danceMusic === 'boolean') merged.danceMusic = incoming.danceMusic
   if (typeof incoming.initiative === 'boolean') merged.initiative = incoming.initiative
   if (typeof incoming.hudPinned === 'boolean') merged.hudPinned = incoming.hudPinned
+  if (incoming.shortcuts && typeof incoming.shortcuts === 'object') merged.shortcuts = mergeShortcuts(current.shortcuts, incoming.shortcuts)
   if (typeof incoming.activeApp === 'boolean') merged.activeApp = incoming.activeApp
   if (incoming.activeAppIgnore !== undefined) { const list = require('./active-app').cleanIgnore(incoming.activeAppIgnore); if (list) merged.activeAppIgnore = list }
   if (typeof incoming.initiativeVoice === 'boolean') merged.initiativeVoice = incoming.initiativeVoice
@@ -421,6 +482,9 @@ module.exports = {
   chibiAvatars, chibiUnavailable,
   LIVE2D_EMOTIONS,
   MIC_SHORTCUTS,
+  APP_SHORTCUTS, SHORTCUT_DEFAULTS, shortcutsConfig, mergeShortcuts,
+  SETTINGS_PAGES, settingsPage,
+  checkThumbPng,
   SAFE_COMMANDS,
   isSafeUrl,
   isExecutable,

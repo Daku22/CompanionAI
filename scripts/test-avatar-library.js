@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { AvatarLibrary } = require('../src/main/AvatarLibrary')
+const { AvatarLibrary, thumbName } = require('../src/main/AvatarLibrary')
 const { builtinAvatars } = require('../src/main/builtin-avatars')
 
 async function file(name, contents = '') {
@@ -176,6 +176,20 @@ async function main() {
     await assert.rejects(() => library.scan(badL2d), /Nessun avatar supportato/)
     scenari++
 
+    // Miniature (Blocco 9c): un file per id, anche con spazi e maiuscole, servito
+    // da avatar://thumbs/; "Dust" e "dust" non si sovrascrivono.
+    assert.match(thumbName('Dust'), /^[0-9a-f]{32}\.png$/)
+    assert.notEqual(thumbName('Dust'), thumbName('dust'))
+    assert.equal(thumbName('Una Lunga Persona'), thumbName('Una Lunga Persona'))
+    await library.saveThumb(gltf.id, Buffer.from('png del viso'))
+    await library.saveThumb('Dust', Buffer.from('png integrato'))
+    const thumbed = await library.withThumbs([{ id: gltf.id }, { id: 'Dust' }, { id: imported.id }])
+    assert.match(thumbed[0].thumb, new RegExp('^avatar://thumbs/' + thumbName(gltf.id) + '\\?v=\\d+$'))
+    assert.ok(thumbed[1].thumb && !thumbed[2].thumb, 'senza scatto niente miniatura')
+    const thumbUrl = new URL(thumbed[0].thumb)
+    assert.equal(await library.resolve(thumbUrl.hostname, thumbUrl.pathname.slice(1)), library.thumbPath(gltf.id), 'avatar://thumbs/ porta al file')
+    scenari++
+
     // Eliminazione: sparisce il record e la cartella, e un id integrato o
     // inventato non tocca nulla fuori dalla libreria.
     const before = (await library.list()).map(a => a.id)
@@ -186,6 +200,8 @@ async function main() {
     assert.ok(!after.includes(gltf.id) && !after.includes(packed.id), 'gli eliminati non sono piu-` nel menu')
     assert.ok(after.includes(imported.id), 'gli altri importati restano')
     assert.equal(fs.existsSync(path.join(base, 'library', gltf.id)), false, 'la cartella dell-`avatar va cancellata')
+    assert.equal(fs.existsSync(library.thumbPath(gltf.id)), false, 'con l-`avatar se ne va la sua miniatura')
+    assert.ok(fs.existsSync(library.thumbPath('Dust')), 'quella di un integrato resta')
     assert.equal(await library.resolve(packed.id, packed.entry), null)
     assert.ok(fs.existsSync(path.join(base, 'one', 'hero.vrm')), 'il file originale non si tocca')
     assert.deepEqual(await library.remove([gltf.id]), [], 'eliminare due volte non e-` un errore')

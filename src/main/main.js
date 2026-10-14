@@ -15,7 +15,7 @@ const edgePeek = require('./edge-peek')
 const { builtinAvatars } = require('./builtin-avatars')
 const room = require('./room')
 const { WeatherService } = require('./weather')
-const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS, checkLive2DChoices, allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT, chibiAvatars, chibiUnavailable } = require('./guards')
+const { isSafeUrl, checkOpenPath, checkDesktopItem, parseCommand, mergeConfig, isTrustedSender, checkMotion, keysForDisk, legacyKeyProvider, WINDOW_SCALES, voiceConfig, allowPermission, MIC_SHORTCUTS, APP_SHORTCUTS, shortcutsConfig, settingsPage, checkThumbPng, checkLive2DChoices, allowDisplayCapture, danceApps, DANCE_APPS_DEFAULT, chibiAvatars, chibiUnavailable } = require('./guards')
 const winAudio = require('./win-audio')
 const { VoiceService } = require('./voice')
 const { XttsEngine } = require('./xtts-engine')
@@ -156,6 +156,8 @@ function loadConfig() {
   cfg.activeApp = cfg.activeApp === true
   // La barra a pillola sempre visibile (Blocco 9b): spenta, compare al passaggio del mouse.
   cfg.hudPinned = cfg.hudPinned === true
+  // Scorciatoie della chat e dei companion (Blocco 9c), con i predefiniti.
+  cfg.shortcuts = shortcutsConfig(cfg)
   cfg.activeAppIgnore = ActiveApp.cleanIgnore(cfg.activeAppIgnore) || ActiveApp.IGNORE_DEFAULT
   // Server MCP (Blocco 7f): li aggiunge l'utente, spenti di base.
   cfg.mcpServers = Mcp.cleanServers(cfg.mcpServers)
@@ -220,6 +222,9 @@ function publicConfig(cfg) {
     micInstalled: !!voiceService && voiceService.sttInstalled(),
     micShortcutActive: micShortcut,
     micShortcuts: Object.entries(MIC_SHORTCUTS).map(([id, s]) => ({ id, label: s.label })),
+    // Scorciatoie dell'app (Blocco 9c): quelle registrate davvero, e le scelte.
+    shortcutsActive: { ...appShortcuts },
+    appShortcuts: Object.entries(APP_SHORTCUTS).map(([id, label]) => ({ id, label })),
   }
 }
 
@@ -264,15 +269,18 @@ const activePersona = () => (personas ? Personas.active(personas) : null)
 // La voce della persona attiva e' quella in uso adesso (si cambia anche dalla
 // scheda Voce); le altre hanno quella ricordata.
 function personasPublic() {
-  const current = voiceConfig(loadConfig())
+  const cfg = loadConfig()
+  const current = voiceConfig(cfg)
   return {
     activeId: personas.activeId,
     // Chi e' sul desktop (Blocco 8b), e quanti ce ne stanno.
     open: companions.map(c => c.personaId),
     maxOpen: Companions.MAX_OPEN,
-    list: personas.list.map(({ id, name, prompt, voice }) => {
+    list: personas.list.map(({ id, name, prompt, voice, avatarModel }) => {
       const v = id === personas.activeId ? current : { ...current, ...(voice || {}) }
-      return { id, name, prompt, voice: { engine: v.engine, kokoroVoice: v.kokoroVoice, xttsSpeaker: v.xttsSpeaker } }
+      // L'avatar della persona ('' = il predefinito): la sua miniatura nelle card.
+      const avatar = avatarModel || (id === personas.activeId ? cfg.avatarModel : '') || ''
+      return { id, name, prompt, avatarModel: avatar, voice: { engine: v.engine, kokoroVoice: v.kokoroVoice, xttsSpeaker: v.xttsSpeaker } }
     }),
   }
 }
@@ -375,6 +383,20 @@ handle('personas:change', async (_e, input) => {
 // accesa a cavallo della mezzanotte). Senza chiave o con un errore si salta:
 // riprova la volta dopo.
 const diaryPath = (id) => path.join(Personas.personaDir(MEMORY_PATH, id), 'diary.jsonl')
+
+// Il rapporto di ogni persona, per le card di Personaggi (Blocco 9c): dal suo
+// companion se e' sul desktop, altrimenti dal suo file.
+handle('personas:rapport', async () => {
+  const out = {}
+  for (const p of personas ? personas.list : []) {
+    const c = companions.find(x => x.personaId === p.id)
+    try {
+      out[p.id] = c ? c.publicMood().rapport
+        : Rapport.publicRapport(await Rapport.loadRapport(path.join(Personas.personaDir(MEMORY_PATH, p.id), 'rapport.json')))
+    } catch (_) {}
+  }
+  return out
+})
 
 handle('personas:diary', async (_e, id) => {
   if (!personas || !personas.list.some(p => p.id === id)) return []
@@ -862,13 +884,12 @@ function sendAllChats(channel, data) {
 
 // ─── Impostazioni ────────────────────────────────────────────────────────────
 // Una finestra normale, con cornice: si apre dal menu col tasto destro, dalla
-// tray e dalla chat. Schede: Modello, Generale, Voce, Microfono. page sceglie
-// la scheda (la chat apre Modello); senza, si riapre sull'ultima usata.
-
-const SETTINGS_PAGES = ['modello', 'generale', 'persone', 'memoria', 'voce', 'microfono', 'movimenti', 'strumenti', 'live2d']
+// tray, dalla chat e dall'HUD. Le pagine sono in SETTINGS_PAGES (guards.js),
+// con la barra laterale a gruppi (Blocco 9c). page sceglie la pagina (la chat
+// apre Modello); senza, si riapre sull'ultima usata.
 
 function openSettings(page) {
-  page = SETTINGS_PAGES.includes(page) ? page : ''
+  page = settingsPage(page)
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     if (page) sendSettings('settings-page', page)
     if (settingsWindow.isMinimized()) settingsWindow.restore()
@@ -877,7 +898,7 @@ function openSettings(page) {
     return
   }
   settingsWindow = new BrowserWindow({
-    width: 560, height: 640, minWidth: 440, minHeight: 420,
+    width: 920, height: 680, minWidth: 720, minHeight: 520,
     title: 'Impostazioni — CompanionAI',
     icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
     autoHideMenuBar: true,
@@ -1000,6 +1021,36 @@ function syncMicShortcut(voice) {
   const vk = MIC_SHORTCUTS[want].vk
   if (globalShortcut.register(want, () => onMicShortcut(vk))) micShortcut = want
   else console.warn('[mic] la scorciatoia ' + want + ' e\' gia\' usata da un altro programma')
+}
+
+// ─── Scorciatoie dell'app (Blocco 9c) ────────────────────────────────────────
+// Aprire e chiudere la chat, mostrare e nascondere i companion. Si scelgono in
+// Impostazioni > Tasti rapidi; una gia' presa da un altro programma resta
+// spenta, e la pagina lo dice (shortcutsActive).
+const appShortcuts = { chat: null, hide: null }        // registrate davvero
+const appShortcutsWanted = { chat: null, hide: null }  // scelte nella config
+const SHORTCUT_ACTIONS = {
+  chat: () => toggleChat(),
+  hide: () => toggleCompanionsShown(),
+}
+function syncAppShortcuts(cfg) {
+  const want = shortcutsConfig(cfg)
+  for (const [key, run] of Object.entries(SHORTCUT_ACTIONS)) {
+    const next = want[key] === 'off' ? null : want[key]
+    if (next === appShortcutsWanted[key]) continue
+    appShortcutsWanted[key] = next
+    if (appShortcuts[key]) { try { globalShortcut.unregister(appShortcuts[key]) } catch (_) {} }
+    appShortcuts[key] = null
+    if (next && globalShortcut.register(next, run)) appShortcuts[key] = next
+    else if (next) console.warn('[scorciatoie] ' + next + " e' gia' usata da un altro programma")
+  }
+}
+/** Nasconde i companion (e l'HUD) se se ne vede almeno uno, altrimenti li mostra. */
+function toggleCompanionsShown() {
+  // Gli ospiti della stanza si vedono nella finestra di chi li ospita.
+  const live = companions.filter(c => c.alive() && !guestHost(c))
+  if (live.some(c => c.win.isVisible())) { for (const c of live) c.win.hide(); hideHud() }
+  else for (const c of live) c.win.show()
 }
 
 function sendMicCommand(cmd) {
@@ -2059,7 +2110,7 @@ handle('memory:clear', async (e) => {
 
 // Avatar library — la scelta del file e la copia avvengono nel main process.
 // Questo impedisce al renderer di trasformare un path arbitrario in un URL locale.
-handle('avatars:list', () => avatarLibrary ? avatarLibrary.list() : [])
+handle('avatars:list', async () => avatarLibrary ? avatarLibrary.withThumbs(await avatarLibrary.list()) : [])
 handle('avatars:scan-import', async () => {
   const picked = await dialog.showOpenDialog({
     title: 'Importa avatar',
@@ -2072,11 +2123,34 @@ handle('avatars:scan-import', async () => {
 handle('avatars:commit-import', (_event, data) => {
   const { token, candidateId } = data || {}
   if (typeof token !== 'string' || typeof candidateId !== 'string') throw new Error('Selezione avatar non valida')
-  return avatarLibrary.commit(token, candidateId)
+  return avatarLibrary.commit(token, candidateId).then((record) => { sendSettings('avatars-changed'); return record })
 })
 handle('avatars:remove', (_event, ids) => {
   if (!Array.isArray(ids) || !ids.length || ids.length > 200) throw new Error('Selezione avatar non valida')
-  return avatarLibrary.remove(ids)
+  return avatarLibrary.remove(ids).then((removed) => { sendSettings('avatars-changed'); return removed })
+})
+
+// Miniature del viso (Blocco 9c): le scatta il companion la prima volta che
+// mostra un avatar, le Impostazioni le leggono da avatar://thumbs/.
+handle('avatars:thumb-needed', (e, id) => {
+  if (!companionOf(e) || !avatarLibrary || typeof id !== 'string' || !id || id.length > 200) return false
+  return !fs.existsSync(avatarLibrary.thumbPath(id))
+})
+handle('avatars:save-thumb', async (e, id, png) => {
+  if (!companionOf(e) || !avatarLibrary || typeof id !== 'string') return { ok: false }
+  const buf = checkThumbPng(png)
+  if (!buf || !(await avatarLibrary.list()).some(a => a.id === id)) return { ok: false }
+  await avatarLibrary.saveThumb(id, buf)
+  sendSettings('avatars-changed')
+  return { ok: true }
+})
+// "Usa" nella galleria: l'avatar va a un companion sul desktop (di base quello
+// della chat), che lo carica come dal suo menu e lo ricorda per la sua persona.
+handle('avatars:use', async (_e, id, personaId) => {
+  const c = companions.find(x => x.personaId === personaId && x.alive()) || chatTarget()
+  if (!c || !avatarLibrary || typeof id !== 'string' || !(await avatarLibrary.list()).some(a => a.id === id)) return { ok: false }
+  c.send('menu-command', { cmd: 'avatar', id })
+  return { ok: true, name: (c.persona() || {}).name || '' }
 })
 
 // Animazioni .vrma. Il file da importare lo sceglie e lo legge il main; la
@@ -2617,6 +2691,7 @@ function applyWindowOptions(cfg) {
   prefs.followMouse = cfg.followMouse !== false
   prefs.perch = cfg.perch !== false
   prefs.hudPinned = cfg.hudPinned === true
+  syncAppShortcuts(cfg)
   applyDance(cfg)
   // Spento Kimodo, la memoria video si libera subito.
   if (!cfg.kimodo && kimodo) kimodo.stop()
