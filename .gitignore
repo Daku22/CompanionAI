@@ -12,9 +12,11 @@ research/
 
 # ── Output di build ───────────────────────────────────────────────────────────
 dist/
-# build/ e' output, tranne le icone sorgente (scripts/make-icon.js)
+# build/ e' output, tranne le icone sorgente (scripts/make-icon.js) e la pagina
+# in piu' dell'installer (installer.nsh)
 build/*
 !build/icon-src/
+!build/installer.nsh
 out/
 release/
 *.asar

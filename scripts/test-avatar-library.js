@@ -207,36 +207,43 @@ async function main() {
     assert.deepEqual(await library.remove([gltf.id]), [], 'eliminare due volte non e-` un errore')
     scenari++
 
-    // Integrati: solo cio' che esiste davvero nel pacchetto. Il 2D c'e' solo se
-    // sprites.js contiene un manifest, e in quel caso e' il predefinito.
+    // Integrati: uno per formato (Feniel VRM, Shibahu glTF, Hiyori Live2D),
+    // solo se il file c'e' davvero; il primo e' il predefinito. Il 2D integrato
+    // c'e' solo se sprites.js contiene un manifest, e viene dopo.
     const app = path.join(base, 'app')
-    await file(path.join(app, 'modelli-3d', 'Fred', 'Fred_optimized.vrm'))
+    await file(path.join(app, 'modelli-3d', 'Feniel', 'Feniel.vrm'))
+    await file(path.join(app, 'modelli-3d', 'live2d', 'hiyori', 'hiyori_pro_t11.model3.json'))
     const spritesJs = path.join(app, 'src', 'renderer', 'assets', 'strips', 'sprites.js')
     await file(spritesJs, '// commento\nwindow.COMPANION_SPRITES = null\n')
     let builtins = builtinAvatars(app)
-    assert.deepEqual(builtins.map(a => a.id), ['Fred'])
-    assert.equal(builtins[0].default, true, 'senza 2D integrato il predefinito e-` Fred')
+    assert.deepEqual(builtins.map(a => a.id + ':' + a.kind), ['Feniel:vrm', 'live2d-hiyori:live2d'], 'Shibahu manca: niente voce')
+    assert.equal(builtins[0].default, true, 'il predefinito e-` Feniel')
+    assert.equal(builtins[1].url, 'vrm://live2d/hiyori/hiyori_pro_t11.model3.json')
+    await file(path.join(app, 'modelli-3d', 'Shibahu', 'shibahu.glb'))
     await file(spritesJs, 'window.COMPANION_SPRITES = ' + JSON.stringify({ format: 'companion-sprites/1', name: 'Nuova', animations: { idle: {} } }))
     builtins = builtinAvatars(app)
-    assert.deepEqual(builtins.map(a => a.id), ['builtin-2d', 'Fred'])
-    assert.equal(builtins[0].name, 'Nuova')
-    assert.ok(builtins[0].default && !builtins[1].default)
+    assert.deepEqual(builtins.map(a => a.id), ['Feniel', 'Shibahu', 'live2d-hiyori', 'builtin-2d'])
+    assert.equal(builtins[1].kind, 'gltf')
+    assert.equal(builtins[3].name, 'Nuova')
+    assert.ok(builtins[0].default && !builtins[3].default)
     assert.deepEqual(builtinAvatars(path.join(base, 'vuota')), [], 'senza file nessun avatar integrato')
     scenari++
 
-    // Copia privata: private-assets/ aggiunge i suoi pacchetti 2D in testa
-    // (quindi il predefinito) e i suoi VRM in coda, con gli id di sempre
-    // ("yanineko", "Dust") cosi' le configurazioni salvate li ritrovano.
+    // Copia privata: private-assets/ aggiunge i suoi avatar dopo gli integrati,
+    // con gli id di sempre ("yanineko", "Dust") cosi' le configurazioni salvate
+    // li ritrovano; un Live2D privato con lo stesso id di Hiyori non si ripete.
     const priv = path.join(app, 'private-assets')
     await file(path.join(priv, 'yanineko', 'sprite-pack', 'sprites.json'),
       JSON.stringify({ format: 'companion-sprites/1', name: 'Yanineko', animations: { idle: {} } }))
     await file(path.join(priv, 'modelli-3d', 'Dust', 'DUST.vrm'))
+    await file(path.join(priv, 'live2d', 'hiyori', 'hiyori_pro_t11.model3.json'))
     await file(path.join(priv, 'rotto', 'sprites.json'), '{ non json')
     builtins = builtinAvatars(app)
-    assert.deepEqual(builtins.map(a => a.id), ['yanineko', 'builtin-2d', 'Fred', 'Dust'])
-    assert.ok(builtins[0].default && builtins[0].private, 'lo sprite privato e-` il predefinito')
-    assert.equal(builtins[0].url, 'vrm://private/yanineko/sprite-pack/sprites.json')
-    assert.equal(builtins[3].url, 'vrm://private/modelli-3d/Dust/DUST.vrm')
+    assert.deepEqual(builtins.map(a => a.id), ['Feniel', 'Shibahu', 'live2d-hiyori', 'yanineko', 'builtin-2d', 'Dust'])
+    assert.ok(builtins[0].default && !builtins[0].private, 'il predefinito resta Feniel')
+    assert.ok(!builtins[2].private, 'Hiyori e-` quello integrato')
+    assert.equal(builtins[3].url, 'vrm://private/yanineko/sprite-pack/sprites.json')
+    assert.equal(builtins[5].url, 'vrm://private/modelli-3d/Dust/DUST.vrm')
     scenari++
 
     console.log('=== AvatarLibrary: ' + scenari + ' scenari superati ===')

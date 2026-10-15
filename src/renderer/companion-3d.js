@@ -958,15 +958,29 @@ function headShot() {
   const hips = h && h.getRawBoneNode('hips');
   if (!head || !hips) return staticShot();
   const release = holdStill(currentVrm);
-  try { return faceShot(head, hips); } finally { release(); renderer.render(scene, camera); }
+  // Lo scatto si fa su un quadrato di SHOT_PX (la finestra del companion e'
+  // piccola, e il viso ne sarebbe una parte minuscola), poi si rimette tutto.
+  const size = renderer.getSize(new THREE.Vector2());
+  const ratio = renderer.getPixelRatio();
+  renderer.setPixelRatio(1);
+  renderer.setSize(SHOT_PX, SHOT_PX, false);
+  try { return faceShot(head, hips); } finally {
+    release();
+    renderer.setPixelRatio(ratio);
+    renderer.setSize(size.x, size.y, false);
+    renderer.render(scene, camera);
+  }
 }
+const SHOT_PX = 512;
 function faceShot(head, hips) {
   const headPos = head.getWorldPosition(new THREE.Vector3());
   const unit = Math.max(0.15, headPos.y - hips.getWorldPosition(new THREE.Vector3()).y);
   // Con il chibi la testa e' piu' grande del corpo: l'inquadratura la segue.
   const big = head.getWorldScale(new THREE.Vector3()).y / Math.max(1e-6, hips.getWorldScale(new THREE.Vector3()).y);
+  // Primo piano stretto sul viso (scelto dall'utente: meglio del mezzo busto
+  // con orecchie e aureola). L'osso della testa e' alla base del cranio: il
+  // viso e' un po' piu' su.
   const frame = unit * 0.62 * Math.max(1, big);
-  // L'osso della testa e' alla base del cranio: il viso e' un po' piu' su.
   const center = headPos.clone();
   center.y += frame * 0.22;
   // Davanti al viso: il modello e' rivolto in avanti, qualunque giro abbia la camera.
@@ -974,14 +988,11 @@ function faceShot(head, hips) {
   const dir = new THREE.Vector3(0, 0, 1);
   if (parent) dir.applyQuaternion(parent.getWorldQuaternion(new THREE.Quaternion()));
   dir.setY(0).normalize();
-  const canvas = renderer.domElement;
-  const aspect = canvas.width / canvas.height;
-  const shot = new THREE.PerspectiveCamera(30, aspect, 0.01, 100);
-  // Il quadrato centrale e' largo quanto il lato corto: la distanza tiene il viso dentro.
-  shot.position.copy(center).addScaledVector(dir, (frame / 2) / Math.tan(15 * Math.PI / 180) / Math.min(1, aspect));
+  const shot = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+  shot.position.copy(center).addScaledVector(dir, (frame / 2) / Math.tan(15 * Math.PI / 180));
   shot.lookAt(center);
   renderer.render(scene, shot);
-  return window.CompanionThumb.centerSquare(canvas);
+  return window.CompanionThumb.wholeCanvas(renderer.domElement);
 }
 
 /** Un modello senza scheletro: la parte alta della sagoma, come per il 2D. */

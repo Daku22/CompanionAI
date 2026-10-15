@@ -157,7 +157,7 @@ test('ossa di servizio scartate', () => {
 })
 
 test('Fred (VRM 1.0): stesso abbinamento che dichiara il file', () => {
-  compareWithDeclared(path.join(ROOT, 'modelli-3d', 'Fred', 'Fred_optimized.vrm'))
+  compareWithDeclared(path.join(ROOT, 'scripts', 'fixtures', 'Fred', 'Fred_optimized.vrm'))
 })
 
 const privateDir = path.join(ROOT, 'private-assets')

@@ -12,7 +12,7 @@
 // Uso:
 //   npm run audit                    schermate nella temp di sistema
 //   npm run audit -- --out <cartella>
-//   npm run audit -- --vrm Neko      il 3D con un altro modello (predefinito Fred)
+//   npm run audit -- --vrm Neko      il 3D con un altro modello (predefinito Feniel)
 //   npm run audit -- --bvh <file>    la clip "sedersi" da un BVH di Kimodo (predefinita:
 //                                    scripts/fixtures/kimodo-soma77-sit.bvh)
 //   npm run audit -- --kimodo <dir>  anche un movimento generato davvero da Kimodo
@@ -58,7 +58,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
 const argv = process.argv.slice(2)
 const opt = (name) => { const i = argv.indexOf(name); return i === -1 ? null : argv[i + 1] }
-const VRM = opt('--vrm') || 'Fred'
+const VRM = opt('--vrm') || 'Feniel'
 const KIMODO = opt('--kimodo') ? path.resolve(opt('--kimodo')) : null
 // La voce Kokoro: i suoi file (180 MB) non stanno nel repo, quindi la prova e'
 // facoltativa. Cartella con la struttura di %APPDATA%\CompanionAI\voice.
@@ -211,7 +211,7 @@ function stripVrm(file, out) {
   fs.writeFileSync(out, Buffer.concat([header, chunk(text.length, 0x4e4f534a), text, chunk(bin.length + pad.length, 0x004e4942), bin, pad]))
 }
 const plainGlb = path.join(WORK, 'umanoide-gltf.glb')
-stripVrm(path.join(ROOT, 'modelli-3d', 'Fred', 'Fred_optimized.vrm'), plainGlb)
+stripVrm(path.join(ROOT, 'scripts', 'fixtures', 'Fred', 'Fred_optimized.vrm'), plainGlb)
 const gltfScan = await library.scan(plainGlb)
 const gltfAvatar = await library.commit(gltfScan.token, gltfScan.candidates[0].id)
 // Un modello Live2D importato, se indicato (nel repo pubblico non ce n'e' uno integrato).

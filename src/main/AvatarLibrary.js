@@ -114,7 +114,7 @@ async function fbxFiles(sourcePath) {
 // lo stesso file. THUMB_VERSION cambia quando cambia il modo di scattare: le
 // foto vecchie (un 3D girato a meta' animazione) si rifanno.
 const THUMBS_DIR = 'thumbs'
-const THUMB_VERSION = 2
+const THUMB_VERSION = 3
 function thumbName(id) {
   return crypto.createHash('sha256').update(THUMB_VERSION + ':' + String(id)).digest('hex').slice(0, 32) + '.png'
 }

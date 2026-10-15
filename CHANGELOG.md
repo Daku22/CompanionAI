@@ -150,6 +150,10 @@
     answer once (12 such messages a day each, apart from the 6 to you);
   - the room fits everyone: the other 3D companions join the scene as guests,
     with gestures, expressions, lip sync and touches.
+- Three built-in avatars, one per format, instead of Fred: Feniel (VRM, the
+  default), Shibahu (GLB) and Hiyori (Live2D). Credits in `ASSETS-LICENSE.md`.
+- The installer offers the Live2D Cubism Core on its own page: tick the box to
+  accept Live2D's license and the setup downloads it from Live2D's website.
 - New look, in warm amber:
   - a bar around the companion on hover: mood, energy and bond rings; chat,
     room, avatar and hide; a pill with microphone, pause, group chat, who is

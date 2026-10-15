@@ -11,8 +11,9 @@
 // integrati della copia locale. E' cosi' che una copia privata tiene Yanineko,
 // Dust e Neko senza che finiscano nel repository o nell'installer pubblico.
 //
-// Ordine, e quindi predefinito (il primo): 2D privati, 2D integrato, Live2D
-// privati, Fred, poi i VRM privati.
+// Ordine, e quindi predefinito (il primo): i tre integrati, uno per formato
+// (Feniel VRM, Shibahu glTF, Hiyori Live2D), poi il 2D integrato quando c'e',
+// e gli avatar privati (2D, Live2D, VRM).
 
 const fs = require('fs')
 const path = require('path')
@@ -23,10 +24,16 @@ const PRIVATE_DIR = 'private-assets'
 // yanineko/sprite-pack/sprites.json o modelli-3d/Dust/DUST.vrm.
 const PRIVATE_DEPTH = 3
 
-const MODELS_3D = [
-  // Fred di Swampazzo (VRoid Hub): licenza VRM 1.0 con ridistribuzione e
-  // modifiche permesse, credito non richiesto ma riportato in ASSETS-LICENSE.md.
-  { id: 'Fred', name: 'Fred', file: 'Fred/Fred_optimized.vrm' },
+// Gli avatar inclusi, uno per formato, per far vedere a chi apre l'app cosa
+// si puo' importare. Licenze e crediti in ASSETS-LICENSE.md.
+const BUILTIN_MODELS = [
+  // Feniel di puwawa (VRoid Hub): ridistribuzione permessa, con il credito.
+  { id: 'Feniel', name: 'Feniel', kind: 'vrm', file: 'Feniel/Feniel.vrm', capabilities: ['animation', 'expressions', 'walk'] },
+  // Shibahu di 腱鞘炎の人 (Sketchfab, CC-BY 4.0), con le texture ridotte a 2048 px.
+  { id: 'Shibahu', name: 'Shibahu', kind: 'gltf', file: 'Shibahu/shibahu.glb', capabilities: ['animation', 'walk'] },
+  // Hiyori Momose, modello di esempio di Live2D (Free Material License): si
+  // vede solo con il Cubism Core. Stesso id del Live2D privato di prima.
+  { id: 'live2d-hiyori', name: 'Hiyori', kind: 'live2d', file: 'live2d/hiyori/hiyori_pro_t11.model3.json', capabilities: ['animation', 'expressions'] },
 ]
 
 /**
@@ -123,7 +130,15 @@ function privateAvatars(appRoot) {
 function builtinAvatars(appRoot) {
   const priv = privateAvatars(appRoot)
   /** @type {BuiltinAvatar[]} */
-  const list = [...priv.sprites]
+  const list = []
+  for (const model of BUILTIN_MODELS) {
+    if (!fs.existsSync(path.join(appRoot, 'modelli-3d', model.file))) continue
+    list.push({
+      id: model.id, name: model.name, kind: model.kind, builtin: true,
+      capabilities: model.capabilities, url: 'vrm://' + model.file.split('/').map(encodeURIComponent).join('/'),
+    })
+  }
+  list.push(...priv.sprites)
   const sprites = readBuiltinSprites(appRoot)
   if (sprites) {
     list.push({
@@ -132,13 +147,6 @@ function builtinAvatars(appRoot) {
     })
   }
   list.push(...priv.live2d)
-  for (const model of MODELS_3D) {
-    if (!fs.existsSync(path.join(appRoot, 'modelli-3d', model.file))) continue
-    list.push({
-      id: model.id, name: model.name, kind: 'vrm', builtin: true,
-      capabilities: ['animation', 'expressions', 'walk'], url: 'vrm://' + model.file,
-    })
-  }
   list.push(...priv.models)
 
   // Un id ripetuto (due pacchetti con lo stesso nome) renderebbe ambigua la

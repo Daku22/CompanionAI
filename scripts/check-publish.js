@@ -29,8 +29,9 @@ const FORBIDDEN_PATHS = [
   /(^|[\\/])research[\\/]/i,
   /(^|[\\/])\.env$/i,
 ]
-// Gli unici modelli 3D pubblicabili: vedi ASSETS-LICENSE.md.
-const ALLOWED_VRM = [/modelli-3d[\\/]Fred[\\/]Fred_optimized\.vrm$/i]
+// Gli unici modelli VRM pubblicabili: vedi ASSETS-LICENSE.md. Feniel e'
+// l'avatar integrato; Fred resta solo fra i file di prova (VRM 1.0).
+const ALLOWED_VRM = [/^modelli-3d[\\/]Feniel[\\/]Feniel\.vrm$/i, /^scripts[\\/]fixtures[\\/]Fred[\\/]Fred_optimized\.vrm$/i]
 // Chiavi API riconoscibili dal prefisso.
 const SECRET_PATTERNS = [
   /sk-ant-[A-Za-z0-9_-]{20,}/,

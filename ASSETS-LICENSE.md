@@ -5,9 +5,53 @@ avatar assets are **not** covered by that license. Each one keeps its own
 terms, listed here. Only assets whose license allows redistribution are
 included in this repository and in the installer.
 
-## Fred (3D, VRM 1.0)
+The app ships three avatars, one for each format it reads, so a first start
+shows what can be imported: Feniel (VRM), Shibahu (glTF) and Hiyori (Live2D).
 
-- File: `modelli-3d/Fred/Fred_optimized.vrm`
+## Feniel (3D, VRM 0.x) — the default avatar
+
+- File: `modelli-3d/Feniel/Feniel.vrm`
+- Author: **puwawa**, published on VRoid Hub as "Faniel (Free use)":
+  https://hub.vroid.com/en/characters/4429979698227576442/models/5691478655558471940
+- License: the model's VRoid Hub conditions of use, also written in its own
+  metadata:
+  - avatar use: everyone
+  - commercial use: allowed (individuals and corporations)
+  - redistribution: allowed
+  - modification: allowed
+  - credit: **required** — given here: Feniel by puwawa.
+- Unmodified (renamed from the downloaded file).
+
+## Shibahu (3D, glTF)
+
+- File: `modelli-3d/Shibahu/shibahu.glb`
+- Author: **腱鞘炎の人** (https://sketchfab.com/Kensyouen), published on
+  Sketchfab: https://sketchfab.com/3d-models/shibahu-2e9dffd948f747668609a5a477daad86
+- License: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), as
+  declared in the file. Credit: "Shibahu" by 腱鞘炎の人, CC BY 4.0.
+- Modification: the 4096×4096 textures were downscaled to 2048×2048 and the
+  opaque ones re-encoded as JPEG, to keep the installer small (50 MB → 17 MB).
+  Mesh, skeleton and materials are unchanged.
+
+## Hiyori Momose (Live2D)
+
+- Files: `modelli-3d/live2d/hiyori/` (with Live2D's original `ReadMe.txt`)
+- Sample model by **Live2D Inc.**; illustration Kani Biimu, modeling Live2D.
+  © Live2D Inc.
+- License: Live2D's [Free Material License Agreement](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html)
+  and [Terms of Use for Live2D Cubism Sample Data](https://www.live2d.com/en/learn/sample/model-terms/).
+  General users and small-scale enterprises (annual sales under 10 million
+  yen) may use and distribute it, also commercially; larger enterprises only
+  for internal purposes. Unmodified.
+- Showing it needs the Live2D Cubism Core, which is not included: the app (or
+  the installer, if you tick the box) downloads it from Live2D's website after
+  you accept its license.
+
+## Fred (test file only, VRM 1.0)
+
+- File: `scripts/fixtures/Fred/Fred_optimized.vrm`. No longer a built-in
+  avatar: it stays in the repository only for the tests of VRM 1.0 models, and
+  is not in the installer.
 - Author: **Swampazzo**, published on VRoid Hub
 - License: [VRM Public License 1.0](https://vrm.dev/licenses/1.0/), as declared
   in the model's own metadata:
@@ -23,7 +67,7 @@ included in this repository and in the installer.
 
 The app is designed around an original 2D character: a scruffy cat girl. Its
 art is being produced from [docs/avatar-brief.md](docs/avatar-brief.md). Until
-it is added, the app ships without a built-in 2D avatar and starts with Fred.
+it is added, the app ships without a built-in 2D avatar and starts with Feniel.
 
 When the art is added, its license goes here. The recommended choice is
 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): anyone may

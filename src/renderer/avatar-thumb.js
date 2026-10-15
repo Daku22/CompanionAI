@@ -3,9 +3,9 @@
 // La prima volta che un companion mostra un avatar, ne fotografa il viso: un
 // PNG di 256x256 con lo sfondo trasparente, che il main salva e che le card
 // delle Impostazioni (e la chat) mostrano al posto delle iniziali. Il 3D si
-// inquadra con una camera davanti alla testa (companion-3d.js); per il 2D e il
-// Live2D, e per i modelli 3D senza scheletro, qui si cerca la sagoma nel
-// canvas appena disegnato e se ne ritaglia la parte alta.
+// inquadra con una camera davanti al viso (companion-3d.js, wholeCanvas); per
+// il 2D e il Live2D, e per i modelli 3D senza scheletro, qui si cerca la
+// sagoma nell'immagine appena disegnata e se ne ritaglia la parte alta.
 //
 // Script classico e non modulo: lo usano companion-2d.js, companion-live2d.js
 // e companion-3d.js, e i test (faceRect) lo caricano da Node.
@@ -84,8 +84,8 @@
     return r ? squareToPng(source, r.x / k, r.y / k, r.size / k) : null
   }
 
-  /** Il quadrato centrale di un canvas (la camera sul viso del 3D). */
-  function centerSquare(source) {
+  /** Tutto il canvas (quadrato) in un PNG: il primo piano del 3D. */
+  function wholeCanvas(source) {
     const side = Math.min(source.width, source.height)
     return side ? squareToPng(source, (source.width - side) / 2, (source.height - side) / 2, side) : null
   }
@@ -114,7 +114,7 @@
     }
   }
 
-  const api = { SIZE, faceRect, cropFace, centerSquare, request }
+  const api = { SIZE, faceRect, cropFace, wholeCanvas, request }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.CompanionThumb = api
 })(typeof window !== 'undefined' ? window : globalThis)

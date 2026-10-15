@@ -5,7 +5,7 @@
 // salvando tre schermate a tempi diversi. Non tocca config e dati veri.
 //
 // Uso:
-//   node scripts/preview-clips.mjs [--vrm Fred] [--out <cartella>] clip.vrma=wave altra.vrma=sit-enter ...
+//   node scripts/preview-clips.mjs [--vrm Feniel] [--out <cartella>] clip.vrma=wave altra.vrma=sit-enter ...
 //   Il nome dopo "=" e' lo slot, con la fase se serve (sit-enter, sit-exit).
 //   --play sit,idle: invece di una clip alla volta, esegue questi gesti in
 //   ordine (per vedere entrata, ciclo e uscita di fila).
@@ -28,7 +28,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
 const argv = process.argv.slice(2)
 const opt = (name) => { const i = argv.indexOf(name); return i === -1 ? null : argv[i + 1] }
-const VRM = opt('--vrm') || 'Fred'
+const VRM = opt('--vrm') || 'Feniel'
 const OUT = path.resolve(opt('--out') || path.join(os.tmpdir(), 'companion-preview'))
 // Lo slot puo' portare la fase: "sit-enter" -> sit-enter-preview-0.vrma, gesto sit.
 const TIMES = (opt('--times') || '600,2000,3600').split(',').map(Number)
@@ -36,7 +36,7 @@ const clips = argv.filter((a, i) => a.includes('=') && !argv[i - 1]?.startsWith(
   const [file, slot] = a.split('=')
   return { file: path.resolve(file), slot, name: slot + '-preview-' + i + '.vrma', animation: slot.replace(/-(enter|exit)$/, '') }
 })
-if (!clips.length) { console.error('uso: node scripts/preview-clips.mjs [--vrm Fred] clip.vrma=wave ...'); process.exit(2) }
+if (!clips.length) { console.error('uso: node scripts/preview-clips.mjs [--vrm Feniel] clip.vrma=wave ...'); process.exit(2) }
 
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-preview-'))
 const HOME = path.join(WORK, 'home')

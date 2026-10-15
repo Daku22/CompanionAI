@@ -84,7 +84,7 @@ src/
              vrm-animation.js, assets/strips (avatar 2D integrato), vendor/ (generata)
 scripts/     vendor.js, make-icon.js, build.js, build-strips.js, lib/sprite-frames.js,
              smoke.mjs, check-publish.js, e le suite test-*.js
-modelli-3d/  Fred, servito dal protocollo vrm://
+modelli-3d/  Feniel, Shibahu e Hiyori, serviti dal protocollo vrm://
 docs/        brief dell'avatar 2D, note di progetto
 ```
 
@@ -94,8 +94,16 @@ docs/        brief dell'avatar 2D, note di progetto
 
 L'elenco degli avatar integrati nasce dai file presenti (`builtin-avatars.js`),
 non da una lista scritta a mano. Si pubblicano solo modelli con una licenza di
-ridistribuzione: oggi Fred. Il primo dell'elenco è il predefinito: l'avatar 2D
-integrato, quando le sue strip ci sono, altrimenti Fred.
+ridistribuzione: uno per formato, per far vedere cosa si può importare. Feniel
+(VRM, il predefinito), Shibahu (GLB, texture ridotte a 2048 px) e Hiyori
+(Live2D, il modello di esempio di Live2D, che si vede con il Cubism Core).
+Licenze e crediti in `ASSETS-LICENSE.md`, non nelle card. Fred, il VRM 1.0 di
+prima, resta in `scripts/fixtures/` solo per i test.
+
+**Cubism Core dall'installer.** Una pagina dell'installer (`build/installer.nsh`)
+mostra la licenza di Live2D con una casella: spuntata, a fine installazione
+l'app parte con `--install-live2d-core`, scarica e controlla il Core come la
+pagina Live2D, segna la licenza accettata e si chiude senza finestre.
 
 Gli avatar importati stanno in `<userData>/avatars`, serviti dal protocollo
 `avatar://`:
@@ -137,9 +145,8 @@ In alternativa, nella propria copia del progetto, lo si mette in
 `private-assets/`, che `.gitignore` esclude e `npm run check:publish` rifiuta.
 I pacchetti di sprite (`sprites.json`), i modelli Live2D (`.model3.json`) e i
 `.vrm` che l'app trova lì dentro, fino a tre livelli di cartelle, diventano
-avatar integrati della copia locale. I pacchetti 2D privati vanno in testa
-all'elenco, quindi il primo è il predefinito; poi i Live2D privati, Fred e in
-coda i VRM privati. Li serve `vrm://private/…`, che nel
+avatar integrati della copia locale, dopo i tre integrati: i pacchetti 2D,
+poi i Live2D e in coda i VRM privati. Li serve `vrm://private/…`, che nel
 pacchetto pubblico risponde 404.
 
 ### Live2D

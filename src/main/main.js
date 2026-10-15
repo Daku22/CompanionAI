@@ -2951,8 +2951,31 @@ protocol.registerSchemesAsPrivileged([
 // Una sola istanza: due companion scriverebbero insieme sugli stessi file di
 // memoria e config, e sul desktop comparirebbero due avatar e due icone.
 // Rilanciare l'app riporta in vista quella gia' aperta.
-const isPrimaryInstance = app.requestSingleInstanceLock()
-if (!isPrimaryInstance) {
+//
+// Dall'installer: con la casella del Cubism Core spuntata, il setup lancia
+// l'app con --install-live2d-core. Niente finestre: scarica e controlla il
+// Core come la pagina Live2D, segna la licenza come accettata (l'utente l'ha
+// accettata nel setup) e chiude, con 0 se e' andata e 1 se no (si rifa'
+// dalle Impostazioni).
+const SETUP_LIVE2D = process.argv.includes('--install-live2d-core')
+if (SETUP_LIVE2D) {
+  app.whenReady().then(async () => {
+    let code = 0
+    try {
+      if (!live2dCore.coreInstalled(live2dDir())) await live2dCore.installCore(live2dDir(), { signal: AbortSignal.timeout(10 * 60 * 1000) })
+      saveConfig(mergeConfig(loadConfig(), { live2dAccepted: true }))
+      console.log('[live2d] Cubism Core installato dal setup')
+    } catch (e) {
+      console.warn('[live2d] dal setup non riuscito: ' + e.message)
+      code = 1
+    }
+    app.exit(code)
+  })
+}
+const isPrimaryInstance = !SETUP_LIVE2D && app.requestSingleInstanceLock()
+if (SETUP_LIVE2D) {
+  // Nessuna finestra e nessun blocco: solo lo scaricamento qui sopra.
+} else if (!isPrimaryInstance) {
   app.quit()
 } else {
   app.on('second-instance', () => {
