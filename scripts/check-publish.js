@@ -31,7 +31,8 @@ const FORBIDDEN_PATHS = [
 ]
 // Gli unici modelli VRM pubblicabili: vedi ASSETS-LICENSE.md. Feniel e'
 // l'avatar integrato; Fred resta solo fra i file di prova (VRM 1.0).
-const ALLOWED_VRM = [/^modelli-3d[\\/]Feniel[\\/]Feniel\.vrm$/i, /^scripts[\\/]fixtures[\\/]Fred[\\/]Fred_optimized\.vrm$/i]
+// Nell'app.asar i percorsi cominciano con un separatore (\modelli-3d\...).
+const ALLOWED_VRM = [/(^|[\\/])modelli-3d[\\/]Feniel[\\/]Feniel\.vrm$/i, /(^|[\\/])scripts[\\/]fixtures[\\/]Fred[\\/]Fred_optimized\.vrm$/i]
 // Chiavi API riconoscibili dal prefisso.
 const SECRET_PATTERNS = [
   /sk-ant-[A-Za-z0-9_-]{20,}/,
