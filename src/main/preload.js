@@ -96,10 +96,40 @@ contextBridge.exposeInMainWorld('companion', {
   testPeer:         ()       => ipcRenderer.invoke('test:peer'),
   testNeeds:        (values) => ipcRenderer.invoke('test:needs', values),
   testDrop:         (msg)    => ipcRenderer.invoke('test:drop', msg),
-  // Il pannello del cibo (Blocco 10b): le card, il trascinamento, la chiusura.
+  testObjects:      (msg)    => ipcRenderer.invoke('test:objects', msg),
+  // Il pannello del cibo e degli oggetti (Blocchi 10b e 10c): le card, il
+  // trascinamento (kind: 'food' o 'object'), la chiusura.
   itemsList:        ()       => ipcRenderer.invoke('items:list'),
-  itemsDrag:        (msg)    => ipcRenderer.send('items:drag', msg && typeof msg === 'object' ? { phase: String(msg.phase || ''), id: typeof msg.id === 'string' ? msg.id : undefined } : null),
+  itemsDrag:        (msg)    => ipcRenderer.send('items:drag', msg && typeof msg === 'object'
+    ? { phase: String(msg.phase || ''), id: typeof msg.id === 'string' ? msg.id : undefined, kind: msg.kind === 'object' ? 'object' : 'food' } : null),
   itemsClose:       ()       => ipcRenderer.send('items:close'),
+  onItemsChanged: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('items-changed', handler)
+    return () => ipcRenderer.removeListener('items-changed', handler)
+  },
+  // Oggetti importati (Blocco 10c): import, tipo/nome/misura, miniatura, eliminazione.
+  objectsImport:    ()       => ipcRenderer.invoke('objects:import'),
+  objectsUpdate:    (id, meta) => ipcRenderer.invoke('objects:update', { id: String(id), meta: meta && typeof meta === 'object'
+    ? { type: String(meta.type || ''), name: String(meta.name || ''), size: Number(meta.size) } : null }),
+  objectsModel:     (id)     => ipcRenderer.invoke('objects:model', String(id)),
+  objectsThumb:     (id, png) => ipcRenderer.invoke('objects:thumb', { id: String(id), png: String(png || '') }),
+  objectsRemove:    (id)     => ipcRenderer.invoke('objects:remove', String(id)),
+  objectsStoreAll:  ()       => ipcRenderer.send('objects:store-all'),
+  // La finestrella di un oggetto sul desktop: cosa caricare, presa, borsa.
+  objectInfo:       ()       => ipcRenderer.invoke('object:info'),
+  objectGrab:       ()       => ipcRenderer.send('object:grab'),
+  objectStore:      ()       => ipcRenderer.send('object:store'),
+  onObjectPose: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('object-pose', handler)
+    return () => ipcRenderer.removeListener('object-pose', handler)
+  },
+  onObjectInfo: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('object-info', handler)
+    return () => ipcRenderer.removeListener('object-info', handler)
+  },
   live2dSetChoices: (id, choices) => ipcRenderer.invoke('live2d:set-choices', id, choices),
   voiceXttsCancel:  ()       => ipcRenderer.send('voice:xtts-cancel'),
   voiceXttsRemove:  ()       => ipcRenderer.invoke('voice:xtts-remove'),
@@ -371,6 +401,12 @@ contextBridge.exposeInMainWorld('companion', {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('room-weather', handler)
     return () => ipcRenderer.removeListener('room-weather', handler)
+  },
+  // Un oggetto in mano o in braccio (Blocco 10c): { url, format, size, at, ms } o null.
+  onCompanionProp: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('companion-prop', handler)
+    return () => ipcRenderer.removeListener('companion-prop', handler)
   },
   // Verso della camminata deciso dal main (che conosce l'area di lavoro reale)
   onCompanionFacing: (cb)    => {

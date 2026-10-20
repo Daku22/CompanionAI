@@ -41,6 +41,20 @@ function objMaterialFiles(text, base) {
 }
 
 /**
+ * Il JSON dentro un .glb (il primo blocco, di tipo JSON), o null. Un .glb puo'
+ * citare immagini fuori dal file: quelli del Food Kit di Kenney, per esempio,
+ * hanno la texture in Textures/colormap.png, e senza copiarla l'oggetto
+ * importato restava bianco.
+ * @param {Buffer} buf
+ */
+function glbJson(buf) {
+  if (buf.length < 20 || buf.toString('ascii', 0, 4) !== 'glTF') return null
+  const length = buf.readUInt32LE(12)
+  if (buf.toString('ascii', 16, 20) !== 'JSON' || 20 + length > buf.length) return null
+  try { return JSON.parse(buf.toString('utf8', 20, 20 + length)) } catch (_) { return null }
+}
+
+/**
  * Impostazioni di una scena, controllate: scala > 0, rotazione in gradi,
  * offset in metri. Senza impostazioni valide null (il renderer le stima).
  * @param {unknown} value
@@ -97,10 +111,11 @@ class SceneLibrary extends AvatarLibrary {
     let kind
     let base = path.dirname(sourcePath)
     let files = [path.basename(sourcePath)]
-    if (ext === '.glb') kind = 'gltf'
-    else if (ext === '.gltf') {
+    if (ext === '.glb' || ext === '.gltf') {
       kind = 'gltf'
-      const json = JSON.parse(await fs.promises.readFile(sourcePath, 'utf8'))
+      const json = ext === '.glb'
+        ? glbJson(await fs.promises.readFile(sourcePath)) || {}
+        : JSON.parse(await fs.promises.readFile(sourcePath, 'utf8'))
       for (const ref of new Set(gltfReferences(json))) {
         const full = path.resolve(base, ref)
         if (!full.startsWith(base + path.sep)) throw new Error('riferimento fuori dalla cartella del modello: ' + ref)
@@ -138,4 +153,35 @@ class SceneLibrary extends AvatarLibrary {
   }
 }
 
-module.exports = { SceneLibrary, sceneSettings, objMaterialFiles }
+/**
+ * Gli oggetti importati per la borsa (Blocco 10c): gli stessi formati delle
+ * scene, serviti come object://, e al posto delle impostazioni della scena il
+ * tipo, il nome e la misura scelti dall'utente (meta, controllato da
+ * objects.js) e la miniatura scattata dal pannello.
+ */
+class ObjectLibrary extends SceneLibrary {
+  /** @param {string} root cartella degli oggetti importati */
+  constructor(root) {
+    super(root)
+    this.scheme = 'object'
+    this.tag = '[oggetto]'
+    this.noneFound = 'Nessun oggetto supportato: cerca .glb, .gltf, .fbx o .obj'
+  }
+
+  async list() {
+    return this.withThumbs(await AvatarLibrary.prototype.list.call(this))
+  }
+
+  /** Salva il meta gia' controllato (objects.cleanMeta). null se l'oggetto non c'e'. */
+  async setMeta(id, meta) {
+    if (typeof id !== 'string' || !meta) return null
+    const all = await this._readManifest()
+    const record = all.find(r => r.id === id)
+    if (!record) return null
+    record.meta = meta
+    await this._writeManifest(all)
+    return meta
+  }
+}
+
+module.exports = { SceneLibrary, ObjectLibrary, sceneSettings, objMaterialFiles, glbJson }

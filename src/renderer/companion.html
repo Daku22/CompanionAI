@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <!-- Nessuno script inline tranne l'importmap, ammesso per hash: se lo cambi,
        aggiorna l'hash (npm test lo ricalcola e dice quale mettere).
-       vrm: e avatar: servono i modelli 3D, scene: le scene importate; blob: le
+       vrm: e avatar: servono i modelli 3D, scene: le scene importate, object: gli oggetti della borsa; blob: le
        texture estratte dai .glb. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' live2d: 'sha256-ZbtU6faAuNdPdmM0BcNga30v1JmQYiPkfUDkH4n65CY='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: vrm: avatar: scene:; connect-src 'self' data: blob: vrm: avatar: motion: scene:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' live2d: 'sha256-ZbtU6faAuNdPdmM0BcNga30v1JmQYiPkfUDkH4n65CY='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: vrm: avatar: scene: object:; connect-src 'self' data: blob: vrm: avatar: motion: scene: object:">
   <title>CompanionAI</title>
   <link rel="stylesheet" href="ui.css">
   <style>

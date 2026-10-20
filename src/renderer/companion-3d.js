@@ -14,6 +14,7 @@ import { kimodoClip } from './kimodo-raw.js';
 import { repairFbxTextures, createFbxManager } from './fbx-textures.js';
 import { GLTFSpecularGlossinessPlugin } from './gltf-specgloss.js';
 import { createRoomScene } from './room-scene.js';
+import { readModel as readObjectModel } from './model-read.js';
 import { initRoomUI } from './room-ui.js';
 import { initSceneAdjust } from './scene-adjust.js';
 import { setChibi, chibiOf } from './chibi.js';
@@ -315,7 +316,7 @@ window.__companion3DTest = {
     const p = heldProp.getWorldPosition(new THREE.Vector3());
     const s = p.clone().project(camera);
     const box = new THREE.Box3().setFromObject(heldProp);
-    return { url: heldProp.userData.url, size: heldProp.userData.worldSize, hand: heldProp.userData.hand.name,
+    return { url: heldProp.userData.url, size: heldProp.userData.worldSize, hand: heldProp.userData.hand.name, at: heldProp.userData.at,
       world: p.toArray().map(v => +v.toFixed(3)), box: box.getSize(new THREE.Vector3()).toArray().map(v => +v.toFixed(3)),
       screen: [Math.round((s.x + 1) / 2 * window.innerWidth), Math.round((1 - s.y) / 2 * window.innerHeight)] };
   },
@@ -1007,11 +1008,16 @@ function faceShot(head, hips) {
   return window.CompanionThumb.wholeCanvas(renderer.domElement);
 }
 
-// ─── Cibo in mano (Blocco 10b) ──────────────────────────────────────────────
+// ─── Cibo e oggetti in mano (Blocchi 10b e 10c) ─────────────────────────────
 // Mentre mangia o beve, il modello del cibo (vrm://food/, Food Kit di Kenney)
 // segue il palmo della mano destra, in scala con l'avatar e sempre dritto. Sta
 // un po' davanti al palmo, verso la camera: centrato nella mano, alla bocca
 // finiva dentro la testa (e dentro le maniche larghe). Sparisce a fine clip.
+// Gli oggetti della borsa (companion-prop dal main) restano finche' il main
+// non dice di posarli, anche se cambia clip (raccoglie, poi cammina): con
+// at 'arms' stanno fra le due mani, davanti al petto (il pallone riportato,
+// il peluche abbracciato); senza, nella mano destra come il cibo.
+const PROP_URL = /^(vrm:\/\/(food|objects)\/[a-z0-9-]+\.glb|object:\/\/[0-9a-f-]{36}\/[^?#]+)$/;
 const propCache = new Map();
 let heldProp = null;
 let propTimer = null;
@@ -1021,6 +1027,7 @@ function updateHeldProp() {
   const d = heldProp && heldProp.userData;
   if (!d || !d.hand.parent) return;
   const palm = d.hand.localToWorld(d.palm.clone());
+  if (d.other) palm.add(d.other.localToWorld(d.otherPalm.clone())).multiplyScalar(0.5);
   const toCamera = camera.position.clone().sub(palm).setY(0);
   if (toCamera.lengthSq() > 1e-6) toCamera.normalize();
   heldProp.position.copy(palm).addScaledVector(toCamera, d.ahead);
@@ -1031,30 +1038,45 @@ function dropProp() {
   propSeq++;
   if (heldProp) { heldProp.removeFromParent(); heldProp = null; }
 }
-async function holdProp(prop) {
+/** Il palmo di una mano, nello spazio della mano: poco oltre il polso, verso le dita. */
+function palmOf(hand) {
+  const fingers = hand.children.filter(ch => ch.isBone);
+  return fingers.length ? fingers.reduce((s, f) => s.add(f.position), new THREE.Vector3()).multiplyScalar(0.6 / fingers.length) : new THREE.Vector3();
+}
+async function holdProp(prop, sticky = false) {
   dropProp();
   const h = currentVrm && currentVrm.humanoid;
   const hand = h && h.getRawBoneNode('rightHand');
-  if (!hand || !prop || typeof prop.url !== 'string' || !/^vrm:\/\/food\/[a-z0-9-]+\.glb$/.test(prop.url)) return;
+  if (!hand || !prop || typeof prop.url !== 'string' || !PROP_URL.test(prop.url)) return;
+  const format = prop.format === 'fbx' || prop.format === 'obj' ? prop.format : 'gltf';
+  const textures = Array.isArray(prop.textures) ? prop.textures.filter(t => typeof t === 'string' && t.startsWith('object://')) : [];
   const seq = propSeq;
-  let gltf = propCache.get(prop.url);
-  if (!gltf) {
-    try { gltf = await loader.loadAsync(prop.url); } catch (e) { console.warn('Cibo non caricato:', e.message); return; }
-    propCache.set(prop.url, gltf);
+  let source = propCache.get(prop.url);
+  if (!source) {
+    try {
+      source = format === 'gltf' ? (await loader.loadAsync(prop.url)).scene : await readObjectModel({ url: prop.url, format, textures, label: 'oggetto' });
+    } catch (e) { console.warn('Oggetto in mano non caricato:', e.message); return; }
+    propCache.set(prop.url, source);
   }
   if (seq !== propSeq || !currentVrm) return;
-  const obj = gltf.scene.clone(true);
+  const obj = source.clone(true);
   // I materiali del Food Kit sono fisici: con le luci tarate per gli avatar
   // anime venivano quasi neri. Senza luci, con gli stessi colori, come le icone.
   obj.traverse((o) => {
     if (!o.isMesh) return;
-    const src = o.material;
-    o.material = new THREE.MeshBasicMaterial({ map: src.map || null, color: src.color ? src.color.clone() : 0xffffff, transparent: !!src.transparent, opacity: src.opacity ?? 1 });
+    // Gli oggetti inclusi sono gia' senza luci, con i colori nei vertici.
+    const basic = (src) => src.isMeshBasicMaterial ? src : new THREE.MeshBasicMaterial({
+      map: src.map || null, color: src.color ? src.color.clone() : 0xffffff, vertexColors: !!src.vertexColors,
+      transparent: !!src.transparent, opacity: src.opacity ?? 1,
+    });
+    o.material = Array.isArray(o.material) ? o.material.map(basic) : basic(o.material);
   });
   // size e' per un avatar alto 1,6 m, che dal bacino alla testa fa circa 0,55 m.
   const head = h.getRawBoneNode('head');
   const hips = h.getRawBoneNode('hips');
-  const unit = head && hips ? Math.max(0.15, head.getWorldPosition(new THREE.Vector3()).y - hips.getWorldPosition(new THREE.Vector3()).y) : 0.55;
+  // La distanza, non il dislivello: chinato a raccogliere il pallone il
+  // dislivello quasi si annulla, e l'oggetto in mano veniva minuscolo.
+  const unit = head && hips ? Math.max(0.15, head.getWorldPosition(new THREE.Vector3()).distanceTo(hips.getWorldPosition(new THREE.Vector3()))) : 0.55;
   const box = new THREE.Box3().setFromObject(obj);
   const dim = box.getSize(new THREE.Vector3());
   const worldSize = (Number(prop.size) || 0.1) * unit / 0.55;
@@ -1062,15 +1084,20 @@ async function holdProp(prop) {
   obj.position.copy(box.getCenter(new THREE.Vector3())).multiplyScalar(-1);
   holder.add(obj);
   holder.scale.setScalar(worldSize / (Math.max(dim.x, dim.y, dim.z) || 1));
-  // Il palmo, nello spazio della mano: poco oltre il polso, verso le dita.
-  const fingers = hand.children.filter(ch => ch.isBone);
-  const palm = fingers.length ? fingers.reduce((s, f) => s.add(f.position), new THREE.Vector3()).multiplyScalar(0.6 / fingers.length) : new THREE.Vector3();
-  holder.userData = { url: prop.url, worldSize, hand, palm, ahead: worldSize * 0.6 + 0.02 * unit / 0.55 };
+  // In braccio: fra le due mani, un po' meno avanti (lo stringe al petto).
+  const other = prop.at === 'arms' ? h.getRawBoneNode('leftHand') : null;
+  holder.userData = {
+    url: prop.url, worldSize, hand, palm: palmOf(hand), sticky, at: other ? 'arms' : 'hand',
+    other, otherPalm: other ? palmOf(other) : null,
+    ahead: other ? worldSize * 0.35 : worldSize * 0.6 + 0.02 * unit / 0.55,
+  };
   scene.add(holder);
   heldProp = holder;
   updateHeldProp();
-  propTimer = setTimeout(dropProp, Math.min(10000, Number(prop.ms) || 3600));
+  propTimer = setTimeout(dropProp, Math.min(sticky ? 60000 : 10000, Number(prop.ms) || 3600));
 }
+// Gli oggetti della borsa: li prende e li posa il main.
+if (api && api.onCompanionProp) api.onCompanionProp((prop) => { if (prop) holdProp(prop, true); else dropProp(); });
 
 /** Un modello senza scheletro: la parte alta della sagoma, come per il 2D. */
 function staticShot() {
@@ -1147,6 +1174,7 @@ const SLOT_LABELS = {
   smoke: 'Fuma', click: 'Clic',
   pat: 'Carezza', flinch: 'Sussulto', giggle: 'Risatina', hop: 'Saltello', shy: 'Imbarazzo',
   scold: 'Rimprovero', turnaway: 'Si gira di spalle', eat: 'Mangia', drink: 'Beve',
+  pickup: 'Raccoglie', hug: 'Abbraccia',
 };
 const SLOT_HINTS = [
   [/(ledge|edge|bordo|dangling legs)/, 'sit-edge'], [/(stretch|stiracch)/, 'stretch'],
@@ -1159,6 +1187,7 @@ const SLOT_HINTS = [
   [/(hop|jump|salt)/, 'hop'], [/(shy|embarrass|imbaraz)/, 'shy'], [/(scold|angry|cross|rimprover)/, 'scold'],
   [/(turn.?away|sulk|spalle)/, 'turnaway'],
   [/(eat|bite|mangi|morso)/, 'eat'], [/(drink|sip|bev|sors)/, 'drink'],
+  [/(pick.?up|raccogl)/, 'pickup'], [/(hug|cuddl|abbracc)/, 'hug'],
 ];
 const guessSlot = (name) => (SLOT_HINTS.find(([re]) => re.test(name.toLowerCase())) || [null, 'idle'])[1];
 // Fase di una clip per uno slot ciclico (seduto, a riposo, camminata).
@@ -1379,12 +1408,12 @@ if (api && api.onTriggerAnimation) {
     playClip(key);
     // Mangiare e bere: il cibo in mano finche' dura la clip.
     if (action && action.prop) holdProp(action.prop);
-    else if (key !== 'eat' && key !== 'drink') dropProp();
+    else if (key !== 'eat' && key !== 'drink' && !(heldProp && heldProp.userData.sticky)) dropProp();
     // I gesti a riposo portano il proprio fumetto; in 3D gli altri non ne hanno.
     if (action && typeof action.bubble === 'string' && action.bubble) showBubble(action.bubble, 3000);
     if (key === 'wave' || key === 'happy') react('happy', 1.0);
     else if (key === 'click') react('happy', 0.7);
-    else if (key === 'think' || key === 'search' || key === 'scroll' || key === 'relaxed') react('relaxed', 1.0);
+    else if (key === 'think' || key === 'search' || key === 'scroll' || key === 'relaxed' || key === 'hug') react('relaxed', 1.0);
     else if (key === 'idle' || key === 'none') clearReactions();
   });
 }

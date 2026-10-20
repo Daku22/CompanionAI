@@ -2,12 +2,15 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: vrm:">
-  <title>Cibo</title>
+  <!-- Nessuno script inline tranne l'importmap (per l'anteprima 3D degli
+       oggetti importati), ammesso per hash: npm test lo ricalcola. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-QY9o8cXENEIT04+6gC80St1QTC91sys2Pp7UKD51MzU='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: vrm: object:; connect-src blob: data: vrm: object:">
+  <title>Cibo e oggetti</title>
   <link rel="stylesheet" href="ui.css">
   <style>
-    /* Il pannello del cibo (Blocco 10b): una finestra trasparente accanto al
-       companion, con le card da trascinare su di lui. */
+    /* Il pannello del cibo e degli oggetti (Blocchi 10b e 10c): una finestra
+       trasparente accanto al companion, con le card da trascinare su di lui
+       o sul desktop. */
     html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; font-family: var(--font); color: var(--text); user-select: none; }
     #panel {
       position: absolute; inset: 6px; display: flex; flex-direction: column;
@@ -28,16 +31,63 @@
       scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
     }
     .item {
-      display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px 7px; border-radius: 12px;
-      background: var(--surface); border: 1px solid var(--line); cursor: grab; touch-action: none;
+      position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px 7px; border-radius: 12px;
+      background: var(--surface); border: 1px solid var(--line); cursor: grab; touch-action: none; color: inherit;
       transition: background 0.2s var(--ease), border-color 0.2s var(--ease), transform 0.12s var(--ease);
     }
     .item:hover { background: var(--accent-soft); border-color: var(--accent-line); }
     .item:active, .item.dragging { cursor: grabbing; transform: scale(0.96); }
-    .item img { width: 58px; height: 58px; object-fit: contain; pointer-events: none; }
-    .item span { font-size: 11.5px; color: var(--text-2); }
+    .item:focus-visible, .add:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+    .item img, .item .ph { width: 58px; height: 58px; object-fit: contain; pointer-events: none; }
+    .item .ph { display: grid; place-items: center; border-radius: 12px; background: var(--surface-hi); color: var(--text-2); font-weight: 600; font-size: 20px; }
+    .item span { font-size: 11.5px; color: var(--text-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item small { font-size: 10px; color: var(--text-3); }
+    .item small.todo { color: var(--accent); }
+    .edit { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border: 0; border-radius: 7px; display: grid; place-items: center;
+      background: transparent; color: var(--text-3); cursor: pointer; transition: background 0.2s var(--ease), color 0.2s var(--ease); }
+    .edit:hover { background: var(--surface-top); color: var(--text); }
+    .edit svg { width: 13px; height: 13px; }
+    .add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 92px; border-radius: 12px;
+      border: 1px dashed var(--line-strong); background: transparent; color: var(--text-2); font-size: 11.5px;
+      transition: border-color 0.2s var(--ease), color 0.2s var(--ease), background 0.2s var(--ease); }
+    .add:hover { border-color: var(--accent-line); color: var(--text); background: var(--accent-soft); }
+    .add:disabled { opacity: 0.5; }
     footer { padding: 8px 14px 12px; font-size: 11px; color: var(--text-3); line-height: 1.45; text-wrap: pretty; }
+    footer .desk { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+    footer .desk:empty { display: none; }
+    footer .pf-link { margin: 0 0 0 auto; padding: 0; font-size: 11px; }
+
+    /* La scheda di un oggetto importato: anteprima, nome, tipo, misura. */
+    #sheet { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; background: var(--bg);
+      opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity 0.2s var(--ease), transform 0.2s var(--ease); }
+    #sheet.open { opacity: 1; transform: none; pointer-events: auto; }
+    #sheet h2 { font-family: var(--font-display); font-size: 14px; font-weight: 600; }
+    .preview { align-self: center; width: 132px; height: 132px; border-radius: 16px; background: radial-gradient(circle at 50% 40%, var(--surface-hi), transparent 70%); }
+    .preview canvas { width: 132px; height: 132px; display: block; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip { border: 1px solid var(--line); background: var(--surface); color: var(--text-2); border-radius: 999px; padding: 4px 10px; font-size: 11.5px;
+      transition: background 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease); }
+    .chip:hover { border-color: var(--line-strong); color: var(--text); }
+    .chip[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }
+    .size { display: flex; align-items: center; gap: 10px; }
+    .size input { flex: 1; accent-color: var(--accent); }
+    .size output { width: 48px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text-2); }
+    .sheet-actions { margin-top: auto; display: flex; align-items: center; gap: 8px; }
+    .ghost-btn { border: 0; background: transparent; color: var(--text-2); font-size: 12.5px; padding: 8px 10px; border-radius: 10px;
+      transition: background 0.2s var(--ease), color 0.2s var(--ease); }
+    .ghost-btn:hover { background: var(--surface-hi); color: var(--text); }
+    .ghost-btn.danger { color: var(--danger); margin-right: auto; padding-left: 0; }
+    .ghost-btn.danger:hover { background: var(--danger-soft); padding-left: 10px; }
+    .label { font-size: 11.5px; font-weight: 600; color: var(--text-2); margin-bottom: -4px; }
   </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/three-addons/"
+      }
+    }
+  </script>
 </head>
 <body>
 <div id="panel" class="glass">
@@ -47,14 +97,34 @@
       <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </header>
-  <nav class="seg" aria-label="Cosa mostrare">
+  <nav class="seg" id="seg" aria-label="Cosa mostrare">
     <button type="button" data-kind="" aria-pressed="true">Tutto</button>
     <button type="button" data-kind="food" aria-pressed="false">Da mangiare</button>
     <button type="button" data-kind="drink" aria-pressed="false">Da bere</button>
   </nav>
   <main id="grid" aria-label="Cibi e bevande"></main>
-  <footer id="hint">Trascina un cibo o una bevanda sul companion: lo prende e lo mangia.</footer>
+  <footer>
+    <div id="hint">Trascina un cibo o una bevanda sul companion: lo prende e lo mangia.</div>
+    <div class="desk" id="desk"></div>
+  </footer>
+
+  <section id="sheet" aria-label="Oggetto importato" aria-hidden="true">
+    <h2 id="sheet-title">Nuovo oggetto</h2>
+    <div class="preview"><canvas id="preview" width="132" height="132"></canvas></div>
+    <div class="label">Nome</div>
+    <input class="pf-input" id="name" maxlength="40" autocomplete="off" spellcheck="false">
+    <div class="label">Cosa ci fa</div>
+    <div class="chips" id="types" role="radiogroup" aria-label="Tipo"></div>
+    <div class="label">Misura</div>
+    <div class="size"><input type="range" id="size" min="3" max="150" step="1" aria-label="Misura in centimetri"><output id="size-out"></output></div>
+    <div class="pf-error" id="sheet-error"></div>
+    <div class="sheet-actions">
+      <button type="button" class="ghost-btn danger" id="remove">Elimina</button>
+      <button type="button" class="ghost-btn" id="cancel">Annulla</button>
+      <button type="button" class="btn-primary" id="save">Salva</button>
+    </div>
+  </section>
 </div>
-<script src="items.js"></script>
+<script type="module" src="items.js"></script>
 </body>
 </html>

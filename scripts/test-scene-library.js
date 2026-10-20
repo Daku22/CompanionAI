@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { SceneLibrary, sceneSettings, objMaterialFiles } = require('../src/main/SceneLibrary')
+const { SceneLibrary, ObjectLibrary, sceneSettings, objMaterialFiles } = require('../src/main/SceneLibrary')
 
 async function file(name, contents = '') {
   await fs.promises.mkdir(path.dirname(name), { recursive: true })
@@ -78,6 +78,19 @@ async function main() {
     // Niente di riconoscibile: un messaggio che dice cosa cercare.
     await file(path.join(base, 'vuota', 'foto.png'), 'png')
     await assert.rejects(library.scan(path.join(base, 'vuota')), /Nessuna scena supportata/)
+    scenari++
+
+    // Oggetti della borsa (Blocco 10c): un .glb del Food Kit con la texture
+    // fuori dal file la porta con se'; tipo e nome si salvano, e si servono
+    // come object://.
+    const objects = new ObjectLibrary(path.join(base, 'oggetti'))
+    const torta = path.join(__dirname, '..', 'modelli-3d', 'food', 'torta.glb')
+    const os1 = await objects.scan(torta)
+    const cake = await objects.commit(os1.token, os1.candidates[0].id)
+    assert.ok(cake.url.startsWith('object://' + cake.id + '/'))
+    assert.ok(fs.existsSync(path.join(base, 'oggetti', cake.id, 'Textures', 'colormap.png')), 'la texture del .glb viene copiata')
+    assert.deepEqual(await objects.setMeta(cake.id, { type: 'food', name: 'Torta', size: 0.2 }), { type: 'food', name: 'Torta', size: 0.2 })
+    assert.equal((await objects.list())[0].meta.name, 'Torta')
     scenari++
 
     console.log('=== SceneLibrary: ' + scenari + ' scenari superati ===')

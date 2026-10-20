@@ -6,7 +6,7 @@ const os    = require('os')
 const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT, modelCaps: modelCapsOf, validImage } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
-const { SceneLibrary } = require('./SceneLibrary')
+const { SceneLibrary, ObjectLibrary } = require('./SceneLibrary')
 const { AnimationLibrary, ANIMATION_SLOTS, SLOT_LABELS, isGlb } = require('./AnimationLibrary')
 const { KimodoService, motionPrompt, cacheKey } = require('./kimodo-service')
 const winWindows = require('./win-windows')
@@ -30,6 +30,8 @@ const Personas = require('./personas')
 const Rapport = require('./rapport')
 const Needs = require('./needs')
 const Food = require('./food')
+const Objects = require('./objects')
+const { createDesktopObjects } = require('./desktop-objects')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
 const ActiveApp = require('./active-app')
@@ -43,6 +45,7 @@ const Group = require('./group-chat')
 let tray            = null
 let avatarLibrary   = null
 let sceneLibrary    = null
+let objectLibrary   = null
 let animationLibrary = null
 let kimodo = null
 let voiceService = null
@@ -755,39 +758,69 @@ on('hud:action', async (_e, cmd) => {
     case 'settings': openSettings(); break
     case 'room': c.setView('room'); hideHud(); break
     case 'avatar': c.send('menu-command', { cmd: 'avatars' }); break
-    case 'food': openFoodPanel(c); break
+    case 'food': openItemsPanel(c, 'food'); break
+    case 'objects': openItemsPanel(c, 'objects'); break
     case 'hide': c.win.hide(); hideHud(); break
     case 'drag': hudDragging = true; c.startDrag(); break
   }
 })
 
-// ─── Cibo (Blocco 10b) ───────────────────────────────────────────────────────
-// Il pannello del cibo (items.html) accanto al companion, e il trascinamento:
-// premendo su una card si apre il "fantasma" (ghost.html) che segue il
-// cursore; lasciando il tasto sopra un companion, lui lo mangia (feed). Il
-// rilascio lo dice la pagina, o koffi se il tasto si lascia fuori finestra.
+// ─── Cibo e oggetti (Blocchi 10b e 10c) ──────────────────────────────────────
+// Il pannello (items.html) accanto al companion, in modo "cibo" o "oggetti", e
+// il trascinamento: premendo su una card si apre il "fantasma" (ghost.html)
+// che segue il cursore. Il cibo lasciato sopra un companion lo mangia (feed);
+// un oggetto finisce sul desktop (desktop-objects.js), o in braccio o in bocca
+// al companion su cui lo lasci. Il rilascio lo dice la pagina, o koffi se il
+// tasto si lascia fuori finestra.
 const FOOD_DIR = path.join(__dirname, '..', '..', 'modelli-3d', 'food')
+const OBJECTS_DIR = path.join(__dirname, '..', '..', 'modelli-3d', 'objects')
 let foodCatalog = null
-const foodItems = () => (foodCatalog || (foodCatalog = Food.loadCatalog(FOOD_DIR)))
+let includedObjects = null
+let importedObjects = []   // record di ObjectLibrary, riletti a ogni modifica
+/** Gli oggetti della borsa: gli inclusi e gli importati. */
+const objectItems = () => [...(includedObjects || (includedObjects = Objects.loadIncluded(OBJECTS_DIR))), ...importedObjects.map(Objects.fromRecord)]
+/** Il cibo: il catalogo (food.json) e gli oggetti importati di tipo Cibo o Bevanda. */
+const foodItems = () => [...(foodCatalog || (foodCatalog = Food.loadCatalog(FOOD_DIR))), ...objectItems().map(Objects.asFood).filter(Boolean)]
+async function refreshImportedObjects() {
+  try { importedObjects = objectLibrary ? await objectLibrary.list() : [] } catch (e) { console.warn('[oggetto] libreria illeggibile:', e.message) }
+  sendItemsChanged()
+}
 let itemsWindow = null
-let itemDrag = null   // { item, ghost, started } mentre si trascina
+let itemsMode = 'food'
+let itemDrag = null   // { item, kind, ghost, started } mentre si trascina
+const sendItemsChanged = () => { if (itemsWindow && !itemsWindow.isDestroyed()) itemsWindow.webContents.send('items-changed', {}) }
+
+// Gli oggetti sul desktop: fisica, presa e lancio, inseguire e abbracciare.
+const desktopObjects = createDesktopObjects({
+  companions: () => companions,
+  companionAt: (p) => companionAt(p),
+  cursor: () => testCursor || screen.getCursorScreenPoint(),
+  windowHeight: () => (WINDOW_SCALES[loadConfig().scale] || WINDOW_SCALES.m).height,
+  alwaysOnTop: () => loadConfig().alwaysOnTop !== false,
+  preload: path.join(__dirname, 'preload.js'),
+  page: path.join(__dirname, '../renderer/object.html'),
+  onChange: () => sendItemsChanged(),
+})
 
 function createItemsWindow() {
   const win = new BrowserWindow({
-    width: 300, height: 380,
+    width: 320, height: 430,
     transparent: true, frame: false, alwaysOnTop: true, skipTaskbar: true, resizable: false, hasShadow: false, show: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') },
   })
   win.setAlwaysOnTop(true, 'screen-saver')
-  win.loadFile(path.join(__dirname, '../renderer/items.html'))
   win.on('closed', () => { if (itemsWindow === win) itemsWindow = null })
   return win
 }
 
-/** Apre il pannello del cibo accanto a c, dal lato dove c'e' posto. */
-function openFoodPanel(c) {
+/** Apre il pannello del cibo o degli oggetti accanto a c, dal lato dove c'e' posto. */
+function openItemsPanel(c, mode = 'food') {
   if (!c || !c.alive()) return
-  if (!itemsWindow || itemsWindow.isDestroyed()) itemsWindow = createItemsWindow()
+  mode = mode === 'objects' ? 'objects' : 'food'
+  const fresh = !itemsWindow || itemsWindow.isDestroyed()
+  if (fresh) itemsWindow = createItemsWindow()
+  if (fresh || mode !== itemsMode) itemsWindow.loadFile(path.join(__dirname, '../renderer/items.html'), { query: { mode } })
+  itemsMode = mode
   const b = c.bounds
   const area = c.workArea()
   const [w, h] = itemsWindow.getSize()
@@ -802,34 +835,45 @@ function closeItemsPanel() { if (itemsWindow && !itemsWindow.isDestroyed()) item
 /** Il companion sotto un punto dello schermo (la sua finestra, sul desktop), o null. */
 const companionAt = (p) => companions.find(c => c.alive() && c.win.isVisible() && c.viewMode === 'desktop' && insideRect(p, c.bounds)) || null
 
-function startItemDrag(id) {
-  const item = foodItems().find(it => it.id === id)
+function startItemDrag(id, kind = 'food') {
+  const item = (kind === 'object' ? objectItems() : foodItems()).find(it => it.id === id)
   if (!item) return false
   endItemDrag(null)
+  const icon = item.icon || (kind === 'object' ? 'vrm://objects/icons/' + item.id + '.png' : 'vrm://food/icons/' + item.id + '.png')
   const ghost = new BrowserWindow({
     width: 72, height: 72, transparent: true, frame: false, alwaysOnTop: true, skipTaskbar: true, resizable: false,
     focusable: false, hasShadow: false, show: false, webPreferences: { sandbox: true, contextIsolation: true },
   })
   ghost.setIgnoreMouseEvents(true)
   ghost.setAlwaysOnTop(true, 'screen-saver')
-  ghost.loadFile(path.join(__dirname, '../renderer/ghost.html'), { query: { id: item.id } })
+  ghost.loadFile(path.join(__dirname, '../renderer/ghost.html'), { query: { src: icon } })
   ghost.once('ready-to-show', () => { if (itemDrag && itemDrag.ghost === ghost && !ghost.isDestroyed()) ghost.showInactive() })
-  itemDrag = { item, ghost, started: Date.now() }
+  itemDrag = { item, kind, ghost, started: Date.now() }
   return true
 }
 
-/** Fine del trascinamento: sopra un companion, glielo da'. */
+/**
+ * Fine del trascinamento. Il cibo sopra un companion: glielo da' (il
+ * companion, o null). Un oggetto: fuori dal pannello va sul desktop, e
+ * desktop-objects decide il resto (risultato di release, o null).
+ */
 function endItemDrag(point) {
   const d = itemDrag
   itemDrag = null
   if (!d) return null
   if (!d.ghost.isDestroyed()) d.ghost.destroy()
+  if (d.kind === 'object') {
+    if (!point || (itemsWindow && !itemsWindow.isDestroyed() && itemsWindow.isVisible() && insideRect(point, itemsWindow.getBounds()))) return null
+    const e = desktopObjects.spawn(d.item, point)
+    return e ? desktopObjects.release(e, point) : null
+  }
   const c = point && companionAt(point)
   return c && c.feed(d.item) ? c : null
 }
 
 /** A ogni tick del cursore: il fantasma segue il mouse. */
 function itemsTick(cursor) {
+  desktopObjects.tick(cursor)
   const d = itemDrag
   if (!d) return
   if (!d.ghost.isDestroyed()) d.ghost.setPosition(Math.round(cursor.x - 36), Math.round(cursor.y - 36))
@@ -837,14 +881,83 @@ function itemsTick(cursor) {
   else if (Date.now() - d.started > 60000) endItemDrag(null)
 }
 
-handle('items:list', () => ({ food: foodItems().map(it => ({ ...Food.publicItem(it), icon: 'vrm://food/icons/' + it.id + '.png' })) }))
+handle('items:list', () => ({
+  mode: itemsMode,
+  food: foodItems().map(it => ({ ...Food.publicItem(it), icon: it.icon !== undefined ? it.icon : 'vrm://food/icons/' + it.id + '.png' })),
+  objects: objectItems().map(Objects.publicObject),
+  onDesk: desktopObjects.count, maxOnDesk: desktopObjects.MAX_ON_DESK,
+}))
 on('items:close', () => closeItemsPanel())
 on('items:drag', (_e, msg) => {
   const phase = msg && msg.phase
-  if (phase === 'start' && typeof msg.id === 'string') startItemDrag(msg.id)
+  if (phase === 'start' && typeof msg.id === 'string') startItemDrag(msg.id, msg.kind === 'object' ? 'object' : 'food')
   else if (phase === 'drop') endItemDrag(testCursor || screen.getCursorScreenPoint())
   else if (phase === 'cancel') endItemDrag(null)
 })
+
+// Oggetti importati (Blocco 10c): la scelta del file la fa il main, il
+// pannello riceve l'oggetto nuovo (senza tipo finche' non lo sceglie) e poi
+// ne manda tipo, nome, misura e la miniatura scattata dalla sua anteprima.
+const publicImported = (rec) => {
+  const o = Objects.fromRecord(rec)
+  return { ...Objects.publicObject(o), url: o.url, format: o.format, textures: o.textures }
+}
+handle('objects:import', async () => {
+  if (!objectLibrary) return { ok: false }
+  const parent = itemsWindow && !itemsWindow.isDestroyed() ? itemsWindow : null
+  const options = {
+    title: 'Importa un oggetto',
+    properties: /** @type {('openFile')[]} */ (['openFile']),
+    filters: [{ name: 'Modelli 3D (glTF, GLB, FBX, OBJ)', extensions: ['glb', 'gltf', 'fbx', 'obj'] }],
+  }
+  const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+  if (picked.canceled || !picked.filePaths[0]) return { ok: false, canceled: true }
+  try {
+    const scan = await objectLibrary.scan(picked.filePaths[0])
+    const rec = await objectLibrary.commit(scan.token, scan.candidates[0].id)
+    await refreshImportedObjects()
+    const full = importedObjects.find(r => r.id === rec.id) || rec
+    return { ok: true, object: publicImported(full) }
+  } catch (error) {
+    return { ok: false, error: error.message }
+  }
+})
+// Per l'anteprima del pannello: dove sta il modello di un oggetto importato.
+handle('objects:model', (_e, id) => {
+  const rec = importedObjects.find(r => r.id === id)
+  if (rec) return publicImported(rec)
+  const o = objectItems().find(x => x.id === id)
+  return o ? { ...Objects.publicObject(o), url: o.url, format: o.format, textures: [] } : null
+})
+handle('objects:update', async (_e, msg) => {
+  const id = msg && typeof msg.id === 'string' ? msg.id : ''
+  const rec = importedObjects.find(r => r.id === id)
+  const meta = rec && Objects.cleanMeta(msg.meta, rec.name)
+  if (!meta || !(await objectLibrary.setMeta(id, meta))) return { ok: false }
+  await refreshImportedObjects()
+  const obj = objectItems().find(o => o.id === id)
+  if (obj) desktopObjects.updateObject(obj)
+  return { ok: true, object: Objects.publicObject(obj) }
+})
+handle('objects:thumb', async (_e, msg) => {
+  const id = msg && typeof msg.id === 'string' ? msg.id : ''
+  const buf = checkThumbPng(msg && msg.png)
+  if (!buf || !importedObjects.some(r => r.id === id)) return { ok: false }
+  await objectLibrary.saveThumb(id, buf)
+  await refreshImportedObjects()
+  return { ok: true }
+})
+handle('objects:remove', async (_e, id) => {
+  if (typeof id !== 'string' || !importedObjects.some(r => r.id === id)) return { ok: false }
+  desktopObjects.storeObject(id)
+  await objectLibrary.remove([id])
+  await refreshImportedObjects()
+  return { ok: true }
+})
+on('objects:store-all', () => desktopObjects.storeAll())
+handle('object:info', (e) => desktopObjects.info(e.sender))
+on('object:grab', (e) => { const o = desktopObjects.bySender(e.sender); if (o) desktopObjects.grab(o) })
+on('object:store', (e) => { const o = desktopObjects.bySender(e.sender); if (o) desktopObjects.store(o) })
 
 /**
  * Il cibo di un'azione "eat"/"drink" del modello (Blocco 10b): quello nominato
@@ -2678,6 +2791,30 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     const c = endItemDrag({ x: Number(msg.x) || 0, y: Number(msg.y) || 0 })
     return c ? c.personaId : null
   })
+  // Oggetti sul desktop (Blocco 10c): metterne uno, lanciarlo, lasciarlo su
+  // un companion, leggere lo stato, riporre tutto.
+  handle('test:objects', (_e, msg) => {
+    const op = msg && msg.op
+    if (op === 'spawn') {
+      const obj = objectItems().find(o => o.id === msg.id)
+      const e = obj && desktopObjects.spawn(obj, { x: Number(msg.x) || 0, y: Number(msg.y) || 0 })
+      return e ? e.uid : null
+    }
+    const e = desktopObjects.get(Number(msg && msg.uid))
+    if (op === 'throw' && e) return desktopObjects.release(e, null, { vx: Number(msg.vx) || 0, vy: Number(msg.vy) || 0 })
+    if (op === 'drop-on' && e) {
+      const c = companions.find(x => x.personaId === msg.personaId) || companions[0]
+      const b = c && c.bounds
+      return b ? desktopObjects.release(e, { x: b.x + b.width / 2, y: b.y + b.height / 2 }) : null
+    }
+    if (op === 'touch' && msg.personaId) {
+      const c = companions.find(x => x.personaId === msg.personaId)
+      return c ? desktopObjects.touched(c) : false
+    }
+    if (op === 'clear') desktopObjects.storeAll()
+    if (op === 'panel') { openItemsPanel(companions[0], msg.mode); return itemsMode }
+    return desktopObjects.state()
+  })
   // Fame e sete a un valore preciso (Blocco 10a), per il companion che chiede.
   handle('test:needs', (e, values) => {
     const c = companions.find(x => values && x.personaId === values.personaId) || companionOf(e) || chatTarget()
@@ -2947,6 +3084,7 @@ handle('companion:touch', (e, input) => {
   // Nella stanza il tocco puo' essere per un ospite (Blocco 8e).
   const guest = input && typeof input.guest === 'string' && guestIds.has(input.guest) ? companions.find(x => x.personaId === input.guest) : null
   const c = guest || companionOf(e)
+  if (c && !guest && desktopObjects.touched(c)) return null
   return c ? c.onTouch(input) : null
 })
 handle('companion:highfive', (e, input) => { const c = companionOf(e); return c ? c.onHighFive(input) : null })
@@ -3060,6 +3198,11 @@ protocol.registerSchemesAsPrivileged([
     scheme: 'scene',
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
   },
+  // Oggetti importati per la borsa (ObjectLibrary, Blocco 10c).
+  {
+    scheme: 'object',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
+  },
   // Clip .vrma: motion://builtin, motion://private, motion://user.
   {
     scheme: 'motion',
@@ -3139,6 +3282,8 @@ app.whenReady().then(() => {
 
   avatarLibrary = new AvatarLibrary(path.join(app.getPath('userData'), 'avatars'), builtinAvatars(path.join(__dirname, '..', '..')))
   sceneLibrary = new SceneLibrary(path.join(app.getPath('userData'), 'scenes'))
+  objectLibrary = new ObjectLibrary(path.join(app.getPath('userData'), 'objects'))
+  refreshImportedObjects()
   // audit.mjs e preview-clips.mjs provano le proprie clip: con anche le
   // integrate e le private, uno slot sceglierebbe a caso fra piu' clip.
   const onlyUserClips = process.env.COMPANION_ONLY_USER_CLIPS === '1'
@@ -3220,6 +3365,19 @@ app.whenReady().then(() => {
     try {
       const url = new URL(request.url)
       const file = await sceneLibrary.resolve(url.hostname, decodeURIComponent(url.pathname.slice(1)))
+      if (!file) return new Response('Not found', { status: 404 })
+      const res = await net.fetch(require('url').pathToFileURL(file).toString())
+      const headers = new Headers(res.headers)
+      headers.set('Access-Control-Allow-Origin', '*')
+      return new Response(res.body, { status: res.status, headers })
+    } catch (_) { return new Response('Forbidden', { status: 403 }) }
+  })
+
+  // Come scene://, per gli oggetti importati e le loro miniature.
+  protocol.handle('object', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const file = await objectLibrary.resolve(url.hostname, decodeURIComponent(url.pathname.slice(1)))
       if (!file) return new Response('Not found', { status: 404 })
       const res = await net.fetch(require('url').pathToFileURL(file).toString())
       const headers = new Headers(res.headers)

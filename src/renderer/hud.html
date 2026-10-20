@@ -20,7 +20,11 @@
     body.needs #cap-left { top: calc(var(--av-y) + var(--av-h) * 0.05); gap: 5px; padding: 7px 7px; }
     body.needs #cap-left .ring { width: 30px; height: 30px; }
     body.needs #cap-left .ring svg.i { width: 13px; height: 13px; }
-    #cap-right { top: calc(var(--av-y) + var(--av-h) * 0.18); left: min(calc(100% - 54px), calc(var(--av-x) + var(--av-w) + 8px)); }
+    /* Sei azioni (con Cibo e Oggetti del Blocco 10): la capsula sta tutta
+       accanto al companion, e con il companion piccolo i pulsanti si
+       abbassano (6 pulsanti + 5 spazi + il bordo = 6h + 39 px). */
+    #cap-right { top: calc(var(--av-y) + 4px); left: min(calc(100% - 54px), calc(var(--av-x) + var(--av-w) + 8px)); gap: 5px; padding: 7px 7px; }
+    #cap-right .icon-round { width: 32px; height: min(32px, calc((var(--av-h) - 47px) / 6)); }
     #pill { left: 50%; transform: translateX(-50%); }
     body.pill-below #pill { top: calc(var(--av-y) + var(--av-h) + 4px); }
     body.pill-above #pill { top: 0; }
@@ -68,6 +72,7 @@
   <div id="cap-right" class="capsule glass" aria-label="Azioni">
     <button class="icon-round" data-cmd="chat" id="b-single" title="Chat con lui"><svg class="i" viewBox="0 0 24 24"><path d="M5 6.5h14v9H10l-4 3.5v-3.5H5z"/></svg><span class="badge" data-unread hidden></span></button>
     <button class="icon-round" data-cmd="food" title="Cibo: trascinalo su di lui"><svg class="i" viewBox="0 0 24 24"><path d="M4.5 12.5h15a7.5 7.5 0 0 1-15 0z"/><path d="M8 9.5c0-1.2 1-1.2 1-2.4S8 5.9 8 4.7M12 9.5c0-1.2 1-1.2 1-2.4s-1-1.2-1-2.4M16 9.5c0-1.2 1-1.2 1-2.4s-1-1.2-1-2.4"/></svg></button>
+    <button class="icon-round" data-cmd="objects" title="Oggetti: palla, peluche e quelli che importi"><svg class="i" viewBox="0 0 24 24"><path d="M5.5 9h13l-1 10.5h-11z"/><path d="M9 9V7.5a3 3 0 0 1 6 0V9"/></svg></button>
     <button class="icon-round" data-cmd="room" title="Apri la stanza"><svg class="i" viewBox="0 0 24 24"><path d="M4 11 12 4.5 20 11M6.5 9v10h11V9"/><path d="M10 19v-5h4v5"/></svg></button>
     <button class="icon-round" data-cmd="avatar" title="Cambia avatar"><svg class="i" viewBox="0 0 24 24"><path d="M7 7h10M7 7l2.5-2.5M7 7l2.5 2.5M17 17H7M17 17l-2.5-2.5M17 17l-2.5 2.5"/></svg></button>
     <button class="icon-round" data-cmd="hide" title="Nascondi (torna dall'icona nella barra)"><svg class="i" viewBox="0 0 24 24"><path d="M3.5 12s3-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3 5.5-8.5 5.5S3.5 12 3.5 12z"/><path d="M4.5 19.5 19.5 4.5"/></svg></button>

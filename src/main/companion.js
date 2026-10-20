@@ -218,7 +218,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     console.log('[cibo] ' + personaId + ': ' + item.id)
     animate({
       type: 'none', animation: item.kind === 'drink' ? 'drink' : 'eat', bubble: Food.thanks(item),
-      prop: { url: 'vrm://food/' + encodeURIComponent(item.id) + '.glb', size: item.size, ms: EAT_MS },
+      prop: { url: item.url || 'vrm://food/' + encodeURIComponent(item.id) + '.glb', format: item.format || 'gltf', textures: item.textures || [], size: item.size, ms: EAT_MS },
     })
     return true
   }
@@ -471,9 +471,27 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   // solo far scorrere lo sprite dentro un riquadro di 180x260. Il movimento sta
   // nel main perche' solo qui si conosce l'area di lavoro reale dello schermo.
   let walkTimer = null
+  let walkThen = null   // cosa fare all'arrivo (oggetti), al posto del riposo
+  let facing = 1        // verso cui guarda: 1 destra, -1 sinistra
 
   function stopWalk() {
     if (walkTimer) { clearInterval(walkTimer); walkTimer = null }
+    walkThen = null
+  }
+
+  /**
+   * Va con il centro della finestra a x (Blocco 10c: verso un oggetto, o a
+   * riportarlo), di corsa o a passo, e all'arrivo chiama then. false se ora
+   * non puo' camminare.
+   * @param {number} x
+   * @param {{ run?: boolean, speed?: number, then?: () => void }} [opts]
+   */
+  function goTo(x, { run = false, speed, then } = {}) {
+    if (!alive() || drag || perch || viewMode !== 'desktop' || !Number.isFinite(x)) return false
+    if (gestureTimer) { clearTimeout(gestureTimer); gestureTimer = null }
+    send('trigger-animation', { type: 'none', animation: run ? 'run-to' : 'walk-to' })
+    startWalk({ run, toX: x, speed, then })
+    return true
   }
 
   // Il ciclo di passo nel renderer dura finche' il main non manda idle: ogni
@@ -484,11 +502,15 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   }
 
   // La meta' la sceglie walk-target.js: verso e distanza chiesti dal modello, o
-  // a caso. maxDistance limita i gesti a riposo a due passi.
-  /** @param {{ run?: boolean, direction?: string, distance?: string, maxDistance?: number }} [opts] */
-  function startWalk({ run = false, direction, distance, maxDistance = Infinity } = {}) {
+  // a caso. maxDistance limita i gesti a riposo a due passi. Gli oggetti
+  // (Blocco 10c) danno invece una meta precisa: toX e' dove deve arrivare il
+  // centro della finestra, speed la velocita', then cosa fare all'arrivo (al
+  // posto di tornare a riposo); li' gli altri companion non fermano.
+  /** @param {{ run?: boolean, direction?: string, distance?: string, maxDistance?: number, toX?: number, speed?: number, then?: () => void }} [opts] */
+  function startWalk({ run = false, direction, distance, maxDistance = Infinity, toX, speed: fixedSpeed, then } = {}) {
     if (!alive()) return
     stopWalk()
+    walkThen = null
     // Una camminata chiesta mentre sbircia parte da dentro lo schermo.
     endPeek('walk', 'jump')
     stopSlide()
@@ -498,17 +520,25 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     const area = workArea()
     const [x, y] = win.getPosition()
     const [w] = win.getSize()
-    const cursorX = direction === 'toward-cursor' ? screen.getCursorScreenPoint().x : undefined
-    const wanted = walkTarget({ x, width: w, area, direction, distance, cursorX, maxDistance })
-    // Si ferma prima di un altro companion, non gli passa sopra.
-    const targetX = wanted === null ? null : blockedWalk(win.getBounds(), wanted, ctx.othersRects(c))
+    let targetX
+    if (Number.isFinite(toX)) {
+      targetX = Math.round(Math.max(area.x, Math.min(area.x + area.width - w, toX - w / 2)))
+      if (Math.abs(targetX - x) < 2) { if (then) then(); else sendIdle(); return }
+    } else {
+      const cursorX = direction === 'toward-cursor' ? screen.getCursorScreenPoint().x : undefined
+      const wanted = walkTarget({ x, width: w, area, direction, distance, cursorX, maxDistance })
+      // Si ferma prima di un altro companion, non gli passa sopra.
+      targetX = wanted === null ? null : blockedWalk(win.getBounds(), wanted, ctx.othersRects(c))
+    }
     if (targetX === null) { sendIdle(); return }
     const minX = Math.min(x, targetX)
     const maxX = Math.max(x, targetX)
     const dir   = targetX > x ? 1 : -1
     // Con fame o sete si muove piu' lento (needs.walkFactor).
-    const speed = (run ? RUN_SPEED : WALK_SPEED) * (ctx.prefs.needs ? Needs.walkFactor(needs) : 1)
+    const speed = (fixedSpeed || (run ? RUN_SPEED : WALK_SPEED)) * (ctx.prefs.needs ? Needs.walkFactor(needs) : 1)
     const step  = (speed * WALK_TICK_MS) / 1000
+    facing = dir
+    walkThen = then || null
     send('companion-facing', { dir })
     let current = x
     walkTimer = setInterval(() => {
@@ -520,8 +550,10 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
         moveTo(Math.max(minX, Math.min(maxX, next)), y)
       } catch (_) { stopWalk(); return }
       if (done) {
+        const next = walkThen
         stopWalk()
-        sendIdle()
+        if (next) next()
+        else sendIdle()
       }
     }, WALK_TICK_MS)
     if (walkTimer.unref) walkTimer.unref()
@@ -539,6 +571,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   let lastDragMoodAt = 0
   let requestedPoseUntil = 0
   let dancingNow = false
+  let playingWith = null   // l'oggetto con cui sta giocando (desktop-objects.js)
 
   /**
    * Un gesto, venga dalla chat o dalla vita a riposo. walk-to / run-to muovono
@@ -584,7 +617,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     // Fame e sete passano anche senza la vita a riposo.
     needsTick()
     // Seduto su una finestra resta seduto: i gesti a riposo sono pose in piedi.
-    if (!ctx.prefs.idleLife || ctx.prefs.paused || awaitingReply || walkTimer || drag || perch || peek || dancingNow || highFiveActive || Date.now() < requestedPoseUntil) return
+    if (!ctx.prefs.idleLife || ctx.prefs.paused || awaitingReply || walkTimer || drag || perch || peek || dancingNow || highFiveActive || playingWith || Date.now() < requestedPoseUntil) return
     if (!alive() || !win.isVisible()) return
     // Chi sta scrivendo nella chat non e' assente, anche senza aver inviato.
     if (ctx.chatFocused()) { markActivity(); return }
@@ -1419,6 +1452,16 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     set live2dModel(m) { live2dModel = m },
     get dancing() { return dancingNow },
     set dancing(v) { dancingNow = !!v },
+    // Oggetti (Blocco 10c): con chi gioca, se cammina, verso dove guarda, se
+    // puo' tenere un oggetto in mano (un 3D con lo scheletro) e se ora e' libero.
+    get playing() { return playingWith },
+    set playing(v) { playingWith = v || null },
+    get walking() { return !!walkTimer },
+    get facing() { return facing },
+    get holdsProps() { return !!avatarInfo && avatarInfo.humanoid === true },
+    canPlay: () => alive() && win.isVisible() && viewMode === 'desktop' && !ctx.guestHost(c) && !drag && !perch && !peek
+      && !dancingNow && !highFiveActive && !playingWith && Date.now() >= eatingUntil,
+    goTo,
     alive, persona, avatarId, send,
     createWindow, initMemory, initMood, setPersona, shutdown, forget,
     updateMood, updateRapport, publicMood: publicMoodNow, broadcastMood, moodSaved: () => Promise.all([moodSave, rapportSave, needsSave]),

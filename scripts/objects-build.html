@@ -1,0 +1,112 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- Pagina di objects-build.js: costruisce gli oggetti inclusi (Blocco 10c) e
+     li esporta in GLB. Forme semplici a facce piatte, con la luce gia' nei
+     colori dei vertici: con un materiale senza luci si vedono uguali ovunque
+     (sul desktop, in mano al companion, nelle icone). -->
+<script type="importmap">{ "imports": { "three": "../node_modules/three/build/three.module.js", "three/addons/": "../node_modules/three/examples/jsm/" } }</script>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'
+
+const LIGHT = new THREE.Vector3(0.45, 0.8, 0.55).normalize()
+
+/** Una mesh a facce piatte, con la luce "cotta" nei colori dei vertici. */
+function part(geometry, color, matrix) {
+  let g = geometry.index ? geometry.toNonIndexed() : geometry
+  if (matrix) g.applyMatrix4(matrix)
+  g.computeVertexNormals()
+  const base = new THREE.Color(color)
+  const pos = g.attributes.position
+  const colors = new Float32Array(pos.count * 3)
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3()
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c.fromBufferAttribute(pos, i + 2)
+    n.subVectors(c, b).cross(new THREE.Vector3().subVectors(a, b)).normalize()
+    const shade = 0.62 + 0.38 * Math.max(0, n.dot(LIGHT)) + 0.08 * Math.max(0, n.y)
+    for (let k = 0; k < 3; k++) {
+      colors[(i + k) * 3] = Math.min(1, base.r * shade)
+      colors[(i + k) * 3 + 1] = Math.min(1, base.g * shade)
+      colors[(i + k) * 3 + 2] = Math.min(1, base.b * shade)
+    }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true }))
+}
+const M = (x = 0, y = 0, z = 0, sx = 1, sy = sx, sz = sx, rx = 0, ry = 0, rz = 0) =>
+  new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz))
+const ico = (detail = 2) => new THREE.IcosahedronGeometry(1, detail)
+
+// Pallone da spiaggia: sei spicchi colorati e due tappi bianchi.
+function pallone() {
+  const g = new THREE.Group()
+  const colors = ['#e2483d', '#f4f1ea', '#f2c230', '#3d8fd8', '#f4f1ea', '#5bbf6a']
+  for (let i = 0; i < 6; i++) g.add(part(new THREE.SphereGeometry(0.5, 4, 12, i * Math.PI / 3, Math.PI / 3, 0.18, Math.PI - 0.36), colors[i]))
+  g.add(part(new THREE.SphereGeometry(0.5, 12, 2, 0, Math.PI * 2, 0, 0.19), '#f4f1ea'))
+  g.add(part(new THREE.SphereGeometry(0.5, 12, 2, 0, Math.PI * 2, Math.PI - 0.19, 0.19), '#f4f1ea'))
+  return g
+}
+
+// Gomitolo: una palla rosa con i fili avvolti attorno e un capo che pende.
+function gomitolo() {
+  const g = new THREE.Group()
+  g.add(part(ico(2), '#e98aa8', M(0, 0, 0, 0.42)))
+  const strand = '#d46a8e'
+  const turns = [[0, 0, 0], [Math.PI / 2, 0, 0.3], [0.6, 0.9, 0], [1.2, -0.5, 0.8], [-0.4, 0.3, 1.4], [0.9, 1.7, -0.6]]
+  for (const [rx, ry, rz] of turns) g.add(part(new THREE.TorusGeometry(0.43, 0.025, 4, 28), strand, M(0, 0, 0, 1, 1, 1, rx, ry, rz)))
+  const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0.3, -0.25, 0.25), new THREE.Vector3(0.5, -0.38, 0.3), new THREE.Vector3(0.7, -0.42, 0.15), new THREE.Vector3(0.85, -0.44, 0.3)])
+  g.add(part(new THREE.TubeGeometry(curve, 12, 0.025, 4), strand))
+  return g
+}
+
+// Orsetto: sfere, seduto, con muso, naso, occhi e cuscinetti delle zampe.
+function orsetto() {
+  const g = new THREE.Group()
+  const fur = '#b5774a', light = '#e8c9a0', dark = '#2a1d17'
+  g.add(part(ico(2), fur, M(0, 0.32, 0, 0.36, 0.4, 0.32)))                // pancia
+  g.add(part(ico(1), light, M(0, 0.3, 0.2, 0.22, 0.26, 0.14)))            // pancino chiaro
+  g.add(part(ico(2), fur, M(0, 0.86, 0.02, 0.3, 0.28, 0.27)))             // testa
+  for (const s of [-1, 1]) {
+    g.add(part(ico(1), fur, M(0.22 * s, 1.1, 0, 0.1, 0.1, 0.07)))         // orecchie
+    g.add(part(ico(1), light, M(0.22 * s, 1.1, 0.04, 0.06, 0.06, 0.04)))
+    g.add(part(ico(1), dark, M(0.1 * s, 0.92, 0.25, 0.035)))              // occhi
+    g.add(part(ico(1), fur, M(0.36 * s, 0.4, 0.08, 0.11, 0.2, 0.11, 0.5, 0, 0.5 * s)))  // braccia
+    g.add(part(ico(1), fur, M(0.18 * s, 0.06, 0.18, 0.13, 0.11, 0.18)))   // gambe
+    g.add(part(ico(1), light, M(0.18 * s, 0.06, 0.34, 0.08, 0.08, 0.03))) // cuscinetti
+  }
+  g.add(part(ico(1), light, M(0, 0.8, 0.24, 0.12, 0.09, 0.08)))           // muso
+  g.add(part(ico(1), dark, M(0, 0.84, 0.31, 0.04, 0.03, 0.03)))           // naso
+  return g
+}
+
+// Cuscino: un parallelepipedo gonfio, con gli angoli a punta.
+function cuscino() {
+  const geo = new THREE.BoxGeometry(1, 0.5, 0.7, 10, 2, 8)
+  const p = geo.attributes.position
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), z = p.getZ(i)
+    const puff = Math.sqrt(Math.max(0, (1 - Math.pow(Math.abs(x) / 0.5, 2)) * (1 - Math.pow(Math.abs(z) / 0.35, 2))))
+    p.setY(i, p.getY(i) * (0.12 + 0.88 * puff))
+  }
+  const g = new THREE.Group()
+  g.add(part(geo, '#b59ad8'))
+  return g
+}
+
+const BUILDERS = { pallone, gomitolo, orsetto, cuscino }
+window.buildGlb = async (name) => {
+  const obj = BUILDERS[name]()
+  const box = new THREE.Box3().setFromObject(obj)
+  // A terra: il punto piu' basso a y = 0, centrato in x e z.
+  const c = box.getCenter(new THREE.Vector3())
+  obj.position.set(-c.x, -box.min.y, -c.z)
+  const scene = new THREE.Scene()
+  scene.add(obj)
+  const glb = await new GLTFExporter().parseAsync(scene, { binary: true })
+  const bytes = new Uint8Array(glb)
+  let s = ''
+  for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192))
+  return btoa(s)
+}
+window.buildReady = true
+</script>

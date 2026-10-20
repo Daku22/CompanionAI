@@ -52,7 +52,7 @@ import { SOMA30 } from '../src/renderer/kimodo-raw.js'
 const require = createRequire(import.meta.url)
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const { AvatarLibrary } = require('../src/main/AvatarLibrary.js')
-const { SceneLibrary } = require('../src/main/SceneLibrary.js')
+const { SceneLibrary, ObjectLibrary } = require('../src/main/SceneLibrary.js')
 const PORT = 9336
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
@@ -170,6 +170,11 @@ const sceneDir = path.join(WORK, 'scena-audit')
 fs.mkdirSync(sceneDir, { recursive: true })
 fs.writeFileSync(path.join(sceneDir, 'stanza audit.obj'), objRoom())
 fs.writeFileSync(path.join(sceneDir, 'stanza audit.mtl'), 'newmtl legno\nKd 0.55 0.36 0.2\nnewmtl muro\nKd 0.8 0.78 0.72\n')
+// Un oggetto importato (la torta del Food Kit, con la texture fuori dal .glb):
+// il pannello degli oggetti ne sceglie tipo e nome (Blocco 10c).
+const objectLibrary = new ObjectLibrary(path.join(USER_DATA, 'objects'))
+const objectScan = await objectLibrary.scan(path.join(ROOT, 'modelli-3d', 'food', 'torta.glb'))
+const importedObject = await objectLibrary.commit(objectScan.token, objectScan.candidates[0].id)
 const sceneLibrary = new SceneLibrary(path.join(USER_DATA, 'scenes'))
 const sceneScan = await sceneLibrary.scan(sceneDir)
 const importedScene = await sceneLibrary.commit(sceneScan.token, sceneScan.candidates[0].id)
@@ -1224,6 +1229,62 @@ try {
     await comp.evaluate('window.companion.testNeeds({ hunger: 0, thirst: 0 })')
   }
 
+  // 4c-oggetti (Blocco 10c): il pallone lanciato lo insegue, lo raccoglie e
+  // lo riporta verso il mouse; l'orsetto lasciato su di lui lo abbraccia, e
+  // un clic glielo fa posare; al massimo 5 oggetti sul desktop.
+  {
+    const T = (m) => comp.evaluate('window.companion.testObjects(' + JSON.stringify(m) + ')')
+    const b = await comp.evaluate('[window.screenX, window.screenY, window.innerWidth, window.innerHeight]')
+    const area = (await comp.evaluate('window.companion.testPeek({})')).workArea
+    // Il mouse finto dall'altra parte dello schermo: lo riporta li'.
+    const toLeft = b[0] - area.x > area.x + area.width - (b[0] + b[2])
+    await comp.evaluate(`window.companion.testPeek({ cursor: { x: ${toLeft ? area.x + area.width - 60 : area.x + 60}, y: ${area.y + area.height - 200} } })`)
+    const uid = await T({ op: 'spawn', id: 'pallone', x: b[0] + (toLeft ? -150 : b[2] + 150), y: b[1] })
+    await sleep(800)
+    const thrown = await T({ op: 'throw', uid, vx: toLeft ? -1300 : 1300, vy: -800 })
+    const phases = new Set()
+    let held = null
+    let carried = false
+    let last = null
+    for (let i = 0; i < 160; i++) {
+      await sleep(250)
+      last = (await T({ op: 'state' })).find(o => o.uid === uid)
+      if (!last) break
+      if (last.task) phases.add(last.task.phase)
+      if (last.task && last.task.phase === 'carry' && !carried) {
+        held = await comp.evaluate('window.__companion3DTest.prop()')
+        carried = true
+        await sleep(600)
+        await shot('10c-pallone-riportato')
+      }
+      if (!last.task && phases.size) break
+    }
+    check(thrown === 'fetch' && ['chase', 'pickup', 'carry'].every(p => phases.has(p)) && held && /pallone\.glb$/.test(held.url) && held.at === 'arms' && last && !last.task && last.visible,
+      'oggetti: il pallone lanciato lo insegue, lo raccoglie e lo riporta, poi torna sul desktop (' + JSON.stringify({ thrown, phases: [...phases], held: held && { url: held.url, at: held.at, size: held.size }, end: last && { x: last.x, visible: last.visible } }) + ')')
+    const bear = await T({ op: 'spawn', id: 'orsetto', x: b[0] - 120, y: b[1] })
+    await sleep(800)
+    const hugged = await T({ op: 'drop-on', uid: bear })
+    let inArms = null
+    for (let i = 0; i < 25 && !inArms; i++) { await sleep(150); inArms = await comp.evaluate('window.__companion3DTest.prop()') }
+    await sleep(1200)
+    await shot('10c-orsetto-in-braccio')
+    const busy = (await T({ op: 'state' })).find(o => o.uid === bear)
+    const personaId = busy && busy.task && busy.task.personaId
+    const putDown = await T({ op: 'touch', personaId })
+    await sleep(400)
+    const after = (await T({ op: 'state' })).find(o => o.uid === bear)
+    const gone = await comp.evaluate('window.__companion3DTest.prop()')
+    check(hugged === 'hug' && inArms && /orsetto\.glb$/.test(inArms.url) && inArms.at === 'arms' && busy && !busy.visible && putDown === true && after && !after.task && after.visible && gone === null,
+      'oggetti: l\'orsetto lasciato su di lui lo abbraccia, e con un clic lo posa (' + JSON.stringify({ hugged, inArms: inArms && inArms.at, putDown, visible: after && after.visible }) + ')')
+    for (let i = 0; i < 5; i++) await T({ op: 'spawn', id: 'gomitolo', x: area.x + 200 + i * 90, y: area.y + 200 })
+    await sleep(600)
+    const many = await T({ op: 'state' })
+    check(many.length === 5, 'oggetti: al massimo 5 sul desktop, il piu\' vecchio torna nella borsa (' + many.length + ')')
+    await T({ op: 'clear' })
+    await comp.evaluate('window.companion.testPeek({ cursor: null })')
+    await sleep(500)
+  }
+
   // 4c'. "Siediti qui" con la clip di Kimodo: si siede a terra e ci resta.
   const standing = await comp.evaluate('window.__companion3DTest.hipsY()')
   await say('siediti qui')
@@ -1490,6 +1551,27 @@ try {
     if (itemsPage) await chatShot(itemsPage, '10b-pannello-cibo')
     check(cards >= 21 && iconsOk, 'HUD: il pulsante del cibo apre il pannello, ' + cards + ' card con le icone')
     if (itemsPage) await itemsPage.evaluate('window.companion.itemsClose(); true').catch(() => {})
+    // La borsa (Blocco 10c): il pannello degli oggetti, l'oggetto importato
+    // senza tipo; scelto "Cibo", ha la sua miniatura e finisce anche nel cibo.
+    await hud.evaluate(`document.querySelector('#cap-right [data-cmd="objects"]').click(); true`)
+    let objPage = null
+    for (let i = 0; i < 20 && !objPage; i++) { await sleep(250); objPage = await pageOf('items.html?mode=objects') }
+    let objCards = []
+    for (let i = 0; i < 20 && objCards.length < 5; i++) { await sleep(200); objCards = objPage ? await objPage.evaluate(`[...document.querySelectorAll('.item')].map(c => c.dataset.id)`) : [] }
+    const untyped = objPage && await objPage.evaluate(`!!document.querySelector('.item[data-id="${importedObject.id}"] small.todo')`)
+    if (objPage) {
+      await objPage.evaluate(`document.querySelector('.item[data-id="${importedObject.id}"] .edit').click(); true`)
+      await sleep(1500)
+      await chatShot(objPage, '10c-scheda-oggetto')
+      await objPage.evaluate(`document.querySelector('.chip[data-type="food"]').click(); document.getElementById('name').value = 'Torta della nonna'; document.getElementById('save').click(); true`)
+    }
+    let thumbW = 0
+    for (let i = 0; i < 20 && thumbW !== 256; i++) { await sleep(250); thumbW = objPage ? await objPage.evaluate(`(() => { const i = document.querySelector('.item[data-id="${importedObject.id}"] img'); return i && i.complete ? i.naturalWidth : 0 })()`) : 0 }
+    if (objPage) await chatShot(objPage, '10c-pannello-oggetti')
+    const asFood = await comp.evaluate(`window.companion.itemsList().then(l => l.food.some(f => f.id === '${importedObject.id}' && f.name === 'Torta della nonna'))`)
+    check(objCards.length >= 5 && ['pallone', 'gomitolo', 'orsetto', 'cuscino'].every(id => objCards.includes(id)) && untyped && thumbW === 256 && asFood,
+      'HUD: la borsa apre gli oggetti; quello importato sceglie il tipo, ha la miniatura e diventa cibo (' + JSON.stringify({ objCards: objCards.length, untyped, thumbW, asFood }) + ')')
+    if (objPage) await objPage.evaluate('window.companion.itemsClose(); true').catch(() => {})
     await comp.evaluate('window.companion.testPeek({ cursor: null })')
     check(!!(hs && hs.shown && hs.name === 'Prova Audit' && around && hs.rings && chatOpen === 'visible' && title === 'Prova Audit' && groupButton),
       'HUD attorno al companion sotto il mouse: ' + JSON.stringify(hs) + ', chat singola ' + chatOpen + ' (' + title + '), tasto del gruppo ' + groupButton)

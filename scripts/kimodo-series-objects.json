@@ -1,0 +1,7 @@
+{
+  "about": "Oggetti (Blocco 10c), generate con npm run kimodo -- --series scripts/kimodo-series-objects.json --out modelli-3d/animations --keep-raw. pickup: raccoglie da terra un oggetto da lanciare (la mano destra, dove il companion lo tiene); hug: tiene in braccio un peluche o un cuscino, in ciclo. Scelte fra due semi ciascuna, guardate con npm run preview su Feniel.",
+  "clips": [
+    { "out": "pickup.vrma", "seconds": 3, "seed": 2, "prompt": "A person crouches down, reaches to the floor with the right hand, grabs something and stands back up." },
+    { "out": "hug.vrma", "seconds": 6, "loop": true, "seed": 2, "prompt": "A person stands facing forward with both forearms crossed in front of the chest, cuddling something soft, rocking slowly." }
+  ]
+}

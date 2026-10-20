@@ -1,0 +1,9 @@
+{
+  "about": "Oggetti inclusi (Blocco 10c), costruiti da scripts/objects-build.js (CC0). type: throw (da lanciare: gravita', rimbalzi, il companion lo insegue), hug (da abbracciare: il companion lo tiene in braccio), decor (decorazione). size: il lato piu' lungo in metri, per un avatar alto 1,6 m. bounce: quanto rimbalza (0-1).",
+  "items": [
+    { "id": "pallone",  "name": "Pallone",  "a": "un pallone",            "type": "throw", "size": 0.34, "bounce": 0.72 },
+    { "id": "gomitolo", "name": "Gomitolo", "a": "un gomitolo",           "type": "throw", "size": 0.16, "bounce": 0.3 },
+    { "id": "orsetto",  "name": "Orsetto",  "a": "un orsetto di peluche", "type": "hug",   "size": 0.32, "bounce": 0.15 },
+    { "id": "cuscino",  "name": "Cuscino",  "a": "un cuscino",            "type": "hug",   "size": 0.42, "bounce": 0.1 }
+  ]
+}

@@ -551,6 +551,31 @@ CLIPS.drink = {
   },
 }
 
+// Oggetti (Blocco 10c): raccogliere da terra con la mano destra, e tenere in
+// braccio (in ciclo, finche' non arriva altro). Le clip di Kimodo (pickup.vrma,
+// hug.vrma) hanno la precedenza.
+CLIPS.pickup = {
+  duration: 2.6,
+  pose: (t) => {
+    const c = envelope(t, 2.6, 0.6)
+    return {
+      spine: { x: 0.35 * c }, chest: { x: 0.25 * c },
+      rightUpperArm: { x: 0.5 * c, z: -0.1 * c },
+      leftUpperLeg: { x: -0.6 * c }, rightUpperLeg: { x: -0.6 * c },
+      leftLowerLeg: { x: 1.0 * c }, rightLowerLeg: { x: 1.0 * c },
+      hips: { y: -0.12 * c },
+    }
+  },
+}
+CLIPS.hug = {
+  duration: 0,
+  pose: (t) => ({
+    ...handsInFront(1, 1.7),
+    chest: { x: 0.05, z: Math.sin(t * 1.6) * 0.04 },
+    head: { x: 0.1, z: Math.sin(t * 1.6) * 0.05 },
+  }),
+}
+
 // Nomi alternativi usati dall'AI e dalla chat, ricondotti alle clip reali.
 export const CLIP_ALIAS = {
   idle: 'idle', none: 'idle', relaxed: 'idle',
@@ -568,7 +593,7 @@ export const CLIP_ALIAS = {
   doze: 'doze', sleep: 'doze', dance: 'dance', peek: 'peek',
   offer: 'offer', highfive: 'highfive', missed: 'missed',
   pat: 'pat', flinch: 'flinch', giggle: 'giggle', hop: 'hop', shy: 'shy', scold: 'scold', turnaway: 'turnaway',
-  eat: 'eat', drink: 'drink',
+  eat: 'eat', drink: 'drink', pickup: 'pickup', hug: 'hug',
   [GENERATED]: GENERATED,
 }
 
@@ -596,7 +621,7 @@ export const LOOK_LIMITS = {
 }
 // Quanto segue il mouse durante ogni clip: pieno a riposo, per niente mentre
 // cammina, siede o penzola, dove girare la testa sembrerebbe un difetto.
-export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4, dance: 0.3, peek: 0.7, offer: 0.8, eat: 0.2, drink: 0.1 }
+export const LOOK_WEIGHT = { idle: 1, wave: 0.6, happy: 0.6, think: 0.3, smoke: 0.3, click: 0.5, perch: 0.8, pat: 0.2, giggle: 0.3, hop: 0.5, scold: 0.4, dance: 0.3, peek: 0.7, offer: 0.8, eat: 0.2, drink: 0.1, pickup: 0, hug: 0.4 }
 const LOOK_RATE = 7          // inseguimento del bersaglio, 1/s
 const LOOK_WEIGHT_RATE = 3   // entrata e uscita del peso, 1/s
 
