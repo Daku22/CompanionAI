@@ -243,3 +243,21 @@ Regole di sempre:
   `npm run preview`. Se una clip viene male, si ripiega su una posa procedurale.
 - **2D e Live2D:** niente oggetti in mano; per il resto (bisogni, cibo, inseguire,
   pallavolo con il gesto "happy") funzionano.
+
+## Com'è andata (chiusura, 20 ottobre)
+- **10a:** come da piano. Il rapporto cala al massimo di 3 punti al giorno e mai
+  sotto il livello iniziale.
+- **10b:** 21 cibi e bevande del Food Kit di Kenney (CC0), scelti da Claude su
+  richiesta dell'utente; clip Kimodo `eat` e `drink`. Il cibo in mano sta
+  davanti al palmo, verso la camera, e senza luci.
+- **10c:** gli oggetti inclusi sono fatti da noi (Poly Pizza rifiutava le
+  richieste); import di glTF/GLB, FBX e OBJ, con la texture fuori dal `.glb`
+  copiata. Nel 3D l'oggetto riportato sta fra le due mani; clip `pickup` e
+  `hug`. La capsula destra dell'HUD si adatta all'altezza del companion.
+- **10d:** come da piano, con la clip `volley` scelta fra tre varianti (una si
+  copriva il viso). Il conto dei palleggi è disegnato sul pallone.
+- **10e:** la richiesta di cibo nomina cose vere del catalogo; il gioco da solo
+  calcia il pallone o palleggia (senza record); `play` e `fetch` in chat.
+- **Non fatto:** gli oggetti sul desktop non si ricordano alla chiusura
+  dell'app (tornano nella borsa).
+- **Verifica:** `npm test`, smoke e audit (137 controlli) verdi.

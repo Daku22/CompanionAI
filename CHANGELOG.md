@@ -175,10 +175,38 @@
 - "Compatta" in the chat now summarises everything but the last four turns,
   whatever their age; before, it only took turns older than seven days, so
   it almost always said there was nothing to do. Errors are shown as such.
-- 27 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
-  sitting, walking, running, dancing, being carried, the touch reactions),
-  now in the repository and the installer under CC0. Credits and the model
-  licenses are in `ASSETS-LICENSE.md`.
+- Hunger, thirst, food and toys:
+  - hunger and thirst grow only while the app is open (full hunger in about
+    8 hours, thirst in about 5). A little hungry it sulks a bit, yawns,
+    walks slower and says so now and then; very hungry it complains, answers
+    curtly, asks for food on its own (naming something real from the
+    catalog) and the bond drops slowly until it eats. Nothing is permanent.
+    Two rings in the bar and in the chat; "Fame e sete" in Generale turns it
+    all off;
+  - "Cibo" in the bar: 21 foods and drinks (Kenney's Food Kit, CC0) to drag
+    onto the companion. A 3D companion eats or drinks with the food in its
+    hand; "ti preparo un tè" in chat works too;
+  - "Oggetti" in the bar: a beach ball, a yarn ball, a teddy bear and a
+    cushion, plus your own glTF/GLB, FBX or OBJ models, for which you pick a
+    type (to throw, to hug, food, drink, decoration) and a size. Food and
+    drink objects also show up in "Cibo";
+  - objects live on the desktop with real bounces; grab and throw them with
+    the mouse, double-click to put one back (at most 5). Throw the ball and
+    the nearest companion runs after it, picks it up and brings it back;
+    leave the teddy on it and it hugs it and dozes, a click and it puts it
+    down; a decoration stays where you leave it;
+  - volleyball: click the ball and the companion hits it back towards your
+    mouse; click it in the air to keep the rally going. The count shows on
+    the ball, and each persona keeps its record. With more companions they
+    pass it to each other;
+  - when bored it plays alone with a ball on the desktop (kicks it around or
+    juggles it), and "giochiamo a palla" or "prendi il gomitolo" in chat
+    start a game.
+- 32 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
+  sitting, walking, running, dancing, being carried, the touch reactions,
+  eating, drinking, picking up, hugging, volleyball), in the repository and
+  the installer under CC0. Credits and the model licenses are in
+  `ASSETS-LICENSE.md`.
 
 ## 1.0.0 — first public release
 

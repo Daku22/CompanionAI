@@ -17,6 +17,9 @@ conversations from one day to the next.
   (web search, Notion, Todoist, GitHub, your own folders…).
 - **Persistent local memory:** old conversations fade into a summary, and the
   originals are kept in a lossless archive on your disk.
+- **Needs and play:** it gets hungry and thirsty, eats what you drag onto it,
+  and plays with a ball, a yarn ball or a teddy bear on your desktop
+  (volleyball included).
 - **Restricted system actions:** checked before you are asked to approve them.
 - **Private by design:** no telemetry, no account, everything runs inside the app.
 
@@ -174,6 +177,39 @@ the desktop and where.
   the scene as guests, with their gestures, expressions, voice and touches.
   Live2D and 2D companions stay on the desktop.
 
+**Hunger, thirst and toys.** The companion gets hungry and thirsty while the
+app is open (full hunger in about 8 hours, thirst in about 5; time with the
+app closed does not count). A little hungry, it sulks a bit, yawns, walks
+slower and says so now and then; very hungry, it complains, answers curtly,
+asks you for something specific and your bond drops slowly until it eats.
+Nothing is permanent, and "Fame e sete" in Settings → Generale turns it all
+off. Two rings in the bar and in the chat show how it is doing.
+- **Food:** the "Cibo" button in the bar opens 21 foods and drinks. Drag one
+  onto the companion: it eats or drinks it (in 3D, with the food in its hand)
+  and thanks you. Offering it in chat works too ("ti preparo un tè").
+- **Objects:** the bag button opens the objects: a beach ball, a yarn ball, a
+  teddy bear and a cushion, and "Importa" for your own glTF/GLB, FBX or OBJ
+  model. For an imported model you pick a name, a size and what it is for:
+  "Da lanciare", "Da abbracciare", "Cibo", "Bevanda" or "Decorazione" (change
+  it later with the pencil on its card).
+- **On the desktop:** drag an object out of the panel and it stays on the
+  desktop, falling and bouncing; grab it and throw it with the mouse;
+  double-click (or right-click) puts it back in the bag. At most 5 at a time.
+  - Throw the ball: the nearest companion runs after it, picks it up and
+    brings it back to your mouse.
+  - Leave the teddy or the cushion on a companion: it hugs it and dozes; a
+    click on it, or 20 seconds, and it puts it down.
+  - A decoration stays where you leave it.
+- **Volleyball:** click the ball on the ground and it goes to the nearest
+  companion, who runs under it and hits it back towards your mouse; click it
+  while it is in the air to send it back. The count is on the ball; it ends
+  when the ball touches the ground, and each persona keeps its record. With
+  more companions they also pass it to each other.
+- **Playing alone:** when nobody writes to it for a while and there is a ball
+  on the desktop, it sometimes plays with it (kicks it around, or juggles it).
+  In chat, "giochiamo a palla" starts a game and "prendi il gomitolo" sends
+  it after the yarn.
+
 **Voice (optional, off by default).** In Settings → Voce turn on "Legge ad alta voce le risposte", press "Scarica" once (about 180 MB:
 the Kokoro-82M model with two Italian voices, Sara and Nicola, and the eSpeak NG
 phonemizer), and the companion reads its replies aloud while its mouth follows
@@ -257,7 +293,7 @@ that publish an app with Live2D also need Live2D's Cubism SDK Release License.
 **Animations.** Right-click the avatar → "Animazioni" → "Importa animazione" to
 add a clip for a gesture (idle, greeting, sitting, being carried…). It accepts
 `.vrma` and converts `.glb`/`.gltf`, `.fbx` and `.bvh` clips to `.vrma`, so the
-same clip plays on every 3D avatar. The app ships 27 clips made with NVIDIA
+same clip plays on every 3D avatar. The app ships 32 clips made with NVIDIA
 Kimodo (see [ASSETS-LICENSE.md](ASSETS-LICENSE.md)); where a gesture has no
 clip, procedural poses are used.
 

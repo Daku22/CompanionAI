@@ -1145,6 +1145,46 @@ sbirciata, ballo) restano del companion di casa; gli ospiti non le usano.
 (`\\'`, `\n` dentro stringhe JS): per le sostituzioni lunghe si usa un JSON
 scritto con lo strumento di scrittura e un piccolo `rep.py` che lo applica.
 
+## Blocco 10: bisogni, cibo e oggetti (2026-10-16/20)
+
+**Riferimenti.** AikoMate (bisogni, cibo, oggetti), solo come idee: nessun
+codice né risorsa, niente negozio né acquisti. I modelli del cibo sono il Food
+Kit di Kenney (CC0); gli oggetti inclusi sono fatti da noi con forme semplici
+(Poly Pizza rifiutava le richieste, 429), CC0.
+
+**Scelte dell'utente.** Fame e sete con effetti graduali e mai irreversibili,
+in una giornata d'uso; il cibo si trascina sull'avatar e nel 3D compare in
+mano; il tipo di un oggetto importato si sceglie all'import; gli oggetti sono
+di tutti; pallavolo con punteggio e record; chiede da mangiare, gioca da solo,
+capisce la chat.
+
+**Trappole.**
+- I materiali fisici del Food Kit, con le luci tarate per gli avatar anime,
+  venivano quasi neri: in mano si convertono in `MeshBasicMaterial`,
+  conservando i colori dei vertici (senza, gli oggetti inclusi venivano
+  bianchi).
+- La misura in mano si calcola dalla distanza testa-bacino, non dal
+  dislivello: chinato a raccogliere, il dislivello quasi si annulla e il
+  pallone veniva minuscolo.
+- Nella mano destra, camminando, il pallone usciva dalla finestra del
+  companion (180 px) e veniva tagliato: si porta fra le due mani.
+- Molti `.glb` (il Food Kit) citano la texture in un file a parte: l'import
+  legge il JSON dentro il `.glb` e copia anche quella.
+- La fisica va a passi di 1/30 s: a passi la caduta supera quella della
+  formula `g·T²/2` di circa `g·T·dt/2` (26 px in 1,4 s), e la mira lo mette in
+  conto (`aim`, opzione `dt`).
+- Un rimbalzo troppo debole lasciava il corpo sospeso sul pavimento: sotto
+  `REST_SPEED` si appoggia e la gravità non lo spinge più.
+- Per i "drink" di Kimodo: niente "cup", "glass" o "sip" nel prompt, o il
+  gomito sale sopra la testa; la variante buona porta la mano alla bocca con
+  la testa un po' indietro.
+- Nel `object-pose` mandato a ogni giro il conto dei palleggi fuori partita
+  cancellava il totale appena mostrato: si manda solo durante la partita.
+- Un oggetto appena creato ha la finestra non ancora visibile (aspetta la
+  pagina): non va usato come prova che l'oggetto "non c'è".
+- Con 6 azioni la capsula destra dell'HUD usciva dalla finestra con il
+  companion piccolo: i pulsanti si abbassano con `min()` sull'altezza.
+
 ## Blocco 9: grafica nuova (2026-10-14)
 
 **Riferimenti.** AikoMate (barra a pillola, capsule ai lati dell'avatar) e

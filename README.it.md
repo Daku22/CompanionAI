@@ -75,16 +75,22 @@ src/
   main/      main.js (finestre, IPC, azioni OS, camminata), ai-router.js, preload.js,
              guards.js (regole su azioni, config e mittenti IPC), AvatarLibrary.js,
              builtin-avatars.js, AnimationLibrary.js (clip .vrma), mood.js (umore),
-             idle-life.js (gesti a riposo),
+             idle-life.js (gesti a riposo), needs.js (fame e sete), food.js (cibo),
+             objects.js e physics.js (oggetti e fisica, puri), desktop-objects.js
+             (oggetti sul desktop), SceneLibrary.js (scene e oggetti importati),
              write-atomic.js, logger.js
   memory/    MemoryManager.js + types.ts
   renderer/  companion.html + companion-2d.js + companion-3d.js, chat.html + chat.js,
              companion-input.js (mouse sull'avatar), sway.js (oscillazione in braccio),
              humanoid-map.js, motion-retarget.js, clip-layer.js (clip .vrma su ogni umanoide),
-             vrm-animation.js, assets/strips (avatar 2D integrato), vendor/ (generata)
+             vrm-animation.js, items.html + items.js (pannello cibo e oggetti),
+             ghost.html (il cibo trascinato), object.html + object.js + object-view.js
+             (un oggetto sul desktop), model-read.js (glTF, FBX, OBJ),
+             assets/strips (avatar 2D integrato), vendor/ (generata)
 scripts/     vendor.js, make-icon.js, build.js, build-strips.js, lib/sprite-frames.js,
              smoke.mjs, check-publish.js, e le suite test-*.js
-modelli-3d/  Feniel, Shibahu e Hiyori, serviti dal protocollo vrm://
+modelli-3d/  Feniel, Shibahu e Hiyori, food/ (Food Kit di Kenney) e objects/ (fatti da noi),
+             serviti dal protocollo vrm://
 docs/        brief dell'avatar 2D, note di progetto
 ```
 
@@ -380,6 +386,78 @@ Windows sarebbero lo stesso file), servito come `avatar://thumbs/`. Finché
 manca, le iniziali con il colore del nome. Mai nella stanza: lo sfondo
 finirebbe nella foto.
 
+## Bisogni, cibo e oggetti (Blocco 10)
+
+Piano in `docs/blocco-10.md`, senza negozio né acquisti.
+
+**Fame e sete** (`needs.js`, puro, con test). Due valori da 0 a 1 che salgono
+solo con il tempo di app aperta, contato a ogni giro della vita a riposo:
+fame piena in 8 ore, sete in 5; un passo più lungo di 2 minuti (PC sospeso)
+conta per 2 minuti. Livelli "un po'" da 0,5 e "molta" da 0,8, con effetti
+graduali e mai irreversibili:
+- un po': un filo di fastidio sull'umore, più sbadigli e riposi, cammina più
+  lento (`walkFactor`), un fumetto ogni 20-40 minuti;
+- molta: fastidio e meno allegria, tono scontroso nel prompt (`promptLine`),
+  fumetti ogni 10-15 minuti, il rapporto che cala di mezzo punto all'ora
+  (`rapport.onNeglect`, al massimo 3 al giorno, mai sotto il livello
+  iniziale), e l'occasione `hungry`/`thirsty` di `initiative.js` (una ogni
+  2 ore, dentro le 6 al giorno), che può nominare cibi veri del catalogo.
+Stanno in `needs.json` della persona, con il record di pallavolo
+(`volleyBest`). `prefs.needs` ("Fame e sete" in Generale) li spegne; in pausa
+si fermano. Gli anelli nell'HUD e nella chat li mostra `faces.js`.
+
+**Cibo** (`food.js`, puro). Il catalogo `modelli-3d/food/food.json`: 21 modelli
+del Food Kit di Kenney (CC0), con quanto sazia, disseta, rallegra, le parole per
+la chat e le icone a 256 px (`scripts/food-icons.js`). Il pannello
+(`items.html`) si apre dall'HUD; premendo su una card il main apre un
+"fantasma" (`ghost.html`) che segue il cursore, e il rilascio lo vede il giro
+del cursore (`win-windows.isKeyDown`), anche fuori dalle finestre. Lasciato sul
+companion: `feed` sazia, rallegra, ringrazia, lo scrive in memoria e manda la
+clip `eat` o `drink` con il modello in mano (nel 3D davanti al palmo, verso la
+camera, in scala con la distanza testa-bacino, senza luci: i materiali fisici
+venivano neri). Dalla chat: le animazioni `eat`/`drink` con `item`.
+
+**Oggetti** (`objects.js`, `SceneLibrary.js` → `ObjectLibrary`). Gli inclusi
+sono fatti da noi (`scripts/objects-build.js`: forme semplici con la luce nei
+colori dei vertici, CC0); gli importati (glTF/GLB, FBX, OBJ, con le texture
+anche fuori da un `.glb`) stanno in `<userData>/objects`, serviti come
+`object://`. Il tipo lo sceglie l'utente nella scheda del pannello, con
+l'anteprima 3D (`object-view.js`) che scatta anche la miniatura della card;
+Cibo e Bevanda finiscono nel pannello del cibo (`asFood`).
+
+**Sul desktop** (`desktop-objects.js` e `physics.js`, puro). Ogni oggetto è
+una finestrella trasparente (`object.html`) e un cerchio per la fisica:
+gravità, rimbalzi sul fondo dell'area di lavoro e sui bordi, attrito, fermo
+quando si posa (allora non costa nulla). Il main la fa avanzare a ogni giro
+del cursore. Presa e lancio come la presa in braccio: il main segue il cursore
+e la velocità del rilascio viene dagli ultimi 120 ms (`throwVelocity`).
+Doppio clic per riporlo, al massimo 5.
+- Da lanciare: lanciato forte, il companion libero più vicino corre dove si
+  fermerà (`landing`), lo raccoglie (clip `pickup`) e lo riporta verso il
+  mouse fra le due mani.
+- Da abbracciare: lasciato sul companion, clip `hug` in ciclo con l'oggetto al
+  petto; dopo 20 secondi o con un clic lo posa.
+- Decorazione: senza gravità, resta dove la lasci, dietro i companion.
+- Nel 3D l'oggetto entra nella scena (`companion-prop`) e la finestrella si
+  nasconde; nel 2D e nel Live2D la finestrella segue il companion.
+
+**Pallavolo.** Un clic sul pallone fermo lo manda al companion più vicino:
+`aim` dà la velocità per arrivargli sopra la testa in un tempo che cresce con
+la distanza, e `crossing` dice dove scenderà, così lui ci va di corsa e alza
+le mani in tempo (clip `volley`, 0,6 s prima). Lo ribatte verso il mouse, e
+un clic sul pallone in aria lo rimanda indietro; con più companion a volte se
+lo passano. Il conto è sul pallone; quando tocca terra la partita finisce, il
+record va in `needs.json` (`endVolley`), con una reazione e, se battuto, un
+po' di gioia e una riga in memoria. Ogni palleggio toglie un po' di energia e
+mette un po' di sete.
+
+**Da solo e dalla chat.** Con un oggetto Da lanciare libero e dopo 3 minuti
+senza messaggi, la vita a riposo ha il gesto `play`: lo calcia e lo rincorre,
+o palleggia da solo (senza record; se lo colpisci tu la partita diventa
+vostra). In chat le animazioni `play` ("giochiamo a palla": lo tira fuori e te
+lo lancia) e `fetch` ("prendi il gomitolo"), con `item` riconosciuto da
+`findObject`.
+
 ## Umore e vita a riposo
 
 **Umore** (`src/main/mood.js`). Sei emozioni fra 0 e 1, ognuna con la propria
@@ -523,8 +601,8 @@ camera è fissa.
 
 **Clip .vrma.** Sopra le pose procedurali possono girare clip vere, in un solo
 formato: `.vrma`, lo standard VRM per le animazioni umanoidi.
-- **Dove stanno.** `modelli-3d/animations` (integrate e pubblicate: le 27
-  clip Kimodo delle due serie, licenze in `ASSETS-LICENSE.md`),
+- **Dove stanno.** `modelli-3d/animations` (integrate e pubblicate: le 32
+  clip Kimodo delle serie in `scripts/kimodo-series*.json`, licenze in `ASSETS-LICENSE.md`),
   `private-assets/animations` (solo nella copia privata) e
   `<userData>/animations` (importate). Il protocollo `motion://` le serve.
 - **Il nome del file dice il gesto:** `wave.vrma`, `idle-2.vrma`,
@@ -1089,14 +1167,18 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 
 ## Test
 
-`npm test` esegue trenta suite senza chiavi API né finestre:
+`npm test` esegue più di cinquanta suite senza chiavi API né finestre. Le principali:
 
 | Suite | Cosa verifica |
 |---|---|
 | Memoria | Scrittura, ricarica, compattazione a blocchi, log attivo ripulito, compattazioni concorrenti, cancellazione |
 | Router | La memoria raggiunge il modello anche oltre 40 messaggi; dialogo che parte dall'utente; UTF-8; budget per i modelli che ragionano; errori leggibili; elenchi dei modelli |
 | Umore | Emivite, affetto che non decade, energia, riga del prompt, file corrotti, contratto `emotion` |
-| Vita a riposo | Soglie di quiete, sonno e risveglio, notte e stanchezza, pesi secondo l'umore |
+| Vita a riposo | Soglie di quiete, sonno e risveglio, notte e stanchezza, pesi secondo l'umore, fame e sete, il gioco da solo |
+| Bisogni | Fame e sete che salgono solo ad app aperta, livelli, fumetti, umore e rapporto, record di pallavolo |
+| Cibo | Catalogo, ricerca per nome nelle frasi, effetti, ringraziamenti |
+| Fisica | Caduta, rimbalzi, attrito, muri, lancio dal mouse, dove si ferma, mira e punto di ribattuta |
+| Oggetti | Inclusi con modello e icona, tipi e misure, cibo importato, l'oggetto nominato in chat |
 | Controlli | Allowlist dei comandi, percorsi eseguibili, config dal renderer (voce, microfono e scorciatoie comprese), opzioni della finestra, mittenti IPC, permessi del browser (solo il microfono) |
 | Animazioni | Player di pose: dissolvenze, ritorno a idle, nessun residuo fra clip, VRM 0.x e 1.0; ciglia uguali a ogni frame rate, sguardo, pesi dell'umore; testa che segue il mouse nei limiti, posa in braccio |
 | Oscillazione | Molla di `sway.js`: verso, limiti, smorzamento, stesso risultato a 30 e 144 fps |
@@ -1208,6 +1290,9 @@ Fatto:
 - grafica nuova in ambra: HUD attorno al companion, chat in finestre separate
   e ridisegnate, impostazioni a gruppi con le card e le foto del viso, tasti
   rapidi;
+- fame e sete, cibo da trascinare, oggetti sul desktop con la fisica (da
+  lanciare, da abbracciare, da importare), pallavolo con il record e il gioco
+  da solo;
 - installer NSIS con Fuses, CI e release automatiche.
 
 Da fare:

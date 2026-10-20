@@ -59,10 +59,11 @@ personal data.
 |---|---|
 | Settings and API keys | `%USERPROFILE%\.desktop-companion\config.json`. Keys are encrypted with Windows' own key store (Electron `safeStorage`) |
 | Conversation memory | `%USERPROFILE%\.desktop-companion\memory\`: recent turns, summary, and the lossless archive of summarized turns |
-| Personas | `%USERPROFILE%\.desktop-companion\memory\personas.json` (names, personalities, avatar and voice of each), and for every persona its mood, relationship (`rapport.json`), diary (`diary.jsonl`) and spontaneous-message counters (`initiative.json`). The first persona keeps them in `memory\`, the others in `memory\personas\<id>\`. With several companions on the desktop, each one's memory also keeps what you wrote to the group and what the others said |
+| Personas | `%USERPROFILE%\.desktop-companion\memory\personas.json` (names, personalities, avatar and voice of each), and for every persona its mood, relationship (`rapport.json`), diary (`diary.jsonl`), spontaneous-message counters (`initiative.json`) and hunger, thirst and volleyball record (`needs.json`). The first persona keeps them in `memory\`, the others in `memory\personas\<id>\`. With several companions on the desktop, each one's memory also keeps what you wrote to the group and what the others said |
 | Companions on the desktop | `config.json`: which personas are on the desktop (`openPersonas`) and where (`companionSpots`) |
 | Hotkeys and the bar | `config.json`: the chosen shortcuts (`shortcuts`) and whether the bar stays visible (`hudPinned`) |
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
+| Imported objects | `%APPDATA%\CompanionAI\objects\`: the models you import from the bag, their type, name and size (`library.json`) and their card pictures (`thumbs\`). Deleting an object deletes its folder and picture. Objects on the desktop are not saved: they go back to the bag when the app closes |
 | Avatar face photos | `%APPDATA%\CompanionAI\avatars\thumbs\`: a 256 px PNG per avatar, taken by the companion the first time it wears it and shown only in the settings and the chat. Deleting an imported avatar deletes its photo |
 | Imported animations | `%APPDATA%\CompanionAI\animations\` |
 | Movements generated with Kimodo | `%APPDATA%\CompanionAI\generated-motions\`: the last 100, as `.vrma` files, the sentence each one came from in `index.json`, and the names you gave them in `names.json` |
