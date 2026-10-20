@@ -646,8 +646,14 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
       hour: new Date(now).getHours(),
       bond: bond(),
       needy: (worstNeed() || {}).level || null,
+      toy: ctx.hasToy(),
     })
     if (!decision) return
+    // Gioca da solo con un oggetto (Blocco 10e): lo fa desktop-objects.js.
+    if (decision.play) {
+      if (ctx.playAlone(c)) { lastGestureAt = now; console.log('[oggetti] ' + personaId + ' gioca da solo') }
+      return
+    }
     lastGestureAt = now
     if (decision.asleep !== undefined) asleep = decision.asleep
     // Il risveglio e' un ritorno dell'utente: i gesti ripartono dopo la quiete.

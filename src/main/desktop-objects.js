@@ -18,6 +18,11 @@
 // verso il mouse (clip "volley"); tu lo ribatti cliccandolo in aria. Con piu'
 // companion se lo passano anche fra loro. Si contano i palleggi (il numero sul
 // pallone); quando tocca terra la partita finisce, e il record e' per persona.
+//
+// Da solo (Blocco 10e): annoiato, il companion va al giocattolo piu' vicino e
+// lo calcia e lo insegue, o palleggia per conto suo (se lo colpisci tu, la
+// partita diventa vostra). Dalla chat: "giochiamo a palla" (lo tira fuori se
+// non c'e' e te lo lancia), "prendi il gomitolo" (lo insegue e te lo riporta).
 
 const { BrowserWindow, screen } = require('electron')
 const path = require('path')
@@ -52,6 +57,14 @@ const VOLLEY = {
   COUNT_MS: 2500,         // il numero resta sul pallone dopo la fine
   ENERGY_PER_HIT: 0.01,
 }
+const SOLO = {
+  KICKS: [1, 3],          // quante volte lo calcia e lo rincorre
+  KICK_VX: [550, 900],    // px/s
+  KICK_VY: -380,
+  JUGGLES: [3, 8],        // palleggi da solo prima di lasciarlo cadere
+  WALL_GAP: 300,          // px: piu' vicino a un muro, calcia dall'altra parte
+}
+const randIn = ([a, b]) => a + Math.random() * (b - a)
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)]
 const centerOf = (c) => c.bounds.x + c.bounds.width / 2
@@ -186,8 +199,8 @@ function createDesktopObjects(ctx) {
     return free[0] || null
   }
 
-  function startFetch(e) {
-    const c = nearestFree(P.landing(e.body, worldAt(e.body)).x)
+  function startFetch(e, who = null) {
+    const c = who && who.canPlay() ? who : who ? null : nearestFree(P.landing(e.body, worldAt(e.body)).x)
     if (!c) return false
     c.playing = e
     e.task = { c, phase: 'chase', tries: 0, at: Date.now(), started: Date.now(), picked: false }
@@ -292,6 +305,7 @@ function createDesktopObjects(ctx) {
 
   function abortTask(e) {
     if (!e.task) return
+    if (e.task.solo) return endSolo(e)
     letGo(e, 'arms')
   }
 
@@ -385,6 +399,17 @@ function createDesktopObjects(ctx) {
     const now = Date.now()
     c.updateMood(m => { const d = moodLib.decay(m, now); return { ...d, energy: Math.max(0, d.energy - VOLLEY.ENERGY_PER_HIT) } })
     c.markActivity()
+    // Da solo: qualche palleggio sulla testa, poi lo lascia andare di lato.
+    if (g.solo) {
+      if (g.hits < g.maxHits) sendTo(e, c)
+      else {
+        e.body = P.push(e.body, (Math.random() < 0.5 ? -1 : 1) * 250, -350)
+        g.plan = null
+        g.target = null
+      }
+      sendPose(e)
+      return
+    }
     const others = ctx.companions().filter(x => x !== c && canJoin(e, x))
     if (others.length && Math.random() < VOLLEY.PASS_CHANCE) sendTo(e, others[Math.floor(Math.random() * others.length)])
     else sendToUser(e)
@@ -394,6 +419,8 @@ function createDesktopObjects(ctx) {
   /** Tu lo ribatti: al companion piu' vicino al pallone. */
   function userHit(e) {
     const g = e.game
+    // Palleggiava da solo e ti sei unito: ora e' una partita vera.
+    g.solo = false
     const c = ctx.companions().filter(x => canJoin(e, x)).sort((a, b) => Math.abs(centerOf(a) - e.body.x) - Math.abs(centerOf(b) - e.body.x))[0]
     if (!c) return
     g.hits++
@@ -414,6 +441,8 @@ function createDesktopObjects(ctx) {
     for (const c of g.players) {
       c.playing = null
       if (!c.alive() || quiet) continue
+      // Da solo niente record: quello e' delle partite con te.
+      if (g.solo) { c.animate({ type: 'none', animation: 'idle' }); continue }
       const r = c.endVolley(g.hits, g.by.get(c) || 0)
       results.push({ personaId: c.personaId, ...r })
       const now = Date.now()
@@ -426,7 +455,7 @@ function createDesktopObjects(ctx) {
         c.animate({ type: 'none', animation: 'happy', bubble: 'Bella partita! ' + g.hits + ' palleggi.' })
       }
     }
-    lastGame = { hits: g.hits, results }
+    lastGame = { hits: g.hits, results, solo: !!g.solo }
     sendPose(e, { count: g.hits })
     setTimeout(() => { if (!e.game) sendPose(e, { count: null }) }, VOLLEY.COUNT_MS)
     raiseCompanions()
@@ -453,12 +482,111 @@ function createDesktopObjects(ctx) {
     if (b.vy > 0 && b.y >= p.y - b.r * 0.5 && b.y <= p.y + c.bounds.height * 0.35 && Math.abs(b.x - centerOf(c)) <= reach) companionHit(e, c)
   }
 
+  // ─── Gioca da solo, e dalla chat (Blocco 10e) ──────────────────────────────
+  // 'free' esclude gia' quelli nascosti in mano; appena creato, la finestra
+  // non e' ancora visibile (aspetta la pagina) ma il giocattolo c'e' gia'.
+  const freeToy = (e) => alive(e) && e.obj.type === 'throw' && e.state === 'free' && !e.task && !e.game
+  /** C'e' un oggetto Da lanciare libero sul desktop (la vita a riposo puo' giocarci). */
+  const hasToy = () => [...entries.values()].some(freeToy)
+
+  /**
+   * Il companion va al giocattolo piu' vicino (o a entry) e ci gioca: lo
+   * calcia e lo insegue ('kick'), palleggia da solo ('juggle'), o te lo lancia
+   * ('toss', dalla chat). Restituisce il modo, o null se ora non puo'.
+   */
+  function playAlone(c, { mode, entry } = {}) {
+    if (!c.canPlay()) return null
+    const e = entry || [...entries.values()].filter(freeToy).sort((a, b) => Math.abs(a.body.x - centerOf(c)) - Math.abs(b.body.x - centerOf(c)))[0]
+    if (!e || !freeToy(e)) return null
+    const m = mode || (Math.random() < 0.5 ? 'kick' : 'juggle')
+    c.playing = e
+    e.task = { c, solo: true, mode: m, phase: 'approach', at: Date.now(), started: Date.now(), kicks: Math.round(randIn(SOLO.KICKS)) }
+    approach(e)
+    return m
+  }
+
+  /** Corre al giocattolo, fermandosi accanto. */
+  function approach(e) {
+    const t = e.task
+    const c = t.c
+    const side = e.body.x >= centerOf(c) ? 1 : -1
+    t.phase = 'approach'
+    t.at = Date.now()
+    if (!c.goTo(e.body.x - side * c.bounds.width * 0.25, { run: true, speed: FETCH_SPEED, then: () => { if (e.task === t) t.phase = 'reached' } })) endSolo(e)
+  }
+
+  function endSolo(e) {
+    const t = e.task
+    if (!t) return
+    e.task = null
+    t.c.playing = null
+    if (t.c.alive() && !t.c.dragging) t.c.animate({ type: 'none', animation: 'idle' })
+  }
+
+  function soloTick(e, now) {
+    const t = e.task
+    const c = t.c
+    if ((t.phase === 'approach' || t.phase === 'chase-kick') && !c.walking && now - t.at > STUCK_MS) t.phase = 'reached'
+    if (t.phase !== 'reached') return
+    const near = Math.abs(e.body.x - centerOf(c)) <= c.bounds.width * 0.6 + e.body.r
+    if (!near) return approach(e)
+    if (!e.body.resting && Math.abs(e.body.vx) > 200) return   // gli sta ancora rotolando accanto
+    if (t.mode === 'kick') {
+      if (t.kicks-- <= 0) return endSolo(e)
+      const w = worldAt(e.body)
+      let d = e.body.x >= centerOf(c) ? 1 : -1
+      if ((d > 0 ? w.right - e.body.x : e.body.x - w.left) < SOLO.WALL_GAP) d = -d
+      c.send('companion-facing', { dir: d })
+      c.animate({ type: 'none', animation: 'hop' })
+      e.body = P.push(e.body, d * randIn(SOLO.KICK_VX), SOLO.KICK_VY)
+      t.phase = 'chase-kick'
+      t.at = now
+      const land = P.landing(e.body, w).x
+      c.goTo(land - d * c.bounds.width * 0.25, { run: true, speed: FETCH_SPEED, then: () => { if (e.task === t) t.phase = 'reached' } })
+      return
+    }
+    // Palleggio da solo, o il lancio verso di te: diventa una partita.
+    const toss = t.mode === 'toss'
+    e.task = null
+    e.game = { hits: 0, by: new Map(), players: new Set([c]), target: null, plan: null, started: now, solo: !toss, maxHits: Math.round(randIn(SOLO.JUGGLES)) }
+    if (alive(e)) { e.win.setAlwaysOnTop(ctx.alwaysOnTop(), 'screen-saver'); e.win.moveTop() }
+    c.animate({ type: 'none', animation: 'volley' })
+    if (toss) sendToUser(e)
+    else sendTo(e, c)
+    sendPose(e)
+  }
+
+  /** Dalla chat, "giochiamo a palla": lo tira fuori se non c'e' e te lo lancia. */
+  function playWith(c, obj) {
+    if (!c.canPlay() || !obj || obj.type !== 'throw') return false
+    let e = [...entries.values()].find(x => x.obj.id === obj.id && freeToy(x))
+    if (!e) {
+      const b = c.bounds
+      e = spawn(obj, { x: centerOf(c) + c.facing * b.width * 0.3, y: b.y + b.height })
+    }
+    return !!(e && playAlone(c, { mode: 'toss', entry: e }))
+  }
+
+  /** Dalla chat, "prendi il gomitolo": se non c'e' lo fa rotolare lontano, poi lo insegue e te lo riporta. */
+  function fetchFor(c, obj) {
+    if (!c.canPlay() || !obj || obj.type !== 'throw') return false
+    let e = [...entries.values()].find(x => x.obj.id === obj.id && freeToy(x))
+    if (!e) {
+      const w = P.worldOf(c.workArea())
+      const cx = centerOf(c)
+      const d = w.right - cx > cx - w.left ? 1 : -1
+      e = spawn(obj, { x: cx + d * c.bounds.width * 0.5, y: c.bounds.y + c.bounds.height * 0.5 }, { vx: d * 900, vy: -500 })
+    }
+    return !!(e && startFetch(e, c))
+  }
+
   // ─── Il giro del cursore ───────────────────────────────────────────────────
   function taskTick(e, now) {
     const t = e.task
     const c = t.c
     if (!c.alive() || c.dragging || c.viewMode !== 'desktop' || !c.win.isVisible()) return abortTask(e)
     if (t.phase !== 'hug' && now - t.started > FETCH_MAX_MS) return abortTask(e)
+    if (t.solo) return soloTick(e, now)
     if (t.phase === 'chase' && !c.walking && now - t.at > STUCK_MS) t.phase = 'arrived'
     if (t.phase === 'arrived') return arrived(e, now)
     if (t.phase === 'pickup') {
@@ -538,10 +666,10 @@ function createDesktopObjects(ctx) {
   /** Per l'audit: dove sono e cosa fanno, e com'e' finita l'ultima partita. */
   function state() {
     return [...entries.values()].map(e => ({
-      game: e.game ? { hits: e.game.hits, target: e.game.target === 'user' ? 'user' : e.game.target && e.game.target.personaId } : null,
+      game: e.game ? { hits: e.game.hits, solo: !!e.game.solo, target: e.game.target === 'user' ? 'user' : e.game.target && e.game.target.personaId } : null,
       uid: e.uid, id: e.obj.id, type: e.obj.type, px: e.px, state: e.state,
       x: Math.round(e.body.x), y: Math.round(e.body.y), vx: Math.round(e.body.vx), vy: Math.round(e.body.vy), resting: e.body.resting,
-      task: e.task ? { phase: e.task.phase, personaId: e.task.c.personaId } : null,
+      task: e.task ? { phase: e.task.phase, personaId: e.task.c.personaId, mode: e.task.mode } : null,
       visible: alive(e) && e.win.isVisible(), bounds: alive(e) ? e.win.getBounds() : null,
     }))
   }
@@ -551,6 +679,7 @@ function createDesktopObjects(ctx) {
 
   return {
     spawn, store, storeAll, storeObject, grab, release, tick, info, bySender, updateObject, touched, state, testServe, testHit,
+    hasToy, playAlone, playWith, fetchFor,
     get lastGame() { return lastGame },
     get count() { return entries.size },
     get(uid) { return entries.get(uid) || null },

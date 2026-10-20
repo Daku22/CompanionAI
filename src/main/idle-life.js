@@ -20,6 +20,7 @@ const HOUR_MS        = 60 * 60 * 1000
 const FELT           = 0.4              // un'emozione cambia i gesti da qui in su
 const HAPPY          = 0.6              // da qui, contento, ogni tanto offre il batti cinque
 const PRESENT_MS     = 60 * 1000        // ...ma solo se l'utente e' al PC
+const BORED_MS       = 3 * 60 * 1000    // gioca da solo con un oggetto dopo un po' che nessuno gli scrive (Blocco 10e)
 
 // holdMs: dopo quanto il main riporta a idle. La camminata finisce da sola.
 const GESTURES = {
@@ -33,6 +34,9 @@ const GESTURES = {
   yawn:  { animation: 'yawn',    bubble: '🥱',      holdMs: 3000 },
   // La mano si abbassa da sola (touch.js, createHighFive): niente holdMs.
   highfive: { animation: 'highfive', bubble: '', holdMs: 0 },
+  // Gioca da solo con un oggetto Da lanciare (Blocco 10e): lo fa
+  // desktop-objects.js (lo calcia e lo insegue, o palleggia), non una clip.
+  play: { animation: 'run-to', bubble: '', holdMs: 0, play: true },
 }
 
 function isNight(hour) {
@@ -41,9 +45,10 @@ function isNight(hour) {
 
 /**
  * Pesi dei gesti secondo umore, energia e ora; present: l'utente e' al PC;
- * needy: fame o sete (needs.js, Blocco 10a) 'some' o 'much', o null.
+ * needy: fame o sete (needs.js, Blocco 10a) 'some' o 'much', o null; toy:
+ * c'e' un oggetto Da lanciare libero e si annoia (Blocco 10e).
  */
-function gestureWeights(mood, hour, present = false, bond = { affection: 1, annoyance: 1 }, needy = null) {
+function gestureWeights(mood, hour, present = false, bond = { affection: 1, annoyance: 1 }, needy = null, toy = false) {
   const e = (mood && mood.emotions) || {}
   const tired = isNight(hour) || (mood && mood.energy < 0.35)
   if (tired) return { doze: 4, yawn: 2, look: 1, rest: 1 }
@@ -62,6 +67,13 @@ function gestureWeights(mood, hour, present = false, bond = { affection: 1, anno
   // Con fame o sete sbadiglia e si ferma di piu'; con molta niente allegria.
   if (needy === 'some') { w.yawn = (w.yawn || 0) + 2; w.rest += 1 }
   if (needy === 'much') { w.yawn = (w.yawn || 0) + 3; w.rest += 2; w.happy = 0; delete w.highfive }
+  // Annoiato, con un pallone o un gomitolo sul desktop, ci gioca; meno se e'
+  // triste o ha fame, per niente con molta fame.
+  if (toy && needy !== 'much') {
+    w.play = needy === 'some' ? 1 : 3
+    if ((e.joy || 0) >= FELT) w.play += 1
+    if ((e.sadness || 0) >= FELT) w.play = 1
+  }
   return w
 }
 
@@ -85,7 +97,7 @@ function pick(weights, rand) {
  * @returns {null | { name: string, animation: string, bubble: string,
  *                    holdMs: number, walk?: boolean, asleep?: boolean }}
  */
-function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour, bond, needy = null, rand = Math.random }) {
+function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour, bond, needy = null, toy = false, rand = Math.random }) {
   // Utente via: ci si addormenta una volta sola, e si resta cosi' (holdMs 0).
   if (systemIdleMs >= AWAY_MS) {
     return asleep ? null : { name: 'sleep', animation: 'sit', bubble: '💤', holdMs: 0, asleep: true }
@@ -97,8 +109,8 @@ function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour,
   const chance = BASE_CHANCE + Math.min(EXTRA_CHANCE, (quietMs / HOUR_MS) * EXTRA_CHANCE)
   if (rand() >= chance) return null
 
-  const name = pick(gestureWeights(mood, hour, systemIdleMs < PRESENT_MS, bond, needy), rand)
+  const name = pick(gestureWeights(mood, hour, systemIdleMs < PRESENT_MS, bond, needy, toy && quietMs >= BORED_MS), rand)
   return { name, ...GESTURES[name] }
 }
 
-module.exports = { decideIdle, gestureWeights, GESTURES, QUIET_MIN_MS, GESTURE_GAP_MS, AWAY_MS }
+module.exports = { decideIdle, gestureWeights, GESTURES, QUIET_MIN_MS, GESTURE_GAP_MS, AWAY_MS, BORED_MS }

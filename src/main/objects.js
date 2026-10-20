@@ -80,9 +80,23 @@ function asFood(obj) {
     size: Math.min(0.25, obj.size), words: [], url: obj.url, format: obj.format, textures: obj.textures, icon: obj.icon }
 }
 
+const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+/**
+ * L'oggetto nominato in una frase della chat ("giochiamo a palla", "prendi il
+ * gomitolo"), fra quelli del tipo dato: basta che una parola abbia le stesse
+ * prime 4 lettere del nome ("palla" -> Pallone). null se nessuno.
+ */
+function findObject(objects, said, type = null) {
+  const words = fold(said).split(/[^a-z0-9]+/).filter(w => w.length >= 4)
+  if (!words.length) return null
+  const pool = type ? objects.filter(o => o.type === type) : objects
+  return pool.find(o => fold(o.name).split(/[^a-z0-9]+/).some(n => n.length >= 4 && words.some(w => w.slice(0, 4) === n.slice(0, 4)))) || null
+}
+
 /** Cio' che vede il pannello degli oggetti. */
 function publicObject(obj) {
   return { id: obj.id, name: obj.name, type: obj.type, typeLabel: TYPE_LABELS[obj.type], size: obj.size, builtin: obj.builtin, icon: obj.icon, typed: obj.typed !== false }
 }
 
-module.exports = { TYPES, TYPE_LABELS, BOUNCE, cleanMeta, cleanIncluded, loadIncluded, fromRecord, asFood, publicObject, SIZE_MIN, SIZE_MAX }
+module.exports = { TYPES, TYPE_LABELS, BOUNCE, cleanMeta, cleanIncluded, loadIncluded, fromRecord, asFood, findObject, publicObject, SIZE_MIN, SIZE_MAX }

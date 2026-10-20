@@ -450,6 +450,9 @@ let testCursor = null
 
 const companionCtx = {
   MEMORY_PATH, MEMORY_CONTEXT_TOKENS, prefs,
+  // Oggetti sul desktop (Blocco 10e): la vita a riposo ci gioca.
+  hasToy: () => desktopObjects.hasToy(),
+  playAlone: (c) => desktopObjects.playAlone(c),
   loadConfig, saveConfig, sendSettings,
   memoryModel: () => memoryModelFrom(loadConfig()),
   diaryPath: (id) => diaryPath(id),
@@ -2437,6 +2440,16 @@ on('os:execute', async (_e, action, personaId) => {
     const item = foodForAction(action)
     if (item && c.feed(item)) return
   }
+  // Giocare dalla chat (Blocco 10e): "giochiamo a palla", "prendi il gomitolo".
+  if (action.animation === 'play' || action.animation === 'fetch') {
+    const said = typeof action.item === 'string' ? action.item.slice(0, 60) : ''
+    const throwables = objectItems().filter(o => o.type === 'throw')
+    const obj = Objects.findObject(throwables, said, 'throw') || throwables.find(o => o.id === (action.animation === 'fetch' ? 'gomitolo' : 'pallone')) || throwables[0]
+    c.markActivity()
+    const done = action.animation === 'play' ? desktopObjects.playWith(c, obj) : desktopObjects.fetchFor(c, obj)
+    if (!done) c.animate({ type: 'none', animation: 'happy' })
+    return
+  }
   if (action.animation) {
     c.markActivity()
     const motion = checkMotion(action)
@@ -2588,7 +2601,10 @@ async function speakFirst(c, kind, peer = null, said = null) {
     // peer puo' essere uno o piu' companion (il saluto all'arrivo li saluta tutti).
     const peerOf = Array.isArray(peer) ? { name: peer.map(o => (o.persona() || {}).name || o.personaId).join(' e ') }
       : peer ? { name: peerName, doing: doingOf(peer), said: said || lastSaid(peer) } : null
-    history.push({ role: 'user', content: Initiative.prompt(kind, peerOf) })
+    // Con fame o sete, qualche cibo vero del catalogo da poter chiedere (Blocco 10e).
+    const wanted = kind === 'hungry' ? 'food' : kind === 'thirsty' ? 'drink' : null
+    const foods = wanted ? foodItems().filter(f => f.kind === wanted).map(f => f.name.toLowerCase()).sort(() => Math.random() - 0.5) : []
+    history.push({ role: 'user', content: Initiative.prompt(kind, peerOf, { foods }) })
     const result = await route({
       provider: cfg.provider, model: cfg.model, apiKey, history,
       systemPrompt: Personas.systemPrompt(c.persona(), SYSTEM_PROMPT),
@@ -2813,6 +2829,8 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     }
     // Pallavolo (Blocco 10d): la battuta, un colpo al volo, l'ultima partita, il record.
     if (op === 'serve' && e) return desktopObjects.testServe(e)
+    // Gioca da solo (Blocco 10e), con il modo scelto: kick, juggle o toss.
+    if (op === 'play-alone') return desktopObjects.playAlone(companions.find(x => x.personaId === msg.personaId) || companions[0], { mode: msg.mode })
     if (op === 'hit' && e) return desktopObjects.testHit(e)
     if (op === 'last-game') return { ...desktopObjects.lastGame, best: Object.fromEntries(companions.map(c => [c.personaId, c.volleyBest])) }
     if (op === 'clear') desktopObjects.storeAll()

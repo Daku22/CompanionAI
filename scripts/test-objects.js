@@ -57,4 +57,12 @@ test('un oggetto cibo o bevanda si mangia come gli altri', () => {
   assert.deepEqual(O.publicObject(included[2]).typeLabel, 'Da abbracciare')
 })
 
+test('l\'oggetto nominato in chat: "giochiamo a palla", "prendi il gomitolo"', () => {
+  assert.equal(O.findObject(included, 'giochiamo a palla', 'throw').id, 'pallone')
+  assert.equal(O.findObject(included, 'Prendi il GOMITOLO!', 'throw').id, 'gomitolo')
+  assert.equal(O.findObject(included, 'giochiamo a palla', 'hug'), null, 'fra i peluche non c\'e\' una palla')
+  assert.equal(O.findObject(included, 'ok', 'throw'), null)
+  assert.equal(O.findObject(included, 'abbraccia l\'orsetto').id, 'orsetto')
+})
+
 console.log(`=== ${passed} test superati ===`)

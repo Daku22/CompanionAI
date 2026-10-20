@@ -96,6 +96,8 @@ const REPLIES = {
   'raccontami una storia': { reply: 'C\'era una volta una piccola barca che voleva vedere il mare aperto. Ogni mattina guardava l\'orizzonte e sognava isole lontane, pesci colorati e tramonti rossi. Un giorno il vento cambiò, e la barca finalmente partì.', emotion: 'joy', action: { type: 'none', animation: 'idle' } },
   'fai un inchino': { reply: 'Ci provo!', emotion: 'joy', action: { type: 'none', animation: 'idle', motion: 'A person does a deep, polite bow.' } },
   'ti preparo un tè': { reply: 'Che bello, grazie!', emotion: 'joy', action: { type: 'none', animation: 'drink', item: 'tè' } },
+  'giochiamo a palla': { reply: 'Sì! Prendi!', emotion: 'joy', action: { type: 'none', animation: 'play', item: 'palla' } },
+  'prendi il gomitolo': { reply: 'Vado!', emotion: 'joy', action: { type: 'none', animation: 'fetch', item: 'gomitolo' } },
 }
 const requests = []
 const fake = http.createServer((req, res) => {
@@ -1315,6 +1317,36 @@ try {
     check(served === true && swung && mine === 2 && game.hits >= 4 && shown === String(game.hits) && me && me.record && me.best === game.hits,
       'pallavolo: battuta, palleggi contati sul pallone, record della persona (' + JSON.stringify({ served, swung, mine, hits: game.hits, shown, me }) + ')')
     await T({ op: 'clear' })
+
+    // Blocco 10e: dalla chat "giochiamo a palla" tira fuori il pallone e te
+    // lo lancia; "prendi il gomitolo" lo fa rotolare e lo insegue.
+    const until = async (pred, ms = 8000) => {
+      for (let i = 0; i < ms / 100; i++) { const s = await T({ op: 'state' }); const hit = s.find(pred); if (hit) return hit; await sleep(100) }
+      return null
+    }
+    await say('giochiamo a palla')
+    const tossed = await until(o => o.id === 'pallone' && o.game && o.game.target === 'user' && !o.game.solo)
+    await T({ op: 'clear' })
+    await sleep(800)
+    await say('prendi il gomitolo')
+    const chased = await until(o => o.id === 'gomitolo' && o.task && ['chase', 'arrived', 'pickup'].includes(o.task.phase))
+    await T({ op: 'clear' })
+    check(!!(tossed && chased), 'chat: "giochiamo a palla" lancia il pallone all\'utente, "prendi il gomitolo" lo insegue (' + JSON.stringify({ tossed: tossed && tossed.game, chased: chased && chased.task }) + ')')
+
+    // Gioca da solo: palleggia sulla testa (senza record), o lo calcia e lo rincorre.
+    await sleep(800)
+    await T({ op: 'spawn', id: 'pallone', x: Math.round(bx[0] + bx[2] / 2 + side * 300), y: area.y + area.height - 40 })
+    await sleep(800)
+    const juggle = await T({ op: 'play-alone', mode: 'juggle' })
+    const juggling = await until(o => o.game && o.game.solo && o.game.hits >= 2, 12000)
+    let soloEnd = null
+    for (let i = 0; i < 150 && !soloEnd; i++) { await sleep(100); const g = await T({ op: 'last-game' }); if (g.solo) soloEnd = g }
+    await sleep(500)
+    const kick = await T({ op: 'play-alone', mode: 'kick' })
+    const kicked = await until(o => o.task && o.task.phase === 'chase-kick', 8000)
+    await T({ op: 'clear' })
+    check(juggle === 'juggle' && !!juggling && soloEnd && soloEnd.results.length === 0 && kick === 'kick' && !!kicked,
+      'gioca da solo: palleggia senza record, poi calcia il pallone e lo rincorre (' + JSON.stringify({ juggle, hits: soloEnd && soloEnd.hits, kick, kicked: !!kicked }) + ')')
     await comp.evaluate('window.companion.testPeek({ cursor: null })')
     await sleep(500)
   }

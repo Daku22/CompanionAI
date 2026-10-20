@@ -113,6 +113,9 @@ test('fame e sete (Blocco 10a): con "molta" lo chiede, dentro i 6 al giorno, al 
   assert.equal(I.occasion(after, { ...base, now: t0 + 2 * H, lastChatAt: t0 + 2 * H, needs: { kind: 'hunger', level: 'much' } }), 'hungry')
   assert.match(I.prompt('hungry'), /qualcosa da mangiare/)
   assert.match(I.prompt('thirsty'), /qualcosa da bere/)
+  // Blocco 10e: la richiesta puo' nominare cose vere del catalogo.
+  assert.match(I.prompt('hungry', null, { foods: ['pizza', 'onigiri'] }), /fra queste: pizza, onigiri\./)
+  assert.ok(!I.prompt('silence', null, { foods: ['pizza'] }).includes('pizza'), 'solo con fame o sete')
   assert.equal(I.restore({ ...after }).needsAt, t0)
 })
 

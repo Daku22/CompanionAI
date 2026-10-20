@@ -88,6 +88,8 @@ const ANIMATIONS = [
   'stretch', 'yawn', 'doze', 'dance', 'highfive',
   // Blocco 10b: mangi o bevi davvero (il campo item dice cosa).
   'eat', 'drink',
+  // Blocco 10e: giochi con un oggetto sul desktop (item: quale).
+  'play', 'fetch',
 ]
 // look (Blocco 7b): l'utente chiede di guardare lo schermo; la chat prepara la
 // schermata e la manda solo se l'utente conferma.
@@ -123,7 +125,7 @@ const COMPANION_SCHEMA = {
         direction: { type: 'string', enum: DIRECTIONS, description: 'verso di walk-to / run-to' },
         distance:  { type: 'string', enum: DISTANCES, description: 'quanto lontano: short, medium, edge (fino al bordo)' },
         motion:    { type: 'string', description: 'movimento nuovo da generare, in inglese (solo se richiesto e non fra le animazioni)' },
-        item:      { type: 'string', description: 'solo per eat / drink: cosa mangi o bevi, una o due parole (es. "tè", "mela")' },
+        item:      { type: 'string', description: 'solo per eat / drink: cosa mangi o bevi, una o due parole (es. "tè", "mela"); per play / fetch: con cosa giochi (es. "pallone", "gomitolo")' },
         server:    { type: 'string', description: 'solo per type "tool": id del server MCP' },
         tool:      { type: 'string', description: 'solo per type "tool": nome dello strumento' },
         args:      { type: 'object', description: 'solo per type "tool": argomenti dello strumento' },
@@ -153,7 +155,7 @@ Rispondi SEMPRE e SOLO con un oggetto JSON valido in questo formato, senza testo
     "cmd": "comando shell (solo per run-command)",
     "direction": ${DIRECTIONS.map(d => `"${d}"`).join(' | ')} (solo per walk-to / run-to),
     "distance": ${DISTANCES.map(d => `"${d}"`).join(' | ')} (solo per walk-to / run-to),
-    "item": "cosa mangi o bevi, una o due parole (solo per eat / drink)"
+    "item": "cosa mangi o bevi (eat / drink) o con cosa giochi (play / fetch), una o due parole"
   }
 }
 
@@ -174,10 +176,16 @@ Esempi:
 - "buonanotte" -> type: "none", animation: "doze", emotion: "calm"
 - "ti preparo un tè" -> type: "none", animation: "drink", item: "tè", emotion: "joy"
 - "vuoi una fetta di torta?" (se accetti) -> type: "none", animation: "eat", item: "torta", emotion: "joy"
+- "giochiamo a palla" / "facciamo una partita a pallavolo" -> type: "none", animation: "play", item: "pallone", emotion: "joy"
+- "prendi il gomitolo!" / "vai a prendere la palla" -> type: "none", animation: "fetch", item: "gomitolo", emotion: "joy"
 
 "eat" e "drink" sono per quando l'utente ti offre davvero qualcosa da mangiare o da
 bere e tu lo accetti: lo mangi o lo bevi davvero, e ti toglie la fame o la sete.
 Non usarle se ne parlate e basta.
+
+"play" e "fetch" sono giochi veri sul desktop: con "play" tiri fuori il pallone e
+lo lanci all'utente (si gioca a pallavolo, lui lo ribatte cliccandolo); con
+"fetch" corri a prendere l'oggetto e glielo riporti.
 
 Le animazioni e gli spostamenti del tuo avatar non sono azioni sul sistema:
 usa sempre type "none" e scegli l'animazione che corrisponde alla richiesta.

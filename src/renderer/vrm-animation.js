@@ -613,6 +613,8 @@ export const CLIP_ALIAS = {
   offer: 'offer', highfive: 'highfive', missed: 'missed',
   pat: 'pat', flinch: 'flinch', giggle: 'giggle', hop: 'hop', shy: 'shy', scold: 'scold', turnaway: 'turnaway',
   eat: 'eat', drink: 'drink', pickup: 'pickup', hug: 'hug', volley: 'volley',
+  // Giochi dalla chat (Blocco 10e): li fa il main; se arrivano qui, un gesto simile.
+  play: 'volley', fetch: 'run-to',
   [GENERATED]: GENERATED,
 }
 

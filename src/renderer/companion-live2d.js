@@ -202,7 +202,7 @@
       if (key === 'idle' || key === 'none' || key === 'walk-to' || key === 'run-to' || key === 'highfive') return
       // Mangiare e bere (Blocco 10b): i modelli Live2D non hanno un movimento
       // per questo, si usa quello felice.
-      if (!play(key) && (key === 'eat' || key === 'drink' || key === 'hug' || key === 'pickup' || key === 'volley')) play('happy')
+      if (!play(key) && (key === 'eat' || key === 'drink' || key === 'hug' || key === 'pickup' || key === 'volley' || key === 'play' || key === 'fetch')) play('happy')
     })
   }
 

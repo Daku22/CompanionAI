@@ -149,5 +149,26 @@ test("fame e sete (Blocco 10a): piu' sbadigli e riposi, con molta niente allegri
   assert.ok(fine.highfive && !much.highfive, 'con molta fame niente batti cinque')
 })
 
+test('gioca da solo (Blocco 10e): solo con un oggetto da lanciare e dopo un po\' di noia', () => {
+  const { BORED_MS } = require('../src/main/idle-life')
+  const mood = { emotions: {}, energy: 1 }
+  assert.ok(!gestureWeights(mood, 12, true).play, 'senza oggetti no')
+  assert.equal(gestureWeights(mood, 12, true, undefined, null, true).play, 3)
+  assert.equal(gestureWeights(mood, 12, true, undefined, 'some', true).play, 1)
+  assert.ok(!gestureWeights(mood, 12, true, undefined, 'much', true).play, 'con molta fame no')
+  assert.ok(!gestureWeights(mood, 2, true, undefined, null, true).play, 'di notte, stanco, no')
+  // Il dado sceglie "play" solo se c'e' il giocattolo e si annoia.
+  const onlyPlay = (quietMs) => {
+    let n = 0
+    for (let i = 0; i < 200; i++) {
+      const d = decideIdle({ ...base, quietMs, toy: true, rand: (() => { let k = 0; return () => (k++ === 0 ? 0 : (i + 0.5) / 200) })() })
+      if (d && d.play) n++
+    }
+    return n
+  }
+  assert.equal(onlyPlay(60000), 0, 'appena calato il silenzio non gioca')
+  assert.ok(onlyPlay(BORED_MS) > 0, 'annoiato, a volte gioca')
+})
+
 console.log('\n=== ' + passed + ' test superati ===')
 if (process.exitCode) console.error('=== ALCUNI TEST SONO FALLITI ===')

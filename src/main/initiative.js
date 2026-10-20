@@ -112,8 +112,15 @@ function peerLine(kind, { name, doing = null, said = null }) {
 }
 
 /** La richiesta al modello: una riga di contesto al posto del messaggio dell'utente. */
-function prompt(kind, other = null) {
-  const line = isPeer(kind) && other ? peerLine(kind, other) : OCCASIONS[kind]
+/**
+ * La riga per il modello. foods (Blocco 10e): con fame o sete, qualche cibo
+ * o bevanda del catalogo da poter nominare, cosi' la richiesta e' una cosa
+ * che l'utente puo' davvero dargli dal pannello.
+ */
+function prompt(kind, other = null, { foods = [] } = {}) {
+  let line = isPeer(kind) && other ? peerLine(kind, other) : OCCASIONS[kind]
+  const names = (kind === 'hungry' || kind === 'thirsty') ? foods.filter(f => typeof f === 'string' && f).slice(0, 6) : []
+  if (names.length) line += ' Se ti va, nomina una cosa precisa che ti andrebbe, fra queste: ' + names.join(', ') + '.'
   return '[Nessun messaggio dell\'utente: sei tu a scrivere per primo. ' + line +
     ' Un messaggio breve e naturale; non dire che e\' un evento o un promemoria.]'
 }
