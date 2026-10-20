@@ -151,6 +151,16 @@ function showMood(mood) {
   document.getElementById('r-bond').hidden = !r
   if (r) ring('r-bond', (r.level + 1) / r.levels, 'Rapporto: ' + r.label + ' (livello ' + (r.level + 1) + ' di ' + r.levels + ')' +
     ' · insieme da ' + r.days + (r.days === 1 ? ' giorno' : ' giorni') + ' · serie di ' + r.streak)
+  // Fame e sete (Blocco 10a): l'anello pieno e' la pancia piena; spente, spariscono.
+  const needs = Faces.needsRings(mood.needs)
+  for (const kind of ['hunger', 'thirst']) {
+    const el = document.getElementById('r-' + kind)
+    const n = needs && needs.find(x => x.kind === kind)
+    el.hidden = !n
+    if (!n) continue
+    ring('r-' + kind, n.value, n.title)
+    el.classList.toggle('low', n.low)
+  }
 }
 if (api && api.onMoodChanged) api.onMoodChanged(showMood)
 

@@ -87,4 +87,19 @@ test('prompt e dati per la chat', () => {
   assert.deepEqual(R.publicRapport(r), { level: 2, label: 'Amico', levels: 6, days: 12, streak: 3, score: 30 })
 })
 
+test('trascurato (Blocco 10a): cala piano, al massimo 3 al giorno, mai sotto la partenza', () => {
+  let r = { ...R.createRapport(), score: 30, level: 2 }
+  r = R.onNeglect(r, 0.5, t0)
+  assert.equal(r.score, 29.5)
+  r = R.onNeglect(r, 5, t0)
+  assert.equal(r.score, 27, 'il tetto del giorno: 3 punti')
+  assert.equal(R.onNeglect(r, 1, t0), r, "oltre il tetto non cala piu'")
+  r = R.onNeglect(r, 1, t0 + DAY)
+  assert.equal(r.score, 26, 'il giorno dopo il tetto riparte')
+  const low = { ...R.createRapport(), score: R.RULES.START + 1 }
+  assert.equal(R.onNeglect(low, 3, t0).score, R.RULES.START, 'mai sotto il punteggio di partenza')
+  assert.equal(R.onNeglect(R.createRapport(), 2, t0).score, R.RULES.START)
+  assert.equal(R.onNeglect(r, 0, t0), r)
+})
+
 console.log(`=== ${passed} test superati ===`)

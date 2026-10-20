@@ -23,6 +23,7 @@ const { walkTarget } = require('./walk-target')
 const moodLib = require('./mood')
 const Personas = require('./personas')
 const Rapport = require('./rapport')
+const Needs = require('./needs')
 const Diary = require('./diary')
 const ActiveApp = require('./active-app')
 const touchReact = require('./touch-react')
@@ -108,18 +109,34 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   let rapport = Rapport.createRapport()
   let rapportSave = Promise.resolve()
 
+  // Fame e sete (Blocco 10a, needs.js): salgono con il tempo di app aperta,
+  // contato a ogni giro della vita a riposo; il tempo ad app chiusa non conta.
+  const needsPath = () => path.join(dir(), 'needs.json')
+  let needs = Needs.createNeeds(null)
+  let needsSave = Promise.resolve()
+  let needsAt = Date.now()       // l'ultimo passo di tempo contato
+  let needsSavedAt = 0
+  let needsMoodAt = Date.now()   // l'ultima spinta sull'umore e sul rapporto
+  let needsBubbleAt = 0          // il prossimo fumetto ("ho fame…"), 0 = da decidere
+  let needsLevels = ''
+
   async function initMood() {
     mood = await moodLib.loadMood(moodPath())
     rapport = await Rapport.loadRapport(rapportPath())
+    needs = await Needs.loadNeeds(needsPath())
+    needsAt = Date.now()
     broadcastMood()
   }
 
+  /** Fame e sete per HUD e chat, o null se sono spente nelle Impostazioni. */
+  const publicNeedsNow = () => (ctx.prefs.needs ? Needs.publicNeeds(needs) : null)
+
   function publicMoodNow() {
-    return { ...moodLib.publicMood(moodLib.decay(mood)), rapport: Rapport.publicRapport(rapport) }
+    return { ...moodLib.publicMood(moodLib.decay(mood)), rapport: Rapport.publicRapport(rapport), needs: publicNeedsNow() }
   }
 
   function broadcastMood() {
-    const data = { ...moodLib.publicMood(mood), rapport: Rapport.publicRapport(rapport) }
+    const data = { ...moodLib.publicMood(mood), rapport: Rapport.publicRapport(rapport), needs: publicNeedsNow() }
     send('mood-changed', data)
     // La sua chat singola mostra il suo umore.
     const chat = ctx.chatOf(c)
@@ -154,6 +171,56 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   }
 
   const bond = () => Rapport.reactionScale(rapport.level)
+
+  /** Il bisogno piu' forte ({ kind, level }) o null; null anche con i bisogni spenti. */
+  const worstNeed = () => (ctx.prefs.needs ? Needs.worst(needs) : null)
+
+  function persistNeeds() {
+    const snapshot = needs
+    const file = needsPath()
+    needsSave = needsSave.then(() => Needs.saveNeeds(file, snapshot))
+      .catch(e => console.error('[bisogni] salvataggio fallito:', e.message))
+  }
+
+  /** Cambia fame e sete (mangiare, bere, prove), poi salva e avvisa. */
+  function updateNeeds(change) {
+    needs = change(needs)
+    needsBubbleAt = 0
+    persistNeeds()
+    broadcastMood()
+  }
+
+  /**
+   * Il passo dei bisogni, a ogni giro della vita a riposo (5 s): fanno passare
+   * il tempo di app aperta, e con fame o sete spingono umore e rapporto e
+   * ogni tanto lo fanno dire in un fumetto. In pausa o spenti si fermano.
+   */
+  function needsTick(now = Date.now()) {
+    const ms = now - needsAt
+    needsAt = now
+    if (!ctx.prefs.needs || ctx.prefs.paused) return
+    needs = Needs.grow(needs, ms)
+    const levels = Needs.level(needs.hunger) + '/' + Needs.level(needs.thirst)
+    if (levels !== needsLevels || now - needsSavedAt >= 60 * 1000) {
+      needsLevels = levels
+      needsSavedAt = now
+      persistNeeds()
+      broadcastMood()
+    }
+    if (now - needsMoodAt >= Needs.RULES.MOOD_EVERY_MS) {
+      const pulls = Needs.moodPull(needs)
+      if (pulls.length) updateMood(m => pulls.reduce((acc, [name, delta]) => moodLib.nudge(acc, name, delta), moodLib.decay(m, now)))
+      const lost = Needs.neglect(needs, now - needsMoodAt)
+      if (lost) updateRapport(r => Rapport.onNeglect(r, lost, now))
+      needsMoodAt = now
+    }
+    const w = Needs.worst(needs)
+    if (!w) { needsBubbleAt = 0; return }
+    if (!needsBubbleAt) { needsBubbleAt = now + Needs.bubbleDelay(needs); return }
+    if (now < needsBubbleAt || asleep || awaitingReply || drag || !alive() || !win.isVisible()) return
+    send('companion-bubble', { text: Needs.bubble(needs), ms: 4500 })
+    needsBubbleAt = now + Needs.bubbleDelay(needs)
+  }
 
   // ─── Memoria e diario ──────────────────────────────────────────────────────
   /** @type {MemoryManager | null} */
@@ -258,7 +325,8 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     const touched = touchReact.touchPromptText(lastTouch, Date.now())
     const cfg = ctx.loadConfig()
     const app = cfg.activeApp ? ActiveApp.activeAppLine(ctx.lastForeign(), cfg.activeAppIgnore, process.pid) : null
-    const line = { role: 'system', content: moodLib.promptLine(mood) + ' ' + Rapport.promptLine(rapport) + (touched ? ' ' + touched : '') + (app ? ' ' + app : '') }
+    const hungry = ctx.prefs.needs ? Needs.promptLine(needs) : ''
+    const line = { role: 'system', content: moodLib.promptLine(mood) + ' ' + Rapport.promptLine(rapport) + (hungry ? ' ' + hungry : '') + (touched ? ' ' + touched : '') + (app ? ' ' + app : '') }
     const firstDialog = history.findIndex(m => m.role !== 'system')
     if (firstDialog === -1) return [...history, line]
     return [...history.slice(0, firstDialog), line, ...history.slice(firstDialog)]
@@ -269,6 +337,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     if (memory) await memory.clear()
     updateMood(() => moodLib.createMood())
     updateRapport(() => Rapport.createRapport())
+    updateNeeds(() => Needs.createNeeds(null))
     await fs.promises.rm(ctx.diaryPath(personaId), { force: true }).catch(() => {})
   }
 
@@ -404,7 +473,8 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     const minX = Math.min(x, targetX)
     const maxX = Math.max(x, targetX)
     const dir   = targetX > x ? 1 : -1
-    const speed = run ? RUN_SPEED : WALK_SPEED
+    // Con fame o sete si muove piu' lento (needs.walkFactor).
+    const speed = (run ? RUN_SPEED : WALK_SPEED) * (ctx.prefs.needs ? Needs.walkFactor(needs) : 1)
     const step  = (speed * WALK_TICK_MS) / 1000
     send('companion-facing', { dir })
     let current = x
@@ -478,6 +548,8 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   }
 
   function idleTick() {
+    // Fame e sete passano anche senza la vita a riposo.
+    needsTick()
     // Seduto su una finestra resta seduto: i gesti a riposo sono pose in piedi.
     if (!ctx.prefs.idleLife || ctx.prefs.paused || awaitingReply || walkTimer || drag || perch || peek || dancingNow || highFiveActive || Date.now() < requestedPoseUntil) return
     if (!alive() || !win.isVisible()) return
@@ -492,6 +564,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
       mood: moodLib.decay(mood, now),
       hour: new Date(now).getHours(),
       bond: bond(),
+      needy: (worstNeed() || {}).level || null,
     })
     if (!decision) return
     lastGestureAt = now
@@ -1315,7 +1388,8 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     set dancing(v) { dancingNow = !!v },
     alive, persona, avatarId, send,
     createWindow, initMemory, initMood, setPersona, shutdown, forget,
-    updateMood, updateRapport, publicMood: publicMoodNow, broadcastMood, moodSaved: () => Promise.all([moodSave, rapportSave]),
+    updateMood, updateRapport, publicMood: publicMoodNow, broadcastMood, moodSaved: () => Promise.all([moodSave, rapportSave, needsSave]),
+    updateNeeds, worstNeed,
     buildHistoryWithMemory, withMoodLine, maybeWriteDiary,
     animate, holdPose, markActivity, idleTick, sendIdle, requestGeneratedMotion, fullscreenNow,
     reportAvatar, chibiState, setChibi,

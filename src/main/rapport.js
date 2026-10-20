@@ -23,6 +23,9 @@ const RULES = {
   ABSENCE_STEP: 2,   // ...tanto per ogni giorno in piu'...
   ABSENCE_MAX: 20,   // ...fino a questo
   HOSTILE_X: 1.5,    // un rapport negativo pesa di piu' di uno positivo
+  // Blocco 10a: con molta fame o sete il rapporto cala piano, al massimo
+  // questi punti al giorno, e mai sotto il punteggio di partenza.
+  NEGLECT_DAILY_CAP: 3,
 }
 // Il tono, per livello: entra nel prompt.
 const TONES = [
@@ -44,7 +47,7 @@ function dayOf(ms) {
 const daysBetween = (a, b) => Math.round((Date.parse(b + 'T12:00:00') - Date.parse(a + 'T12:00:00')) / 86400000)
 
 function createRapport() {
-  return { score: RULES.START, level: 0, days: 0, streak: 0, lastDay: null, todayGain: 0 }
+  return { score: RULES.START, level: 0, days: 0, streak: 0, lastDay: null, todayGain: 0, neglectDay: null, neglectLoss: 0 }
 }
 
 /** Il livello per il punteggio, con l'isteresi rispetto a quello di prima. */
@@ -87,6 +90,20 @@ function onReply(r, value) {
 }
 
 /**
+ * Trascurato (Blocco 10a): molta fame o sete fanno perdere amount punti,
+ * al massimo NEGLECT_DAILY_CAP al giorno e mai sotto START. Mangiato, il
+ * calo si ferma e il rapporto risale come sempre.
+ */
+function onNeglect(r, amount, now = Date.now()) {
+  if (!(amount > 0)) return r
+  const day = dayOf(now)
+  const lost = r.neglectDay === day ? (r.neglectLoss || 0) : 0
+  const loss = Math.min(amount, RULES.NEGLECT_DAILY_CAP - lost, Math.max(0, r.score - RULES.START))
+  if (!(loss > 0)) return r
+  return withScore({ ...r, neglectDay: day, neglectLoss: lost + loss }, r.score - loss)
+}
+
+/**
  * Quanto spesso arrivano le reazioni: affection moltiplica quelle affettuose
  * (da 0,6 a 1,4), annoyance quelle infastidite (da 1,4 a 0,6); patience e'
  * di quanti clic il fastidio arriva prima (-1) o dopo (+1).
@@ -111,8 +128,8 @@ async function loadRapport(file) {
   try {
     const d = JSON.parse(await fs.promises.readFile(file, 'utf8'))
     const r = createRapport()
-    for (const k of ['score', 'days', 'streak', 'todayGain']) if (Number.isFinite(d[k])) r[k] = Math.max(0, d[k])
-    if (typeof d.lastDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.lastDay)) r.lastDay = d.lastDay
+    for (const k of ['score', 'days', 'streak', 'todayGain', 'neglectLoss']) if (Number.isFinite(d[k])) r[k] = Math.max(0, d[k])
+    for (const k of ['lastDay', 'neglectDay']) if (typeof d[k] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d[k])) r[k] = d[k]
     const level = Number.isInteger(d.level) ? clamp(d.level, 0, LEVELS.length - 1) : 0
     return { ...r, score: clamp(r.score, 0, 100), level: levelFor(clamp(r.score, 0, 100), level) }
   } catch (_) { return createRapport() }
@@ -123,4 +140,4 @@ async function saveRapport(file, r) {
   await writeAtomic(file, JSON.stringify(r, null, 2))
 }
 
-module.exports = { LEVELS, THRESHOLDS, RULES, dayOf, createRapport, levelFor, onDay, onReply, reactionScale, promptLine, publicRapport, loadRapport, saveRapport }
+module.exports = { LEVELS, THRESHOLDS, RULES, dayOf, createRapport, levelFor, onDay, onReply, onNeglect, reactionScale, promptLine, publicRapport, loadRapport, saveRapport }

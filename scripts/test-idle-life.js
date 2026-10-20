@@ -138,5 +138,16 @@ test('rapporto: gesti affettuosi e infastiditi piu\' o meno frequenti', () => {
   assert.ok(cold.smoke > gestureWeights({ emotions: { annoyance: 0.5 }, energy: 1 }, 15, false).smoke)
 })
 
+test("fame e sete (Blocco 10a): piu' sbadigli e riposi, con molta niente allegria", () => {
+  const mood = { emotions: { joy: 0.7 }, energy: 1 }
+  const fine = gestureWeights(mood, 12, true)
+  const some = gestureWeights(mood, 12, true, undefined, 'some')
+  const much = gestureWeights(mood, 12, true, undefined, 'much')
+  assert.ok(!fine.yawn && some.yawn === 2 && much.yawn === 3)
+  assert.ok(some.rest > fine.rest && much.rest > some.rest)
+  assert.equal(much.happy, 0)
+  assert.ok(fine.highfive && !much.highfive, 'con molta fame niente batti cinque')
+})
+
 console.log('\n=== ' + passed + ' test superati ===')
 if (process.exitCode) console.error('=== ALCUNI TEST SONO FALLITI ===')

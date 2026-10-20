@@ -28,6 +28,7 @@ const { setupLogging } = require('./logger')
 const moodLib = require('./mood')
 const Personas = require('./personas')
 const Rapport = require('./rapport')
+const Needs = require('./needs')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
 const ActiveApp = require('./active-app')
@@ -158,6 +159,8 @@ function loadConfig() {
   cfg.hudPinned = cfg.hudPinned === true
   // Scorciatoie della chat e dei companion (Blocco 9c), con i predefiniti.
   cfg.shortcuts = shortcutsConfig(cfg)
+  // Fame e sete (Blocco 10a): accese di base.
+  cfg.needs = cfg.needs !== false
   cfg.activeAppIgnore = ActiveApp.cleanIgnore(cfg.activeAppIgnore) || ActiveApp.IGNORE_DEFAULT
   // Server MCP (Blocco 7f): li aggiunge l'utente, spenti di base.
   cfg.mcpServers = Mcp.cleanServers(cfg.mcpServers)
@@ -437,7 +440,7 @@ function dialogParent() {
 }
 
 // Le preferenze di comportamento, uguali per tutti (applyWindowOptions).
-const prefs = { idleLife: true, touch: true, followMouse: true, perch: true, hudPinned: false, paused: false }
+const prefs = { idleLife: true, touch: true, followMouse: true, perch: true, hudPinned: false, paused: false, needs: true }
 // Solo per audit.mjs: un cursore finto per la sbirciata.
 let testCursor = null
 
@@ -2338,7 +2341,7 @@ function initiativeTick() {
   for (const c of order) {
     const s = initiativeOf(c.personaId)
     const peers = order.filter(o => o !== c)
-    const kind = Initiative.occasion(s, { now, returned, lastChatAt, systemIdleMs, peers: peers.length })
+    const kind = Initiative.occasion(s, { now, returned, lastChatAt, systemIdleMs, peers: peers.length, needs: c.worstNeed() })
     if (!kind) continue
     const busy = c.busy || c.dragging || micBusy
     const sinceOtherMs = lastInitiativeBy && lastInitiativeBy !== c.personaId ? now - lastInitiativeAt : Infinity
@@ -2565,6 +2568,13 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     await peerExchange(companions[0], companions[1])
     return true
   })
+  // Fame e sete a un valore preciso (Blocco 10a), per il companion che chiede.
+  handle('test:needs', (e, values) => {
+    const c = companions.find(x => values && x.personaId === values.personaId) || companionOf(e) || chatTarget()
+    if (!c || !values || typeof values !== 'object') return null
+    c.updateNeeds(() => Needs.createNeeds(values))
+    return c.publicMood().needs
+  })
 }
 
 // Scene della stanza: le HDRI in modelli-3d/scenes (servite da
@@ -2696,6 +2706,11 @@ function applyWindowOptions(cfg) {
   prefs.followMouse = cfg.followMouse !== false
   prefs.perch = cfg.perch !== false
   prefs.hudPinned = cfg.hudPinned === true
+  // Fame e sete (Blocco 10a): accese di base. Spente o riaccese, HUD e chat
+  // mostrano o nascondono gli anelli.
+  const needsBefore = prefs.needs
+  prefs.needs = cfg.needs !== false
+  if (needsBefore !== prefs.needs) for (const c of companions) c.broadcastMood()
   syncAppShortcuts(cfg)
   applyDance(cfg)
   // Spento Kimodo, la memoria video si libera subito.

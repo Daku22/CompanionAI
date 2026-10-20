@@ -39,8 +39,11 @@ function isNight(hour) {
   return hour >= 23 || hour < 6
 }
 
-/** Pesi dei gesti secondo umore, energia e ora; present: l'utente e' al PC. */
-function gestureWeights(mood, hour, present = false, bond = { affection: 1, annoyance: 1 }) {
+/**
+ * Pesi dei gesti secondo umore, energia e ora; present: l'utente e' al PC;
+ * needy: fame o sete (needs.js, Blocco 10a) 'some' o 'much', o null.
+ */
+function gestureWeights(mood, hour, present = false, bond = { affection: 1, annoyance: 1 }, needy = null) {
   const e = (mood && mood.emotions) || {}
   const tired = isNight(hour) || (mood && mood.energy < 0.35)
   if (tired) return { doze: 4, yawn: 2, look: 1, rest: 1 }
@@ -56,6 +59,9 @@ function gestureWeights(mood, hour, present = false, bond = { affection: 1, anno
   w.happy *= bond.affection
   if (w.highfive) w.highfive *= bond.affection
   w.smoke *= bond.annoyance
+  // Con fame o sete sbadiglia e si ferma di piu'; con molta niente allegria.
+  if (needy === 'some') { w.yawn = (w.yawn || 0) + 2; w.rest += 1 }
+  if (needy === 'much') { w.yawn = (w.yawn || 0) + 3; w.rest += 2; w.happy = 0; delete w.highfive }
   return w
 }
 
@@ -79,7 +85,7 @@ function pick(weights, rand) {
  * @returns {null | { name: string, animation: string, bubble: string,
  *                    holdMs: number, walk?: boolean, asleep?: boolean }}
  */
-function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour, bond, rand = Math.random }) {
+function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour, bond, needy = null, rand = Math.random }) {
   // Utente via: ci si addormenta una volta sola, e si resta cosi' (holdMs 0).
   if (systemIdleMs >= AWAY_MS) {
     return asleep ? null : { name: 'sleep', animation: 'sit', bubble: '💤', holdMs: 0, asleep: true }
@@ -91,7 +97,7 @@ function decideIdle({ quietMs, sinceGestureMs, systemIdleMs, asleep, mood, hour,
   const chance = BASE_CHANCE + Math.min(EXTRA_CHANCE, (quietMs / HOUR_MS) * EXTRA_CHANCE)
   if (rand() >= chance) return null
 
-  const name = pick(gestureWeights(mood, hour, systemIdleMs < PRESENT_MS, bond), rand)
+  const name = pick(gestureWeights(mood, hour, systemIdleMs < PRESENT_MS, bond, needy), rand)
   return { name, ...GESTURES[name] }
 }
 

@@ -53,6 +53,17 @@
       ring('r-energy', m.energy || 0, 'Energia: ' + Math.round((m.energy || 0) * 100) + '%')
       const r = m.rapport
       if (r) ring('r-bond', (r.level + 1) / r.levels, 'Rapporto: ' + r.label + (r.days ? ' · ' + r.days + ' giorni insieme' : ''))
+      // Fame e sete (Blocco 10a): l'anello pieno e' la pancia piena.
+      const needs = window.CompanionFaces.needsRings(m.needs)
+      document.body.classList.toggle('needs', !!needs)
+      for (const kind of ['hunger', 'thirst']) {
+        const el = document.getElementById('r-' + kind)
+        const n = needs && needs.find(x => x.kind === kind)
+        el.hidden = !n
+        if (!n) continue
+        ring('r-' + kind, n.value, n.title)
+        el.classList.toggle('low', n.low)
+      }
     }
     if (s.mic) {
       const b = document.getElementById('b-mic')

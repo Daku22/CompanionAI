@@ -57,5 +57,19 @@
     return Math.max(0.04, Math.min(1, v))
   }
 
-  root.CompanionFaces = { hueOf, initials, face, avatarOf, moodValue }
+  /**
+   * Fame e sete (Blocco 10a) per gli anelli di HUD e chat: valore (pieno =
+   * sazio), tooltip e low con "molta". null se i bisogni sono spenti.
+   */
+  function needsRings(n) {
+    if (!n) return null
+    const words = { ok: 'nessuna', some: "un po'", much: 'molta' }
+    return [
+      { kind: 'hunger', label: 'Fame', full: 'sazietà', value: 1 - n.hunger, level: n.hungerLevel },
+      { kind: 'thirst', label: 'Sete', full: 'idratazione', value: 1 - n.thirst, level: n.thirstLevel },
+    ].map(x => ({ kind: x.kind, value: x.value, low: x.level === 'much',
+      title: x.label + ': ' + (words[x.level] || words.ok) + ' · ' + x.full + ' ' + Math.round(x.value * 100) + '%' }))
+  }
+
+  root.CompanionFaces = { hueOf, initials, face, avatarOf, moodValue, needsRings }
 })(window)

@@ -234,6 +234,9 @@
     .ring.sm svg.i { width: 11px; height: 11px; stroke-width: 1.9; }
     #r-energy { --ring-color: #d9c27a; }
     #r-bond { --ring-color: #d98a7a; }
+    #r-hunger { --ring-color: #c9a06a; }
+    #r-thirst { --ring-color: #7fb0cf; }
+    .ring.low { --ring-color: var(--danger); color: var(--danger); }
     #memory-info {
       flex: 1; min-width: 0; margin-left: 4px;
       color: var(--text-3); font-variant-numeric: tabular-nums;
@@ -402,6 +405,14 @@
       <div class="ring sm" id="r-bond" title="Rapporto" hidden>
         <svg class="track" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="value" cx="18" cy="18" r="15"/></svg>
         <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3"/><circle cx="15.5" cy="10.5" r="2.5"/><path d="M4 18c.6-2.6 2.6-4.3 5-4.3s4.4 1.7 5 4.3M13.6 14.2c2.6-.4 4.8 1.2 5.4 3.8"/></svg>
+      </div>
+      <div class="ring sm" id="r-hunger" title="Fame" hidden>
+        <svg class="track" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="value" cx="18" cy="18" r="15"/></svg>
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8c-1.7-1.1-4.7-.8-5.6 1.7-1.1 3 .4 7.6 2.7 9.2 1.2.8 2 .4 2.9.1.9.3 1.7.7 2.9-.1 2.3-1.6 3.8-6.2 2.7-9.2C16.7 7.2 13.7 6.9 12 8z"/><path d="M12 8c0-1.9.8-3.2 2.5-3.8"/></svg>
+      </div>
+      <div class="ring sm" id="r-thirst" title="Sete" hidden>
+        <svg class="track" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="value" cx="18" cy="18" r="15"/></svg>
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4s-5.5 6.2-5.5 9.8a5.5 5.5 0 0 0 11 0C17.5 10.2 12 4 12 4z"/></svg>
       </div>
     </div>
     <div id="memory-info">Memoria: —</div>

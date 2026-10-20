@@ -425,8 +425,16 @@ async function auditMic() {
 async function chatShot(page, name) {
   const hidden = await page.evaluate('document.visibilityState !== "visible"')
   if (hidden) { await page.evaluate('window.companion.toggleChat(); true'); await sleep(800) }
-  const r = await page.send('Page.captureScreenshot', { format: 'png' })
-  fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(r.result.data, 'base64'))
+  // Una finestra che non disegna (coperta, fuori schermo) non risponde: la
+  // schermata manca, ma l'audit va avanti.
+  try {
+    await page.send('Page.bringToFront').catch(() => {})
+    const r = await page.send('Page.captureScreenshot', { format: 'png' })
+    fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(r.result.data, 'base64'))
+  } catch (e) {
+    const where = await page.evaluate('[document.visibilityState, window.screenX, window.screenY, window.outerWidth, window.outerHeight, screen.width, screen.height]').catch(() => null)
+    console.log('    (schermata ' + name + ' non riuscita: ' + e.message + '; finestra ' + JSON.stringify(where) + ')')
+  }
   if (hidden) { await page.evaluate('window.companion.toggleChat(); true'); await sleep(400) }
 }
 
@@ -1396,6 +1404,19 @@ try {
         x: window.screenX, w: window.outerWidth, rings: getComputedStyle(document.getElementById('r-energy')).getPropertyValue('--value') })`)
     }
     const around = hs && hs.x <= second.x && hs.x + hs.w >= second.x + second.width
+    // Fame e sete (Blocco 10a): molta fame e un po' di sete, i due anelli in
+    // piu' nella capsula, quello della fame rosso.
+    await comp.evaluate(`window.companion.testNeeds({ personaId: '${auditId}', hunger: 0.9, thirst: 0.55 })`)
+    let needRings = null
+    for (let i = 0; i < 30 && !(needRings && needRings.hungerLow); i++) {
+      await sleep(200)
+      needRings = await hud.evaluate(`({ five: document.body.classList.contains('needs'),
+        hungerHidden: document.getElementById('r-hunger').hidden, hungerLow: document.getElementById('r-hunger').classList.contains('low'),
+        thirstLow: document.getElementById('r-thirst').classList.contains('low'), title: document.getElementById('r-hunger').title,
+        value: getComputedStyle(document.getElementById('r-hunger')).getPropertyValue('--value') })`)
+    }
+    check(needRings.five && !needRings.hungerHidden && needRings.hungerLow && !needRings.thirstLow && Math.abs(Number(needRings.value) - 0.1) < 0.01,
+      'HUD: anelli di fame e sete, la fame "molta" in rosso (' + JSON.stringify(needRings) + ')')
     // La foto dell'HUD su uno sfondo caldo (la finestra e' trasparente).
     await hud.evaluate(`document.documentElement.style.background = 'radial-gradient(120% 90% at 30% 10%, #4a3a2c, #1e1915 60%, #121012)'; true`)
     await sleep(300)
@@ -1409,19 +1430,34 @@ try {
     const ownChat = await pageOf('persona=' + auditId)
     const chatOpen = ownChat && await ownChat.evaluate('document.visibilityState')
     const title = ownChat && await ownChat.evaluate(`document.querySelector('#header-info h1').textContent`)
+    // Gli stessi anelli nella sua chat; spenti nelle Impostazioni, spariscono.
+    const chatRings = async () => ownChat.evaluate(`({ hunger: !document.getElementById('r-hunger').hidden && document.getElementById('r-hunger').classList.contains('low'),
+      thirst: !document.getElementById('r-thirst').hidden })`)
+    let inChat = null
+    for (let i = 0; i < 20 && !(inChat && inChat.hunger); i++) { await sleep(200); inChat = ownChat && await chatRings() }
+    await comp.evaluate('window.companion.setConfig({ needs: false }).then(c => c.needs)')
+    let off = null
+    for (let i = 0; i < 20 && !(off && !off.hunger && !off.thirst); i++) { await sleep(200); off = await chatRings() }
+    await comp.evaluate('window.companion.setConfig({ needs: true }).then(c => c.needs)')
+    await comp.evaluate(`window.companion.testNeeds({ personaId: '${auditId}', hunger: 0, thirst: 0 })`)
+    check(!!(inChat && inChat.hunger && inChat.thirst && off && !off.hunger && !off.thirst),
+      'chat: anelli di fame e sete, e spariscono con "Fame e sete" spento (' + JSON.stringify({ inChat, off }) + ')')
     await shot('9b-hud')
     await comp.evaluate('window.companion.testPeek({ cursor: null })')
     check(!!(hs && hs.shown && hs.name === 'Prova Audit' && around && hs.rings && chatOpen === 'visible' && title === 'Prova Audit' && groupButton),
       'HUD attorno al companion sotto il mouse: ' + JSON.stringify(hs) + ', chat singola ' + chatOpen + ' (' + title + '), tasto del gruppo ' + groupButton)
-    // Finestre separate: la chat singola di Prova Audit e' vuota, quella di
+    // Finestre separate: nella chat singola di Prova Audit nessun messaggio del
+    // gruppo (ci possono essere i suoi, per esempio quando ha fame), quella di
     // gruppo ha i suoi messaggi, e restano aperte insieme; mai "Ora parli con".
     await groupChatPage.evaluate('window.companion.toggleChat(); true').catch(() => {})
-    const singleCount = await ownChat.evaluate(`document.querySelectorAll('.msg.assistant').length`)
+    const groupTexts = new Set(await groupChatPage.evaluate(`[...document.querySelectorAll('.msg.assistant')].map(m => m.lastChild.textContent)`))
+    const singleCount = (await ownChat.evaluate(`[...document.querySelectorAll('.msg.assistant')].map(m => m.lastChild.textContent)`))
+      .filter(t => groupTexts.has(t)).length
     const groupCount = await groupChatPage.evaluate(`document.querySelectorAll('.msg.assistant .who').length`)
     const noSwitchNote = !(await groupChatPage.evaluate(`[...document.querySelectorAll('.msg.system')].some(m => /Ora parli con/.test(m.textContent))`))
     const chatPages = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).filter(t => t.url.includes('chat.html')).length
     check(singleCount === 0 && groupCount >= 4 && noSwitchNote && chatPages === 3,
-      'chat in finestre separate: ' + chatPages + ' finestre, singola ' + singleCount + ', gruppo ' + groupCount + ' risposte')
+      'chat in finestre separate: ' + chatPages + ' finestre, ' + singleCount + ' messaggi del gruppo nella singola, gruppo ' + groupCount + ' risposte')
   }
   const closed = auditId && await chat.evaluate(`window.companion.personasChange({ op: 'close', id: '${auditId}' })`)
   await sleep(500)

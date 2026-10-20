@@ -27,6 +27,9 @@ const RULES = {
   PEER_GAP_MS: 15 * 60000,   // fra due commenti dello stesso companion
   PEER_QUIET_MS: 8 * 60000,  // un commento su un altro solo dopo un po' senza chat
   PEER_CHANCE: 1 / 16,       // per controllo (ogni 30 s): circa uno ogni 8 minuti buoni
+  // Fame o sete "molta" (Blocco 10a): lo chiede all'utente, dentro i 6 al
+  // giorno, al massimo una volta ogni NEEDS_GAP_MS.
+  NEEDS_GAP_MS: 2 * 3600000,
 }
 
 /** I messaggi fra companion: commento, risposta, saluto all'arrivo. */
@@ -34,6 +37,8 @@ const isPeer = (kind) => kind === 'peer' || kind === 'peer-reply' || kind === 'h
 
 // La riga per il modello, per occasione.
 const OCCASIONS = {
+  hungry: "Hai molta fame: chiedi all'utente qualcosa da mangiare, a modo tuo, anche lamentandoti un po'.",
+  thirsty: "Hai molta sete: chiedi all'utente qualcosa da bere, a modo tuo, anche lamentandoti un po'.",
   morning: "E' la prima volta che vi vedete oggi: salutalo tu, come ti viene. Guarda l'ora che ti e' stata " +
     "indicata: non e' per forza mattina, il saluto deve andare bene per quell'ora.",
   return: "L'utente e' appena tornato al computer dopo un'assenza di qualche ora: accoglilo tu.",
@@ -42,7 +47,7 @@ const OCCASIONS = {
 }
 
 function createInitiative() {
-  return { day: null, sent: 0, lastAt: 0, morningDay: null, peerSent: 0, peerAt: 0 }
+  return { day: null, sent: 0, lastAt: 0, morningDay: null, peerSent: 0, peerAt: 0, needsAt: 0 }
 }
 
 /** I contatori ripartono ogni giorno. */
@@ -54,8 +59,12 @@ const today = (s, now) => (s.day === dayOf(now) ? s : { ...s, day: dayOf(now), s
  * @param {{ now: number, returned?: boolean, lastChatAt: number, systemIdleMs: number }} input
  *   returned: l'utente e' appena tornato dopo almeno AWAY_MS (o l'app e' partita)
  */
-function occasion(s, { now, returned = false, lastChatAt, systemIdleMs, peers = 0, rand = Math.random }) {
+function occasion(s, { now, returned = false, lastChatAt, systemIdleMs, peers = 0, needs = null, rand = Math.random }) {
   if (returned) return s.morningDay === dayOf(now) ? 'return' : 'morning'
+  // needs: il bisogno piu' forte (needs.worst); solo "molta" fame o sete, con l'utente al PC.
+  if (needs && needs.level === 'much' && systemIdleMs < RULES.PRESENT_MS && now - (s.needsAt || 0) >= RULES.NEEDS_GAP_MS) {
+    return needs.kind === 'thirst' ? 'thirsty' : 'hungry'
+  }
   if (systemIdleMs < RULES.PRESENT_MS && now - lastChatAt >= RULES.SILENCE_MS && now - s.lastAt >= RULES.SILENCE_MS) return 'silence'
   // Un altro companion sul desktop: ogni tanto un commento su di lui.
   if (peers > 0 && systemIdleMs < RULES.PRESENT_MS && now - lastChatAt >= RULES.PEER_QUIET_MS &&
@@ -83,7 +92,8 @@ function canSpeak(s, { now, enabled, asleep, fullscreen, typing, busy = false, s
 function onSpoke(s, kind, now) {
   const t = today(s, now)
   if (isPeer(kind)) return { ...t, peerSent: (t.peerSent || 0) + 1, peerAt: now }
-  return { ...t, sent: t.sent + 1, lastAt: now, morningDay: kind === 'morning' ? dayOf(now) : t.morningDay }
+  return { ...t, sent: t.sent + 1, lastAt: now, morningDay: kind === 'morning' ? dayOf(now) : t.morningDay,
+    needsAt: kind === 'hungry' || kind === 'thirsty' ? now : (t.needsAt || 0) }
 }
 
 /**
@@ -118,6 +128,7 @@ function restore(data) {
   if (Number.isFinite(data.lastAt) && data.lastAt >= 0) s.lastAt = data.lastAt
   if (Number.isInteger(data.peerSent) && data.peerSent >= 0) s.peerSent = data.peerSent
   if (Number.isFinite(data.peerAt) && data.peerAt >= 0) s.peerAt = data.peerAt
+  if (Number.isFinite(data.needsAt) && data.needsAt >= 0) s.needsAt = data.needsAt
   return s
 }
 

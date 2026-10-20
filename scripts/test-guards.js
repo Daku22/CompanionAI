@@ -154,6 +154,9 @@ test('Kimodo: la UI accende e spegne, ma non sceglie la cartella da eseguire', (
   const base = { provider: 'openrouter', model: 'm', keys: {}, kimodoDir: 'D:/kimodo' }
   assert.equal(mergeConfig(base, { kimodo: true }).kimodo, true)
   assert.equal(mergeConfig(base, { kimodo: 'si' }).kimodo, undefined)
+  // Fame e sete (Blocco 10a): solo un booleano.
+  assert.equal(mergeConfig(base, { needs: false }).needs, false)
+  assert.equal(mergeConfig(base, { needs: 'no' }).needs, undefined)
   const merged = mergeConfig(base, { kimodoDir: 'C:/Windows/System32' })
   assert.equal(merged.kimodoDir, 'D:/kimodo', 'kimodoDir si scrive solo a mano in config.json')
 })

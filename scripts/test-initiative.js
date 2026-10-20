@@ -100,4 +100,20 @@ test('prompt e stato salvato', () => {
   assert.deepEqual(I.restore(null), I.createInitiative())
 })
 
+test('fame e sete (Blocco 10a): con "molta" lo chiede, dentro i 6 al giorno, al massimo ogni 2 ore', () => {
+  const s = I.createInitiative()
+  const base = { now: t0, lastChatAt: t0, systemIdleMs: 0 }
+  assert.equal(I.occasion(s, { ...base, needs: { kind: 'hunger', level: 'some' } }), null, "con un po' di fame non lo chiede")
+  assert.equal(I.occasion(s, { ...base, needs: { kind: 'hunger', level: 'much' } }), 'hungry')
+  assert.equal(I.occasion(s, { ...base, needs: { kind: 'thirst', level: 'much' } }), 'thirsty')
+  assert.equal(I.occasion(s, { ...base, systemIdleMs: 10 * 60000, needs: { kind: 'thirst', level: 'much' } }), null, 'non al PC: no')
+  const after = I.onSpoke(s, 'hungry', t0)
+  assert.equal(after.sent, 1, 'conta fra i 6 al giorno')
+  assert.equal(I.occasion(after, { ...base, now: t0 + H, needs: { kind: 'hunger', level: 'much' } }), null, 'non prima di 2 ore')
+  assert.equal(I.occasion(after, { ...base, now: t0 + 2 * H, lastChatAt: t0 + 2 * H, needs: { kind: 'hunger', level: 'much' } }), 'hungry')
+  assert.match(I.prompt('hungry'), /qualcosa da mangiare/)
+  assert.match(I.prompt('thirsty'), /qualcosa da bere/)
+  assert.equal(I.restore({ ...after }).needsAt, t0)
+})
+
 console.log(`=== ${passed} test superati ===`)

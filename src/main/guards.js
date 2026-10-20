@@ -367,6 +367,7 @@ function mergeConfig(current, incoming) {
   if (typeof incoming.danceMusic === 'boolean') merged.danceMusic = incoming.danceMusic
   if (typeof incoming.initiative === 'boolean') merged.initiative = incoming.initiative
   if (typeof incoming.hudPinned === 'boolean') merged.hudPinned = incoming.hudPinned
+  if (typeof incoming.needs === 'boolean') merged.needs = incoming.needs
   if (incoming.shortcuts && typeof incoming.shortcuts === 'object') merged.shortcuts = mergeShortcuts(current.shortcuts, incoming.shortcuts)
   if (typeof incoming.activeApp === 'boolean') merged.activeApp = incoming.activeApp
   if (incoming.activeAppIgnore !== undefined) { const list = require('./active-app').cleanIgnore(incoming.activeAppIgnore); if (list) merged.activeAppIgnore = list }

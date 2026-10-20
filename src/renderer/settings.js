@@ -770,6 +770,7 @@
   const weatherCity = $('weather-city')
   function showGeneral(cfg) {
     idleLife.checked = cfg.idleLife !== false
+    $('needs-on').checked = cfg.needs !== false
     touchReactions.checked = cfg.touchReactions !== false
     $('initiative').checked = cfg.initiative !== false
     $('active-app').checked = cfg.activeApp === true
@@ -801,6 +802,7 @@
     try { loginItem.checked = !!(await api.setLoginItem(loginItem.checked)).enabled } catch (_) {}
   })
   idleLife.addEventListener('change', () => saveGeneral({ idleLife: idleLife.checked }))
+  $('needs-on').addEventListener('change', (e) => saveGeneral({ needs: e.target.checked }))
   touchReactions.addEventListener('change', () => saveGeneral({ touchReactions: touchReactions.checked }))
   $('initiative').addEventListener('change', (e) => saveGeneral({ initiative: e.target.checked }))
   $('active-app').addEventListener('change', (e) => {
