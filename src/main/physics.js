@@ -128,4 +128,41 @@ function landing(b, w, { firstTouch = false, maxS = 8, dt = 1 / 30 } = {}) {
   return { x: body.x, t }
 }
 
-module.exports = { PHYS, createBody, worldOf, step, push, throwVelocity, landing }
+/**
+ * La velocita' per arrivare da from a to in T secondi (la pallavolo, Blocco
+ * 10d): in orizzontale con la resistenza dell'aria, in verticale con la
+ * gravita'. Limitata a MAX_SPEED. dt e' il passo della simulazione (quello
+ * del main): a passi la caduta e' un po' piu' lunga che nella formula.
+ * @param {{ x: number, y: number }} from
+ * @param {{ x: number, y: number }} to
+ * @param {number} T secondi
+ */
+function aim(from, to, T, { dt = 1 / 30 } = {}) {
+  const k = PHYS.AIR_DRAG
+  const t = Math.max(0.2, T)
+  const vx = (to.x - from.x) * k / (1 - Math.exp(-k * t))
+  const vy = (to.y - from.y - 0.5 * PHYS.GRAVITY * t * (t + dt)) / t
+  return { vx: clampSpeed(vx), vy: clampSpeed(vy) }
+}
+
+/**
+ * Dove e quando il corpo, scendendo, passa per l'altezza y (il centro): dove
+ * il companion deve stare per ribatterlo. null se tocca terra prima.
+ * @returns {{ x: number, t: number } | null}
+ */
+function crossing(b, w, y, { maxS = 6, dt = 1 / 30 } = {}) {
+  let body = { ...b, resting: false }
+  let t = 0
+  while (t < maxS) {
+    const before = body.y
+    const r = step(body, dt, w)
+    body = r.body
+    t += dt
+    if (r.hit && body.y + body.r >= w.floor - 0.5) return null
+    if (body.vy > 0 && before < y && body.y >= y) return { x: body.x, t }
+    if (body.resting) return null
+  }
+  return null
+}
+
+module.exports = { PHYS, createBody, worldOf, step, push, throwVelocity, landing, aim, crossing }

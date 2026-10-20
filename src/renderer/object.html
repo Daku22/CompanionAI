@@ -13,6 +13,11 @@
       filter: drop-shadow(0 4px 5px rgba(30, 16, 4, 0.45)); }
     body.ready canvas { opacity: 1; }
     canvas:active { cursor: grabbing; }
+    /* Il conto dei palleggi (Blocco 10d), grande e leggibile su ogni colore. */
+    #count { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+      font: 700 clamp(16px, 42vmin, 40px)/1 'Segoe UI', system-ui, sans-serif; color: #fff; font-variant-numeric: tabular-nums;
+      text-shadow: 0 0 3px #3a1d05, 0 0 3px #3a1d05, 0 2px 6px rgba(30, 16, 4, 0.8); }
+    #count[hidden] { display: none; }
   </style>
   <script type="importmap">
     {
@@ -25,6 +30,7 @@
 </head>
 <body>
 <canvas id="view"></canvas>
+<div id="count" hidden></div>
 <script type="module" src="object.js"></script>
 </body>
 </html>

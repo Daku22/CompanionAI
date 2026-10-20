@@ -2811,6 +2811,10 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
       const c = companions.find(x => x.personaId === msg.personaId)
       return c ? desktopObjects.touched(c) : false
     }
+    // Pallavolo (Blocco 10d): la battuta, un colpo al volo, l'ultima partita, il record.
+    if (op === 'serve' && e) return desktopObjects.testServe(e)
+    if (op === 'hit' && e) return desktopObjects.testHit(e)
+    if (op === 'last-game') return { ...desktopObjects.lastGame, best: Object.fromEntries(companions.map(c => [c.personaId, c.volleyBest])) }
     if (op === 'clear') desktopObjects.storeAll()
     if (op === 'panel') { openItemsPanel(companions[0], msg.mode); return itemsMode }
     return desktopObjects.state()

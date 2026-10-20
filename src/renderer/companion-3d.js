@@ -1174,7 +1174,7 @@ const SLOT_LABELS = {
   smoke: 'Fuma', click: 'Clic',
   pat: 'Carezza', flinch: 'Sussulto', giggle: 'Risatina', hop: 'Saltello', shy: 'Imbarazzo',
   scold: 'Rimprovero', turnaway: 'Si gira di spalle', eat: 'Mangia', drink: 'Beve',
-  pickup: 'Raccoglie', hug: 'Abbraccia',
+  pickup: 'Raccoglie', hug: 'Abbraccia', volley: 'Palleggio',
 };
 const SLOT_HINTS = [
   [/(ledge|edge|bordo|dangling legs)/, 'sit-edge'], [/(stretch|stiracch)/, 'stretch'],
@@ -1187,7 +1187,7 @@ const SLOT_HINTS = [
   [/(hop|jump|salt)/, 'hop'], [/(shy|embarrass|imbaraz)/, 'shy'], [/(scold|angry|cross|rimprover)/, 'scold'],
   [/(turn.?away|sulk|spalle)/, 'turnaway'],
   [/(eat|bite|mangi|morso)/, 'eat'], [/(drink|sip|bev|sors)/, 'drink'],
-  [/(pick.?up|raccogl)/, 'pickup'], [/(hug|cuddl|abbracc)/, 'hug'],
+  [/(pick.?up|raccogl)/, 'pickup'], [/(hug|cuddl|abbracc)/, 'hug'], [/(volley|pallegg|pallavol)/, 'volley'],
 ];
 const guessSlot = (name) => (SLOT_HINTS.find(([re]) => re.test(name.toLowerCase())) || [null, 'idle'])[1];
 // Fase di una clip per uno slot ciclico (seduto, a riposo, camminata).

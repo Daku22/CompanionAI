@@ -12,6 +12,12 @@
 // Un 3D con lo scheletro tiene l'oggetto nella scena (companion-prop) e la
 // finestrella si nasconde; un 2D o un Live2D se la porta dietro accanto a se'.
 // Gli oggetti sono di tutti: chi insegue lo decide la distanza, uno alla volta.
+//
+// Pallavolo (Blocco 10d), con gli oggetti Da lanciare: un clic sul pallone
+// fermo lo manda al companion piu' vicino, che gli corre sotto e lo ribatte
+// verso il mouse (clip "volley"); tu lo ribatti cliccandolo in aria. Con piu'
+// companion se lo passano anche fra loro. Si contano i palleggi (il numero sul
+// pallone); quando tocca terra la partita finisce, e il record e' per persona.
 
 const { BrowserWindow, screen } = require('electron')
 const path = require('path')
@@ -34,6 +40,18 @@ const FETCH_MAX_MS = 30000
 const HUG_MS = 20000
 const DOZE_MS = 8000
 const THANKS = ['Eccola!', 'Ecco qua!', 'Presa!', 'Di nuovo?']
+const VOLLEY = {
+  FLIGHT_MIN: 0.95,       // s: un passaggio corto
+  FLIGHT_MAX: 1.6,        // s: uno lungo, da una parte all'altra dello schermo
+  FLIGHT_PER_PX: 1 / 1600,
+  SWING_EARLY: 0.6,       // s prima del pallone parte la clip (le mani arrivano su in 0,6 s)
+  CLICK_PX: 8,            // un clic, non un trascinamento
+  CLICK_MS: 350,
+  PASS_CHANCE: 0.5,       // con un altro companion in gioco, quante volte lo passa a lui
+  USER_FLOOR_GAP: 170,    // px: verso il mouse arriva almeno cosi' in alto, per avere il tempo di cliccare
+  COUNT_MS: 2500,         // il numero resta sul pallone dopo la fine
+  ENERGY_PER_HIT: 0.01,
+}
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)]
 const centerOf = (c) => c.bounds.x + c.bounds.width / 2
@@ -93,7 +111,7 @@ function createDesktopObjects(ctx) {
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: ctx.preload },
     })
     if (top) win.setAlwaysOnTop(true, 'floating')
-    const e = { uid: nextUid++, obj, win, px, body, state: 'free', grab: null, task: null, spin: 0 }
+    const e = { uid: nextUid++, obj, win, px, body, state: 'free', grab: null, task: null, spin: 0, game: null }
     entries.set(e.uid, e)
     win.loadFile(ctx.page)
     win.once('ready-to-show', () => {
@@ -113,6 +131,7 @@ function createDesktopObjects(ctx) {
   /** Torna nella borsa (doppio clic, "Riponi tutti", o un oggetto eliminato). */
   function store(e) {
     if (e.task) abortTask(e)
+    if (e.game) endGame(e, { quiet: true })
     entries.delete(e.uid)
     if (alive(e)) e.win.destroy()
     ctx.onChange()
@@ -121,6 +140,8 @@ function createDesktopObjects(ctx) {
   // ─── Presa e lancio con il mouse ───────────────────────────────────────────
   function grab(e) {
     if (!alive(e) || e.state === 'hidden') return
+    // In partita, un clic sul pallone in aria lo ribatte.
+    if (e.game && !e.body.resting) { userHit(e); return }
     if (e.task) abortTask(e)
     const cursor = ctx.cursor()
     e.state = 'drag'
@@ -137,8 +158,11 @@ function createDesktopObjects(ctx) {
    */
   function release(e, point, v = { vx: 0, vy: 0 }) {
     e.state = 'free'
+    e.grabbed = e.grab
     e.grab = null
     if (alive(e) && ctx.alwaysOnTop()) e.win.setAlwaysOnTop(true, 'floating')
+    // Un clic (non un trascinamento) sul pallone: la battuta.
+    if (e.obj.type === 'throw' && isClick(e.grabbed)) return serve(e) ? 'serve' : 'dropped'
     const c = point && ctx.companionAt(point)
     if (c && e.obj.type === 'hug' && hug(e, c)) return 'hug'
     if (c && (e.obj.type === 'food' || e.obj.type === 'drink') && c.feed(Objects.asFood(e.obj))) { store(e); return 'eaten' }
@@ -294,6 +318,141 @@ function createDesktopObjects(ctx) {
     return true
   }
 
+  // ─── Pallavolo (Blocco 10d) ────────────────────────────────────────────────
+  /** Una presa breve e quasi ferma. */
+  function isClick(g) {
+    if (!g || g.trail.length < 1) return false
+    const a = g.trail[0]
+    const b = g.trail[g.trail.length - 1]
+    return Date.now() - g.started <= VOLLEY.CLICK_MS && Math.hypot(b.x - a.x, b.y - a.y) <= VOLLEY.CLICK_PX
+  }
+
+  const flight = (from, to) => Math.max(VOLLEY.FLIGHT_MIN, Math.min(VOLLEY.FLIGHT_MAX, VOLLEY.FLIGHT_MIN + Math.abs(to.x - from.x) * VOLLEY.FLIGHT_PER_PX))
+  /** Dove il companion prende il pallone: sopra la testa, al centro della finestra. */
+  const hitPoint = (c) => ({ x: centerOf(c), y: c.bounds.y + c.bounds.height * 0.1 })
+  const inGame = (e, c) => !!e.game && e.game.players.has(c)
+  /** Chi puo' giocare: libero, o gia' in questa partita. */
+  const canJoin = (e, c) => c.alive() && c.bounds && (c.canPlay() || (inGame(e, c) && !c.dragging && c.viewMode === 'desktop' && c.win.isVisible()))
+
+  function sendPose(e, extra = {}) {
+    // Fuori partita il conto non si tocca: il totale resta COUNT_MS, poi lo toglie endGame.
+    try { if (alive(e)) e.win.webContents.send('object-pose', { spin: e.spin, ...(e.game ? { count: e.game.hits } : {}), ...extra }) } catch (_) {}
+  }
+
+  /** La battuta: un clic sul pallone fermo lo manda al companion piu' vicino. */
+  function serve(e) {
+    if (e.game || e.task) return false
+    const c = ctx.companions().filter(x => canJoin(e, x)).sort((a, b) => Math.abs(centerOf(a) - e.body.x) - Math.abs(centerOf(b) - e.body.x))[0]
+    if (!c) return false
+    e.game = { hits: 0, by: new Map(), players: new Set(), target: null, plan: null, started: Date.now() }
+    if (alive(e)) { e.win.setAlwaysOnTop(ctx.alwaysOnTop(), 'screen-saver'); e.win.moveTop() }
+    sendTo(e, c)
+    return true
+  }
+
+  /** Il pallone verso il companion c: lui va dove scendera' all'altezza delle mani. */
+  function sendTo(e, c) {
+    const g = e.game
+    const to = hitPoint(c)
+    const from = { x: e.body.x, y: Math.min(e.body.y, worldAt(e.body).floor - e.body.r - 2) }
+    const v = P.aim(from, to, flight(from, to))
+    e.body = P.push({ ...e.body, ...from }, v.vx, v.vy)
+    if (!g.players.has(c)) { g.players.add(c); c.playing = e }
+    g.target = c
+    const cross = P.crossing(e.body, worldAt(e.body), to.y)
+    g.plan = { c, y: to.y, swung: false }
+    if (cross && Math.abs(cross.x - centerOf(c)) > 12) c.goTo(cross.x, { run: true, speed: FETCH_SPEED })
+  }
+
+  /** Il pallone verso il mouse, abbastanza in alto da poterlo cliccare. */
+  function sendToUser(e) {
+    const g = e.game
+    const w = worldAt(e.body)
+    const cursor = ctx.cursor()
+    const to = { x: Math.max(w.left + e.body.r, Math.min(w.right - e.body.r, cursor.x)), y: Math.min(cursor.y, w.floor - VOLLEY.USER_FLOOR_GAP) }
+    const from = { x: e.body.x, y: e.body.y }
+    const v = P.aim(from, to, flight(from, to))
+    e.body = P.push(e.body, v.vx, v.vy)
+    g.target = 'user'
+    g.plan = null
+  }
+
+  /** Il companion ribatte: a un altro companion in gioco, o a te. */
+  function companionHit(e, c) {
+    const g = e.game
+    g.hits++
+    g.by.set(c, (g.by.get(c) || 0) + 1)
+    const now = Date.now()
+    c.updateMood(m => { const d = moodLib.decay(m, now); return { ...d, energy: Math.max(0, d.energy - VOLLEY.ENERGY_PER_HIT) } })
+    c.markActivity()
+    const others = ctx.companions().filter(x => x !== c && canJoin(e, x))
+    if (others.length && Math.random() < VOLLEY.PASS_CHANCE) sendTo(e, others[Math.floor(Math.random() * others.length)])
+    else sendToUser(e)
+    sendPose(e)
+  }
+
+  /** Tu lo ribatti: al companion piu' vicino al pallone. */
+  function userHit(e) {
+    const g = e.game
+    const c = ctx.companions().filter(x => canJoin(e, x)).sort((a, b) => Math.abs(centerOf(a) - e.body.x) - Math.abs(centerOf(b) - e.body.x))[0]
+    if (!c) return
+    g.hits++
+    sendTo(e, c)
+    sendPose(e)
+  }
+
+  /**
+   * Fine partita: il record per ognuno che ha giocato, e la reazione (felice,
+   * dispiaciuto se e' caduto subito, entusiasta per un record).
+   */
+  function endGame(e, { quiet = false } = {}) {
+    const g = e.game
+    if (!g) return
+    e.game = null
+    if (alive(e) && ctx.alwaysOnTop()) e.win.setAlwaysOnTop(true, 'floating')
+    const results = []
+    for (const c of g.players) {
+      c.playing = null
+      if (!c.alive() || quiet) continue
+      const r = c.endVolley(g.hits, g.by.get(c) || 0)
+      results.push({ personaId: c.personaId, ...r })
+      const now = Date.now()
+      if (r.record) {
+        c.updateMood(m => moodLib.nudge(moodLib.decay(m, now), 'joy', 0.1))
+        c.animate({ type: 'none', animation: 'happy', bubble: 'Nuovo record: ' + g.hits + ' palleggi!' })
+      } else if (g.hits < 3) {
+        c.animate({ type: 'none', animation: 'idle', bubble: 'Oh no, gia\' finita…' })
+      } else {
+        c.animate({ type: 'none', animation: 'happy', bubble: 'Bella partita! ' + g.hits + ' palleggi.' })
+      }
+    }
+    lastGame = { hits: g.hits, results }
+    sendPose(e, { count: g.hits })
+    setTimeout(() => { if (!e.game) sendPose(e, { count: null }) }, VOLLEY.COUNT_MS)
+    raiseCompanions()
+  }
+
+  /** A ogni giro: il companion di turno alza le mani in tempo e ribatte. */
+  function gameTick(e, hitFloor) {
+    const g = e.game
+    if (hitFloor) return endGame(e)
+    const p = g.plan
+    if (!p || !p.c.alive() || !p.c.bounds) return
+    const c = p.c
+    if (!canJoin(e, c)) return
+    const b = e.body
+    if (!p.swung && b.vy > 0) {
+      const cross = P.crossing(b, worldAt(b), p.y, { maxS: 2 })
+      if (cross && cross.t <= VOLLEY.SWING_EARLY) {
+        p.swung = true
+        c.send('companion-facing', { dir: b.x >= centerOf(c) ? 1 : -1 })
+        c.animate({ type: 'none', animation: 'volley' })
+      }
+    }
+    const reach = c.bounds.width * 0.5 + b.r
+    if (b.vy > 0 && b.y >= p.y - b.r * 0.5 && b.y <= p.y + c.bounds.height * 0.35 && Math.abs(b.x - centerOf(c)) <= reach) companionHit(e, c)
+  }
+
   // ─── Il giro del cursore ───────────────────────────────────────────────────
   function taskTick(e, now) {
     const t = e.task
@@ -336,12 +495,14 @@ function createDesktopObjects(ctx) {
         e.body = { ...e.body, x: p.x, y: p.y }
         place(e)
       } else if (e.state === 'free' && !e.body.resting) {
-        const r = P.step(e.body, dt, worldAt(e.body))
+        const w = worldAt(e.body)
+        const r = P.step(e.body, dt, w)
         e.body = r.body
         place(e)
+        if (e.game) gameTick(e, r.hit && e.body.y + e.body.r >= w.floor - 0.5)
         if (e.obj.type === 'throw' && Math.abs(e.body.spin - e.spin) > 0.01) {
           e.spin = e.body.spin
-          try { e.win.webContents.send('object-pose', { spin: e.spin }) } catch (_) {}
+          sendPose(e)
         }
       }
     }
@@ -373,18 +534,24 @@ function createDesktopObjects(ctx) {
   function storeObject(id) { for (const e of [...entries.values()]) if (e.obj.id === id) store(e) }
   function storeAll() { for (const e of [...entries.values()]) store(e) }
 
-  /** Per l'audit: dove sono e cosa fanno. */
+  let lastGame = null
+  /** Per l'audit: dove sono e cosa fanno, e com'e' finita l'ultima partita. */
   function state() {
     return [...entries.values()].map(e => ({
+      game: e.game ? { hits: e.game.hits, target: e.game.target === 'user' ? 'user' : e.game.target && e.game.target.personaId } : null,
       uid: e.uid, id: e.obj.id, type: e.obj.type, px: e.px, state: e.state,
       x: Math.round(e.body.x), y: Math.round(e.body.y), vx: Math.round(e.body.vx), vy: Math.round(e.body.vy), resting: e.body.resting,
       task: e.task ? { phase: e.task.phase, personaId: e.task.c.personaId } : null,
       visible: alive(e) && e.win.isVisible(), bounds: alive(e) ? e.win.getBounds() : null,
     }))
   }
+  /** Per l'audit: la battuta e il colpo al volo, senza mouse vero. */
+  function testServe(e) { return serve(e) }
+  function testHit(e) { if (e.game && !e.body.resting) { userHit(e); return true } return false }
 
   return {
-    spawn, store, storeAll, storeObject, grab, release, tick, info, bySender, updateObject, touched, state,
+    spawn, store, storeAll, storeObject, grab, release, tick, info, bySender, updateObject, touched, state, testServe, testHit,
+    get lastGame() { return lastGame },
     get count() { return entries.size },
     get(uid) { return entries.get(uid) || null },
     MAX_ON_DESK,

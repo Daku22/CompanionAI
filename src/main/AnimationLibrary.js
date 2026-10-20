@@ -25,9 +25,10 @@ const { writeAtomic } = require('./write-atomic')
 // per sit-edge abbassa il bacino), ma se ne puo' importare una con quel nome.
 // pat, flinch, giggle, hop, shy, scold, turnaway: le reazioni ai tocchi
 // (touch-react.js, Blocco 5b). eat, drink: mangiare e bere (Blocco 10b);
-// pickup, hug: raccogliere un oggetto e tenerlo in braccio (Blocco 10c).
+// pickup, hug: raccogliere un oggetto e tenerlo in braccio (Blocco 10c);
+// volley: il palleggio a pallavolo (Blocco 10d).
 const ANIMATION_SLOTS = ['idle', 'wave', 'think', 'walk-to', 'run-to', 'sit', 'sit-edge', 'perch', 'smoke', 'happy', 'click', 'dangle', 'search', 'stretch', 'yawn', 'doze', 'dance',
-  'pat', 'flinch', 'giggle', 'hop', 'shy', 'scold', 'turnaway', 'eat', 'drink', 'pickup', 'hug']
+  'pat', 'flinch', 'giggle', 'hop', 'shy', 'scold', 'turnaway', 'eat', 'drink', 'pickup', 'hug', 'volley']
 // Nomi per il menu "Prova", nello stesso ordine di ANIMATION_SLOTS.
 const SLOT_LABELS = {
   idle: 'A riposo', wave: 'Saluto', think: 'Pensa', 'walk-to': 'Camminata', 'run-to': 'Corsa',
@@ -36,7 +37,7 @@ const SLOT_LABELS = {
   yawn: 'Sbadiglio', doze: 'Sonnecchia', dance: 'Balla',
   pat: 'Carezza', flinch: 'Sussulto', giggle: 'Risatina', hop: 'Saltello', shy: 'Imbarazzo',
   scold: 'Rimprovero', turnaway: 'Si gira di spalle', eat: 'Mangia', drink: 'Beve',
-  pickup: 'Raccoglie', hug: 'Abbraccia',
+  pickup: 'Raccoglie', hug: 'Abbraccia', volley: 'Palleggio',
 }
 const FILE_RE = /^[a-z0-9][a-z0-9._-]{0,80}\.vrma$/i
 const MAX_ANIMATION_BYTES = 30 * 1024 * 1024

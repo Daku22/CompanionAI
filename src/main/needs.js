@@ -35,19 +35,39 @@ const RULES = {
   // Fumetti: con un po' di fame ogni 20-40 minuti, con molta ogni 10-15.
   BUBBLE_SOME_MS: [20 * 60 * 1000, 40 * 60 * 1000],
   BUBBLE_MUCH_MS: [10 * 60 * 1000, 15 * 60 * 1000],
+  // Pallavolo (Blocco 10d): ogni palleggio del companion fa venire un po' di
+  // sete, piu' in fretta del tempo che passa (100 palleggi = mezza sete).
+  PLAY_THIRST: 0.005,
 }
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v))
 const num01 = (v) => (typeof v === 'number' && Number.isFinite(v) ? clamp01(v) : 0)
 
 /**
- * @typedef {{ hunger: number, thirst: number }} Needs
+ * volleyBest e' il record di palleggi a pallavolo (Blocco 10d): sta qui perche'
+ * e' della persona, come fame e sete, e resta anche con i bisogni spenti.
+ * @typedef {{ hunger: number, thirst: number, volleyBest: number }} Needs
  */
+
+const count = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100000, Math.floor(v))) : 0)
 
 /** Stato iniziale, o quello salvato ripulito. */
 function createNeeds(saved) {
-  if (!saved || typeof saved !== 'object') return { hunger: 0, thirst: 0 }
-  return { hunger: num01(saved.hunger), thirst: num01(saved.thirst) }
+  if (!saved || typeof saved !== 'object') return { hunger: 0, thirst: 0, volleyBest: 0 }
+  return { hunger: num01(saved.hunger), thirst: num01(saved.thirst), volleyBest: count(saved.volleyBest) }
+}
+
+/**
+ * Fine di una partita a pallavolo con hits palleggi: se e' un record si
+ * ricorda. byCompanion sono i palleggi fatti da lui, che gli mettono sete.
+ * @returns {{ needs: Needs, record: boolean, best: number }}
+ */
+function endVolley(needs, hits, byCompanion = 0, thirsty = true) {
+  const n = count(hits)
+  const record = n > 0 && n > (needs.volleyBest || 0)
+  const next = { ...needs, volleyBest: record ? n : needs.volleyBest || 0 }
+  if (thirsty) next.thirst = clamp01(next.thirst + count(byCompanion) * RULES.PLAY_THIRST)
+  return { needs: next, record, best: next.volleyBest }
 }
 
 /**
@@ -178,5 +198,5 @@ async function saveNeeds(file, needs) {
 
 module.exports = {
   RULES, BUBBLES, createNeeds, grow, feed, level, worst, promptLine, bubble, bubbleDelay,
-  moodPull, neglect, walkFactor, publicNeeds, loadNeeds, saveNeeds,
+  moodPull, neglect, walkFactor, publicNeeds, loadNeeds, saveNeeds, endVolley,
 }

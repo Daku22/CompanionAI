@@ -684,7 +684,7 @@ const ANIM_ALIAS = {
   // Mangiare e bere (Blocco 10b): contento, il fumetto lo manda il main.
   'eat': 'happy', 'drink': 'happy',
   // Oggetti (Blocco 10c).
-  'pickup': 'click', 'hug': 'happy',
+  'pickup': 'click', 'hug': 'happy', 'volley': 'happy',
 };
 function resolveAnimKey(action) {
   if (!action) return 'idle';

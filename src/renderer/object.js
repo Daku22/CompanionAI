@@ -26,8 +26,14 @@ async function load() {
   document.body.classList.add('ready');
 }
 
+// Pallavolo (Blocco 10d): il conto dei palleggi sul pallone.
+const count = document.getElementById('count');
 api.onObjectPose((pose) => {
   if (roll && pose && Number.isFinite(pose.spin)) view.setSpin(pose.spin);
+  if (pose && 'count' in pose) {
+    count.hidden = !Number.isFinite(pose.count);
+    count.textContent = Number.isFinite(pose.count) ? String(pose.count) : '';
+  }
   view.render();
 });
 // Cambiati tipo o misura dal pannello: si ricarica (rotola o no, inquadratura).

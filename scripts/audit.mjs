@@ -1281,6 +1281,40 @@ try {
     const many = await T({ op: 'state' })
     check(many.length === 5, 'oggetti: al massimo 5 sul desktop, il piu\' vecchio torna nella borsa (' + many.length + ')')
     await T({ op: 'clear' })
+
+    // Pallavolo (Blocco 10d): la battuta con un clic, lui ribatte verso il
+    // mouse (clip "volley"), noi due volte al volo, poi cade: palleggi
+    // contati sul pallone e record della persona.
+    const bx = (await comp.evaluate('[window.screenX, window.screenY, window.innerWidth, window.innerHeight]'))
+    const side = bx[0] - area.x > area.x + area.width - (bx[0] + bx[2]) ? -1 : 1
+    await comp.evaluate(`window.companion.testPeek({ cursor: { x: ${Math.round(bx[0] + bx[2] / 2 + side * 550)}, y: ${area.y + area.height - 420} } })`)
+    const ball = await T({ op: 'spawn', id: 'pallone', x: Math.round(bx[0] + bx[2] / 2 + side * 140), y: area.y + area.height - 40 })
+    await sleep(1200)
+    const served = await T({ op: 'serve', uid: ball })
+    let mine = 0
+    let swung = false
+    let shown = null
+    for (let i = 0; i < 600; i++) {
+      await sleep(20)
+      const s = (await T({ op: 'state' })).find(o => o.uid === ball)
+      if (!s || (!s.game && i > 5)) break
+      if (!swung) swung = (await comp.evaluate('window.__companion3DTest.animator().clipName')) === 'volley'
+      if (s.game.target === 'user' && s.vy > 0 && mine < 2) { mine++; await T({ op: 'hit', uid: ball }) }
+    }
+    {
+      const t = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find(x => x.url.includes('object.html'))
+      const ballPage = t && await connect(t)
+      shown = ballPage && await ballPage.evaluate(`document.getElementById('count').textContent`)
+      if (ballPage) {
+        const r = await ballPage.send('Page.captureScreenshot', { format: 'png' }).catch(() => null)
+        if (r && r.result) fs.writeFileSync(path.join(OUT, '10d-palleggi.png'), Buffer.from(r.result.data, 'base64'))
+      }
+    }
+    const game = await T({ op: 'last-game' })
+    const me = game && game.results && game.results[0]
+    check(served === true && swung && mine === 2 && game.hits >= 4 && shown === String(game.hits) && me && me.record && me.best === game.hits,
+      'pallavolo: battuta, palleggi contati sul pallone, record della persona (' + JSON.stringify({ served, swung, mine, hits: game.hits, shown, me }) + ')')
+    await T({ op: 'clear' })
     await comp.evaluate('window.companion.testPeek({ cursor: null })')
     await sleep(500)
   }

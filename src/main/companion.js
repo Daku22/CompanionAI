@@ -224,6 +224,21 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
   }
 
   /**
+   * Fine di una partita a pallavolo (Blocco 10d): il record della persona, e
+   * la sete dei palleggi fatti (se fame e sete sono accese).
+   * @returns {{ record: boolean, best: number }}
+   */
+  function endVolley(hits, mine) {
+    const r = Needs.endVolley(needs, hits, mine, ctx.prefs.needs)
+    needs = r.needs
+    persistNeeds()
+    broadcastMood()
+    // Un record se lo ricorda, e in chat puo' parlarne.
+    if (r.record && memory) memory.addTurn('[Abbiamo giocato a pallavolo sul desktop: nuovo record di ' + r.best + ' palleggi]', 'user').catch(() => {})
+    return { record: r.record, best: r.best }
+  }
+
+  /**
    * Il passo dei bisogni, a ogni giro della vita a riposo (5 s): fanno passare
    * il tempo di app aperta, e con fame o sete spingono umore e rapporto e
    * ogni tanto lo fanno dire in un fumetto. In pausa o spenti si fermano.
@@ -1465,7 +1480,8 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     alive, persona, avatarId, send,
     createWindow, initMemory, initMood, setPersona, shutdown, forget,
     updateMood, updateRapport, publicMood: publicMoodNow, broadcastMood, moodSaved: () => Promise.all([moodSave, rapportSave, needsSave]),
-    updateNeeds, worstNeed, feed,
+    updateNeeds, worstNeed, feed, endVolley,
+    get volleyBest() { return needs.volleyBest || 0 },
     buildHistoryWithMemory, withMoodLine, maybeWriteDiary,
     animate, holdPose, markActivity, idleTick, sendIdle, requestGeneratedMotion, fullscreenNow,
     reportAvatar, chibiState, setChibi,

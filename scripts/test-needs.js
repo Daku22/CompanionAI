@@ -25,9 +25,21 @@ function openFor(needs, h) {
 }
 
 test('si parte sazi, e un file rotto non rompe niente', () => {
-  assert.deepEqual(N.createNeeds(null), { hunger: 0, thirst: 0 })
-  assert.deepEqual(N.createNeeds({ hunger: 2, thirst: 'tanta' }), { hunger: 1, thirst: 0 })
-  assert.deepEqual(N.createNeeds({ hunger: 0.4, thirst: 0.7 }), { hunger: 0.4, thirst: 0.7 })
+  assert.deepEqual(N.createNeeds(null), { hunger: 0, thirst: 0, volleyBest: 0 })
+  assert.deepEqual(N.createNeeds({ hunger: 2, thirst: 'tanta', volleyBest: -3 }), { hunger: 1, thirst: 0, volleyBest: 0 })
+  assert.deepEqual(N.createNeeds({ hunger: 0.4, thirst: 0.7, volleyBest: 12.7 }), { hunger: 0.4, thirst: 0.7, volleyBest: 12 })
+})
+
+test('pallavolo: il record si ricorda solo se battuto, e giocare mette sete', () => {
+  const start = N.createNeeds({ hunger: 0.2, thirst: 0.2, volleyBest: 8 })
+  const low = N.endVolley(start, 5, 3)
+  assert.deepEqual([low.record, low.best], [false, 8])
+  assert.ok(Math.abs(low.needs.thirst - (0.2 + 3 * N.RULES.PLAY_THIRST)) < 1e-9, 'i palleggi del companion mettono sete')
+  const high = N.endVolley(start, 11, 6)
+  assert.deepEqual([high.record, high.best, high.needs.volleyBest], [true, 11, 11])
+  assert.equal(N.endVolley(N.createNeeds(null), 0).record, false, 'zero palleggi non e\' un record')
+  assert.equal(N.endVolley(start, 4, 50, false).needs.thirst, 0.2, 'con fame e sete spente niente sete')
+  assert.equal(N.grow(high.needs, 60000).volleyBest, 11, 'il tempo che passa non tocca il record')
 })
 
 test('salgono con il tempo di app aperta: fame piena in 8 ore, sete in 5', () => {

@@ -75,4 +75,21 @@ test('dove arriva: il primo tocco a terra e dove si ferma', () => {
   assert.ok(Math.abs(sim.x - rest.x) < 40, 'la previsione coincide con la simulazione: ' + sim.x + ' / ' + rest.x)
 })
 
+test('pallavolo: la mira arriva dove deve, e si sa dove ribatterla', () => {
+  const from = { x: 400, y: 800 }
+  const to = { x: 1300, y: 700 }
+  // A 30 passi al secondo, come il giro del cursore nel main.
+  const v = P.aim(from, to, 1.4)
+  assert.ok(v.vy < 0, "parte verso l'alto")
+  let b = P.push(P.createBody({ x: from.x, y: from.y, r: 30, bounce: 0.7 }), v.vx, v.vy)
+  for (let t = 0; t < 1.4 - 1e-9; t += 1 / 30) b = P.step(b, 1 / 30, W).body
+  assert.ok(Math.hypot(b.x - to.x, b.y - to.y) < 25, "dopo 1,4 s e' li': " + Math.round(b.x) + ',' + Math.round(b.y))
+  const start = P.push(P.createBody({ x: from.x, y: from.y, r: 30, bounce: 0.7 }), v.vx, v.vy)
+  const c = P.crossing(start, W, to.y)
+  assert.ok(c && Math.abs(c.x - to.x) < 25 && Math.abs(c.t - 1.4) < 0.05, 'scendendo passa per y=700 vicino a x=1300: ' + JSON.stringify(c))
+  assert.equal(P.crossing(start, W, W.floor + 100), null, 'sotto il pavimento non ci passa mai')
+  const low = P.push(P.createBody({ x: 400, y: 900, r: 30 }), 300, 0)
+  assert.equal(P.crossing(low, W, 600), null, "gia' sotto quell'altezza: tocca terra prima")
+})
+
 console.log(`=== ${passed} test superati ===`)
