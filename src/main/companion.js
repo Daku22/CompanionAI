@@ -24,6 +24,7 @@ const moodLib = require('./mood')
 const Personas = require('./personas')
 const Rapport = require('./rapport')
 const Needs = require('./needs')
+const Food = require('./food')
 const Diary = require('./diary')
 const ActiveApp = require('./active-app')
 const touchReact = require('./touch-react')
@@ -188,6 +189,38 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     needsBubbleAt = 0
     persistNeeds()
     broadcastMood()
+  }
+
+  // Mangiare e bere (Blocco 10b): uno alla volta, il tempo della clip.
+  const EAT_MS = 3600
+  let eatingUntil = 0
+
+  /**
+   * Mangia o beve item (food.js), dato dall'utente: trascinato sull'avatar o
+   * offerto in chat. Sazia (se fame e sete sono accese), rallegra, lo ricorda,
+   * ringrazia e lo fa: la clip "eat" o "drink" con il cibo in mano (3D).
+   * false se sta gia' mangiando o non puo'.
+   */
+  function feed(item) {
+    const now = Date.now()
+    if (!item || !alive() || drag || now < eatingUntil) return false
+    eatingUntil = now + EAT_MS
+    markActivity()
+    const fx = Food.effectsOf(item)
+    if (ctx.prefs.needs) updateNeeds(n => Needs.feed(n, fx))
+    updateMood(m => {
+      let next = moodLib.nudge(moodLib.decay(m, now), 'affection', 0.02)
+      if (fx.joy) next = moodLib.nudge(next, 'joy', fx.joy)
+      if (fx.energy) next = { ...next, energy: Math.min(1, next.energy + fx.energy) }
+      return next
+    })
+    if (memory) memory.addTurn(Food.memoryLine(item), 'user').catch(() => {})
+    console.log('[cibo] ' + personaId + ': ' + item.id)
+    animate({
+      type: 'none', animation: item.kind === 'drink' ? 'drink' : 'eat', bubble: Food.thanks(item),
+      prop: { url: 'vrm://food/' + encodeURIComponent(item.id) + '.glb', size: item.size, ms: EAT_MS },
+    })
+    return true
   }
 
   /**
@@ -1389,7 +1422,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     alive, persona, avatarId, send,
     createWindow, initMemory, initMood, setPersona, shutdown, forget,
     updateMood, updateRapport, publicMood: publicMoodNow, broadcastMood, moodSaved: () => Promise.all([moodSave, rapportSave, needsSave]),
-    updateNeeds, worstNeed,
+    updateNeeds, worstNeed, feed,
     buildHistoryWithMemory, withMoodLine, maybeWriteDiary,
     animate, holdPose, markActivity, idleTick, sendIdle, requestGeneratedMotion, fullscreenNow,
     reportAvatar, chibiState, setChibi,

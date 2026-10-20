@@ -309,6 +309,16 @@ window.__companion3DTest = {
   roomTime: (iso) => { if (roomScene) roomScene.setTime(iso ? new Date(iso) : null); },
   /** Foto (Blocco 7e): lo scatto come lo fa "Scatta", senza salvarlo. */
   photoShot: () => { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); },
+  /** Il cibo in mano (Blocco 10b): url e lato in metri, o null. */
+  prop: () => {
+    if (!heldProp) return null;
+    const p = heldProp.getWorldPosition(new THREE.Vector3());
+    const s = p.clone().project(camera);
+    const box = new THREE.Box3().setFromObject(heldProp);
+    return { url: heldProp.userData.url, size: heldProp.userData.worldSize, hand: heldProp.userData.hand.name,
+      world: p.toArray().map(v => +v.toFixed(3)), box: box.getSize(new THREE.Vector3()).toArray().map(v => +v.toFixed(3)),
+      screen: [Math.round((s.x + 1) / 2 * window.innerWidth), Math.round((1 - s.y) / 2 * window.innerHeight)] };
+  },
   roomScene: (id) => { const chosen = roomScene ? roomScene.setScene(id) : null; roomUI.refreshScenes(); return chosen; },
   roomWeather: (w, place) => { if (roomScene) roomScene.setWeather(w, place); },
   /** Stato dell'ombra ai piedi. */
@@ -682,6 +692,7 @@ function animate() {
     reportSeat(currentVrm);
   }
   if (roomMode && guests.size) updateGuests(delta);
+  if (heldProp) updateHeldProp();
   controls.update();
   renderer.render(scene, camera);
   readHit();
@@ -836,6 +847,7 @@ async function readModel(avatar) {
 async function loadVRMModel(avatar) {
   console.log("Caricamento modello 3D:", avatar.name);
   ensureThree();
+  dropProp();
   const seq = ++loadSeq;
   if (currentVrm) {
     body.remove(currentVrm.scene);
@@ -995,6 +1007,71 @@ function faceShot(head, hips) {
   return window.CompanionThumb.wholeCanvas(renderer.domElement);
 }
 
+// ─── Cibo in mano (Blocco 10b) ──────────────────────────────────────────────
+// Mentre mangia o beve, il modello del cibo (vrm://food/, Food Kit di Kenney)
+// segue il palmo della mano destra, in scala con l'avatar e sempre dritto. Sta
+// un po' davanti al palmo, verso la camera: centrato nella mano, alla bocca
+// finiva dentro la testa (e dentro le maniche larghe). Sparisce a fine clip.
+const propCache = new Map();
+let heldProp = null;
+let propTimer = null;
+let propSeq = 0;
+/** A ogni fotogramma: il cibo davanti al palmo, verso la camera, dritto. */
+function updateHeldProp() {
+  const d = heldProp && heldProp.userData;
+  if (!d || !d.hand.parent) return;
+  const palm = d.hand.localToWorld(d.palm.clone());
+  const toCamera = camera.position.clone().sub(palm).setY(0);
+  if (toCamera.lengthSq() > 1e-6) toCamera.normalize();
+  heldProp.position.copy(palm).addScaledVector(toCamera, d.ahead);
+}
+function dropProp() {
+  clearTimeout(propTimer);
+  propTimer = null;
+  propSeq++;
+  if (heldProp) { heldProp.removeFromParent(); heldProp = null; }
+}
+async function holdProp(prop) {
+  dropProp();
+  const h = currentVrm && currentVrm.humanoid;
+  const hand = h && h.getRawBoneNode('rightHand');
+  if (!hand || !prop || typeof prop.url !== 'string' || !/^vrm:\/\/food\/[a-z0-9-]+\.glb$/.test(prop.url)) return;
+  const seq = propSeq;
+  let gltf = propCache.get(prop.url);
+  if (!gltf) {
+    try { gltf = await loader.loadAsync(prop.url); } catch (e) { console.warn('Cibo non caricato:', e.message); return; }
+    propCache.set(prop.url, gltf);
+  }
+  if (seq !== propSeq || !currentVrm) return;
+  const obj = gltf.scene.clone(true);
+  // I materiali del Food Kit sono fisici: con le luci tarate per gli avatar
+  // anime venivano quasi neri. Senza luci, con gli stessi colori, come le icone.
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    const src = o.material;
+    o.material = new THREE.MeshBasicMaterial({ map: src.map || null, color: src.color ? src.color.clone() : 0xffffff, transparent: !!src.transparent, opacity: src.opacity ?? 1 });
+  });
+  // size e' per un avatar alto 1,6 m, che dal bacino alla testa fa circa 0,55 m.
+  const head = h.getRawBoneNode('head');
+  const hips = h.getRawBoneNode('hips');
+  const unit = head && hips ? Math.max(0.15, head.getWorldPosition(new THREE.Vector3()).y - hips.getWorldPosition(new THREE.Vector3()).y) : 0.55;
+  const box = new THREE.Box3().setFromObject(obj);
+  const dim = box.getSize(new THREE.Vector3());
+  const worldSize = (Number(prop.size) || 0.1) * unit / 0.55;
+  const holder = new THREE.Group();
+  obj.position.copy(box.getCenter(new THREE.Vector3())).multiplyScalar(-1);
+  holder.add(obj);
+  holder.scale.setScalar(worldSize / (Math.max(dim.x, dim.y, dim.z) || 1));
+  // Il palmo, nello spazio della mano: poco oltre il polso, verso le dita.
+  const fingers = hand.children.filter(ch => ch.isBone);
+  const palm = fingers.length ? fingers.reduce((s, f) => s.add(f.position), new THREE.Vector3()).multiplyScalar(0.6 / fingers.length) : new THREE.Vector3();
+  holder.userData = { url: prop.url, worldSize, hand, palm, ahead: worldSize * 0.6 + 0.02 * unit / 0.55 };
+  scene.add(holder);
+  heldProp = holder;
+  updateHeldProp();
+  propTimer = setTimeout(dropProp, Math.min(10000, Number(prop.ms) || 3600));
+}
+
 /** Un modello senza scheletro: la parte alta della sagoma, come per il 2D. */
 function staticShot() {
   renderer.render(scene, camera);
@@ -1069,7 +1146,7 @@ const SLOT_LABELS = {
   doze: 'Sonnecchia', dance: 'Balla', 'walk-to': 'Camminata', 'run-to': 'Corsa', search: 'Cerca',
   smoke: 'Fuma', click: 'Clic',
   pat: 'Carezza', flinch: 'Sussulto', giggle: 'Risatina', hop: 'Saltello', shy: 'Imbarazzo',
-  scold: 'Rimprovero', turnaway: 'Si gira di spalle',
+  scold: 'Rimprovero', turnaway: 'Si gira di spalle', eat: 'Mangia', drink: 'Beve',
 };
 const SLOT_HINTS = [
   [/(ledge|edge|bordo|dangling legs)/, 'sit-edge'], [/(stretch|stiracch)/, 'stretch'],
@@ -1081,6 +1158,7 @@ const SLOT_HINTS = [
   [/(pat|carezz|stroke)/, 'pat'], [/(flinch|startl|sussult)/, 'flinch'], [/(giggl|laugh|tickl|rid|solletic)/, 'giggle'],
   [/(hop|jump|salt)/, 'hop'], [/(shy|embarrass|imbaraz)/, 'shy'], [/(scold|angry|cross|rimprover)/, 'scold'],
   [/(turn.?away|sulk|spalle)/, 'turnaway'],
+  [/(eat|bite|mangi|morso)/, 'eat'], [/(drink|sip|bev|sors)/, 'drink'],
 ];
 const guessSlot = (name) => (SLOT_HINTS.find(([re]) => re.test(name.toLowerCase())) || [null, 'idle'])[1];
 // Fase di una clip per uno slot ciclico (seduto, a riposo, camminata).
@@ -1299,6 +1377,9 @@ if (api && api.onTriggerAnimation) {
     // Il corpo si muove sempre; le espressioni le applica updateFace, se il
     // modello le espone.
     playClip(key);
+    // Mangiare e bere: il cibo in mano finche' dura la clip.
+    if (action && action.prop) holdProp(action.prop);
+    else if (key !== 'eat' && key !== 'drink') dropProp();
     // I gesti a riposo portano il proprio fumetto; in 3D gli altri non ne hanno.
     if (action && typeof action.bubble === 'string' && action.bubble) showBubble(action.bubble, 3000);
     if (key === 'wave' || key === 'happy') react('happy', 1.0);

@@ -681,6 +681,8 @@ const ANIM_ALIAS = {
   'relaxed': 'think',
   // Gesti senza una strip propria nei pacchetti di oggi.
   'sit-edge': 'sit', 'stretch': 'happy', 'yawn': 'think', 'doze': 'sit', 'dance': 'happy',
+  // Mangiare e bere (Blocco 10b): contento, il fumetto lo manda il main.
+  'eat': 'happy', 'drink': 'happy',
 };
 function resolveAnimKey(action) {
   if (!action) return 'idle';

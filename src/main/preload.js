@@ -95,6 +95,11 @@ contextBridge.exposeInMainWorld('companion', {
   testPeek:         (cmd)    => ipcRenderer.invoke('test:peek', cmd),
   testPeer:         ()       => ipcRenderer.invoke('test:peer'),
   testNeeds:        (values) => ipcRenderer.invoke('test:needs', values),
+  testDrop:         (msg)    => ipcRenderer.invoke('test:drop', msg),
+  // Il pannello del cibo (Blocco 10b): le card, il trascinamento, la chiusura.
+  itemsList:        ()       => ipcRenderer.invoke('items:list'),
+  itemsDrag:        (msg)    => ipcRenderer.send('items:drag', msg && typeof msg === 'object' ? { phase: String(msg.phase || ''), id: typeof msg.id === 'string' ? msg.id : undefined } : null),
+  itemsClose:       ()       => ipcRenderer.send('items:close'),
   live2dSetChoices: (id, choices) => ipcRenderer.invoke('live2d:set-choices', id, choices),
   voiceXttsCancel:  ()       => ipcRenderer.send('voice:xtts-cancel'),
   voiceXttsRemove:  ()       => ipcRenderer.invoke('voice:xtts-remove'),

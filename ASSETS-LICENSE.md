@@ -73,6 +73,18 @@ When the art is added, its license goes here. The recommended choice is
 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): anyone may
 share and adapt the character with credit, but not sell it.
 
+## Food and drinks (Kenney Food Kit)
+
+The 21 models in `modelli-3d/food/` (15 foods and 6 drinks, `.glb` with the
+shared `Textures/colormap.png`) come from the
+[Food Kit](https://kenney.nl/assets/food-kit) 2.0 by **Kenney**
+(www.kenney.nl), released under
+[CC0](https://creativecommons.org/publicdomain/zero/1.0/). They are renamed
+(`apple.glb` → `mela.glb`…) and otherwise unmodified. The icons in
+`modelli-3d/food/icons/` are renders of the same models
+(`scripts/food-icons.js`). Credit is not required by CC0; given here with
+thanks.
+
 ## Room scenes (HDRI)
 
 The room's photo backgrounds in `modelli-3d/scenes/` are 360° HDRI images

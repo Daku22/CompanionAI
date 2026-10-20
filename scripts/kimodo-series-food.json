@@ -1,0 +1,15 @@
+{
+  "about": "Mangiare e bere (Blocco 10b), generate con npm run kimodo -- --series scripts/kimodo-series-food.json --out modelli-3d/animations --keep-raw. Il cibo lo mette il companion nella mano destra (companion-3d.js): la clip porta la mano destra alla bocca. Kimodo non vede oggetti: 'as if holding' tiene la mano chiusa davanti al corpo invece di gesticolare. Per bere niente 'cup', 'glass' o 'sip': Kimodo alza il gomito sopra la testa come con una bottiglia; descrivere solo la mano alla bocca e la testa un po' indietro.",
+  "clips": [
+    {
+      "out": "eat.vrma",
+      "seconds": 3.5,
+      "prompt": "A person stands facing forward, raises the right hand to the mouth as if holding a small snack, takes two bites while chewing happily, then lowers the hand."
+    },
+    {
+      "out": "drink.vrma",
+      "seconds": 3.5,
+      "prompt": "A person stands facing forward, raises the right hand to the mouth, holds it there for a moment with the head slightly tilted back, then lowers the hand."
+    }
+  ]
+}

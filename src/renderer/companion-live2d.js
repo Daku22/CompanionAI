@@ -200,7 +200,9 @@
       if (!active || !action || state.dragging) return
       const key = action.animation || action.type || 'idle'
       if (key === 'idle' || key === 'none' || key === 'walk-to' || key === 'run-to' || key === 'highfive') return
-      play(key)
+      // Mangiare e bere (Blocco 10b): i modelli Live2D non hanno un movimento
+      // per questo, si usa quello felice.
+      if (!play(key) && (key === 'eat' || key === 'drink')) play('happy')
     })
   }
 

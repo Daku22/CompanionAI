@@ -1,0 +1,26 @@
+{
+  "about": "Cibi e bevande inclusi (Blocco 10b): modelli del Food Kit di Kenney (CC0). hunger e thirst: quanto tolgono a fame e sete (da 0 a 1); joy: quanta allegria danno; energy: quanta energia; size: il lato piu' lungo in mano, in metri, per un avatar alto 1,6 m; words: le parole con cui si riconoscono in chat.",
+  "items": [
+    { "id": "mela",      "name": "Mela",      "a": "una mela",       "kind": "food",  "hunger": 0.2,  "thirst": 0.1,  "joy": 0.05, "size": 0.09, "words": ["mela", "mele", "apple"] },
+    { "id": "banana",    "name": "Banana",    "a": "una banana",     "kind": "food",  "hunger": 0.25, "joy": 0.05, "size": 0.16, "words": ["banana", "banane"] },
+    { "id": "fragola",   "name": "Fragola",   "a": "una fragola",    "kind": "food",  "hunger": 0.1,  "thirst": 0.05, "joy": 0.08, "size": 0.05, "words": ["fragola", "fragole", "strawberry"] },
+    { "id": "panino",    "name": "Panino",    "a": "un panino",      "kind": "food",  "hunger": 0.45, "joy": 0.05, "size": 0.12, "words": ["panino", "panini", "sandwich", "tramezzino"] },
+    { "id": "hamburger", "name": "Hamburger", "a": "un hamburger",   "kind": "food",  "hunger": 0.6,  "joy": 0.08, "size": 0.12, "words": ["hamburger", "burger"] },
+    { "id": "pizza",     "name": "Pizza",     "a": "una pizza",      "kind": "food",  "hunger": 0.6,  "joy": 0.1,  "size": 0.16, "words": ["pizza", "pizze"] },
+    { "id": "onigiri",   "name": "Onigiri",   "a": "un onigiri",     "kind": "food",  "hunger": 0.35, "joy": 0.06, "size": 0.08, "words": ["onigiri", "polpetta di riso", "rice ball"] },
+    { "id": "sushi",     "name": "Sushi",     "a": "un sushi",       "kind": "food",  "hunger": 0.3,  "joy": 0.08, "size": 0.07, "words": ["sushi", "nigiri"] },
+    { "id": "zuppa",     "name": "Zuppa",     "a": "una zuppa",      "kind": "food",  "hunger": 0.5,  "thirst": 0.2,  "joy": 0.05, "size": 0.14, "words": ["zuppa", "minestra", "brodo", "ramen", "soup"] },
+    { "id": "pancake",   "name": "Pancake",   "a": "dei pancake",    "kind": "food",  "hunger": 0.45, "joy": 0.1,  "size": 0.14, "words": ["pancake", "frittelle", "crepes"] },
+    { "id": "cupcake",   "name": "Cupcake",   "a": "un cupcake",     "kind": "food",  "hunger": 0.2,  "joy": 0.15, "size": 0.07, "words": ["cupcake", "tortina", "muffin"] },
+    { "id": "torta",     "name": "Torta",     "a": "una fetta di torta", "kind": "food", "hunger": 0.35, "joy": 0.18, "size": 0.14, "words": ["torta", "torte", "dolce", "cake"] },
+    { "id": "ciambella", "name": "Ciambella", "a": "una ciambella",  "kind": "food",  "hunger": 0.25, "joy": 0.15, "size": 0.1,  "words": ["ciambella", "ciambelle", "donut", "krapfen", "bombolone"] },
+    { "id": "biscotto",  "name": "Biscotto",  "a": "un biscotto",    "kind": "food",  "hunger": 0.1,  "joy": 0.12, "size": 0.06, "words": ["biscotto", "biscotti", "cookie"] },
+    { "id": "gelato",    "name": "Gelato",    "a": "un gelato",      "kind": "food",  "hunger": 0.15, "thirst": 0.1,  "joy": 0.18, "size": 0.14, "words": ["gelato", "gelati", "cono", "ice cream"] },
+    { "id": "te",        "name": "Tè",        "a": "un tè",          "kind": "drink", "thirst": 0.45, "joy": 0.06, "size": 0.1,  "words": ["tè", "te", "the", "tea", "tisana", "camomilla"] },
+    { "id": "caffe",     "name": "Caffè",     "a": "un caffè",       "kind": "drink", "thirst": 0.3,  "joy": 0.05, "energy": 0.15, "size": 0.08, "words": ["caffè", "caffe", "coffee", "espresso", "cappuccino"] },
+    { "id": "acqua",     "name": "Acqua",     "a": "un bicchiere d'acqua", "kind": "drink", "thirst": 0.6, "size": 0.1, "words": ["acqua", "water"] },
+    { "id": "latte",     "name": "Latte",     "a": "del latte",      "kind": "drink", "thirst": 0.4,  "hunger": 0.1,  "joy": 0.05, "size": 0.12, "words": ["latte", "milk"] },
+    { "id": "frappe",    "name": "Frappè",    "a": "un frappè",      "kind": "drink", "thirst": 0.4,  "hunger": 0.1,  "joy": 0.12, "size": 0.14, "words": ["frappè", "frappe", "frullato", "milkshake", "smoothie"] },
+    { "id": "bibita",    "name": "Bibita",    "a": "una bibita",     "kind": "drink", "thirst": 0.4,  "joy": 0.08, "size": 0.11, "words": ["bibita", "aranciata", "cola", "soda", "succo", "lattina"] }
+  ]
+}

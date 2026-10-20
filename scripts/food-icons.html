@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- Pagina di food-icons.js: disegna un modello di cibo in 256x256, trasparente. -->
+<script type="importmap">{ "imports": { "three": "../src/renderer/vendor/three.module.js", "three/addons/": "../src/renderer/vendor/three-addons/" } }</script>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+
+const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true })
+renderer.setSize(256, 256)
+renderer.setClearColor(0x000000, 0)
+renderer.outputColorSpace = THREE.SRGBColorSpace
+document.body.appendChild(renderer.domElement)
+
+// Il GLB arriva in base64 dal main (fetch non legge file://); le texture
+// accanto le carica il loader da resourcePath.
+window.renderIcon = async (b64, resourcePath) => {
+  const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer
+  const gltf = await new Promise((resolve, reject) => new GLTFLoader().parse(buf, resourcePath, resolve, reject))
+  const scene = new THREE.Scene()
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7a6a, 2.4))
+  const sun = new THREE.DirectionalLight(0xffffff, 1.4)
+  sun.position.set(2, 3, 2)
+  scene.add(sun)
+  scene.add(gltf.scene)
+  const box = new THREE.Box3().setFromObject(gltf.scene)
+  const center = box.getCenter(new THREE.Vector3())
+  const radius = box.getSize(new THREE.Vector3()).length() / 2
+  const cam = new THREE.PerspectiveCamera(30, 1, 0.001, 100)
+  // Un po' dall'alto e di tre quarti, come le anteprime di Kenney.
+  cam.position.copy(center).addScaledVector(new THREE.Vector3(1, 0.85, 1.5).normalize(), radius / Math.sin(15 * Math.PI / 180))
+  cam.lookAt(center)
+  renderer.render(scene, cam)
+  return renderer.domElement.toDataURL('image/png')
+}
+window.iconsReady = true
+</script>

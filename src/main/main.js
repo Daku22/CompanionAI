@@ -29,6 +29,7 @@ const moodLib = require('./mood')
 const Personas = require('./personas')
 const Rapport = require('./rapport')
 const Needs = require('./needs')
+const Food = require('./food')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
 const ActiveApp = require('./active-app')
@@ -754,10 +755,107 @@ on('hud:action', async (_e, cmd) => {
     case 'settings': openSettings(); break
     case 'room': c.setView('room'); hideHud(); break
     case 'avatar': c.send('menu-command', { cmd: 'avatars' }); break
+    case 'food': openFoodPanel(c); break
     case 'hide': c.win.hide(); hideHud(); break
     case 'drag': hudDragging = true; c.startDrag(); break
   }
 })
+
+// ─── Cibo (Blocco 10b) ───────────────────────────────────────────────────────
+// Il pannello del cibo (items.html) accanto al companion, e il trascinamento:
+// premendo su una card si apre il "fantasma" (ghost.html) che segue il
+// cursore; lasciando il tasto sopra un companion, lui lo mangia (feed). Il
+// rilascio lo dice la pagina, o koffi se il tasto si lascia fuori finestra.
+const FOOD_DIR = path.join(__dirname, '..', '..', 'modelli-3d', 'food')
+let foodCatalog = null
+const foodItems = () => (foodCatalog || (foodCatalog = Food.loadCatalog(FOOD_DIR)))
+let itemsWindow = null
+let itemDrag = null   // { item, ghost, started } mentre si trascina
+
+function createItemsWindow() {
+  const win = new BrowserWindow({
+    width: 300, height: 380,
+    transparent: true, frame: false, alwaysOnTop: true, skipTaskbar: true, resizable: false, hasShadow: false, show: false,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') },
+  })
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.loadFile(path.join(__dirname, '../renderer/items.html'))
+  win.on('closed', () => { if (itemsWindow === win) itemsWindow = null })
+  return win
+}
+
+/** Apre il pannello del cibo accanto a c, dal lato dove c'e' posto. */
+function openFoodPanel(c) {
+  if (!c || !c.alive()) return
+  if (!itemsWindow || itemsWindow.isDestroyed()) itemsWindow = createItemsWindow()
+  const b = c.bounds
+  const area = c.workArea()
+  const [w, h] = itemsWindow.getSize()
+  const left = b.x - w - 8
+  const x = left >= area.x ? left : Math.min(b.x + b.width + 8, area.x + area.width - w)
+  const y = Math.max(area.y, Math.min(b.y + b.height - h, area.y + area.height - h))
+  itemsWindow.setPosition(Math.round(x), Math.round(y))
+  itemsWindow.show()
+}
+function closeItemsPanel() { if (itemsWindow && !itemsWindow.isDestroyed()) itemsWindow.hide() }
+
+/** Il companion sotto un punto dello schermo (la sua finestra, sul desktop), o null. */
+const companionAt = (p) => companions.find(c => c.alive() && c.win.isVisible() && c.viewMode === 'desktop' && insideRect(p, c.bounds)) || null
+
+function startItemDrag(id) {
+  const item = foodItems().find(it => it.id === id)
+  if (!item) return false
+  endItemDrag(null)
+  const ghost = new BrowserWindow({
+    width: 72, height: 72, transparent: true, frame: false, alwaysOnTop: true, skipTaskbar: true, resizable: false,
+    focusable: false, hasShadow: false, show: false, webPreferences: { sandbox: true, contextIsolation: true },
+  })
+  ghost.setIgnoreMouseEvents(true)
+  ghost.setAlwaysOnTop(true, 'screen-saver')
+  ghost.loadFile(path.join(__dirname, '../renderer/ghost.html'), { query: { id: item.id } })
+  ghost.once('ready-to-show', () => { if (itemDrag && itemDrag.ghost === ghost && !ghost.isDestroyed()) ghost.showInactive() })
+  itemDrag = { item, ghost, started: Date.now() }
+  return true
+}
+
+/** Fine del trascinamento: sopra un companion, glielo da'. */
+function endItemDrag(point) {
+  const d = itemDrag
+  itemDrag = null
+  if (!d) return null
+  if (!d.ghost.isDestroyed()) d.ghost.destroy()
+  const c = point && companionAt(point)
+  return c && c.feed(d.item) ? c : null
+}
+
+/** A ogni tick del cursore: il fantasma segue il mouse. */
+function itemsTick(cursor) {
+  const d = itemDrag
+  if (!d) return
+  if (!d.ghost.isDestroyed()) d.ghost.setPosition(Math.round(cursor.x - 36), Math.round(cursor.y - 36))
+  if (winWindows.available() && Date.now() - d.started > 300 && !winWindows.isKeyDown(0x01)) endItemDrag(cursor)
+  else if (Date.now() - d.started > 60000) endItemDrag(null)
+}
+
+handle('items:list', () => ({ food: foodItems().map(it => ({ ...Food.publicItem(it), icon: 'vrm://food/icons/' + it.id + '.png' })) }))
+on('items:close', () => closeItemsPanel())
+on('items:drag', (_e, msg) => {
+  const phase = msg && msg.phase
+  if (phase === 'start' && typeof msg.id === 'string') startItemDrag(msg.id)
+  else if (phase === 'drop') endItemDrag(testCursor || screen.getCursorScreenPoint())
+  else if (phase === 'cancel') endItemDrag(null)
+})
+
+/**
+ * Il cibo di un'azione "eat"/"drink" del modello (Blocco 10b): quello nominato
+ * in item, se c'e' nel catalogo; se no un panino o un bicchiere d'acqua.
+ */
+function foodForAction(action) {
+  const kind = action.animation === 'drink' ? 'drink' : 'food'
+  const said = typeof action.item === 'string' ? action.item.slice(0, 60) : ''
+  const all = foodItems()
+  return Food.findFood(all, said, kind) || Food.findFood(all, said) || all.find(it => it.id === (kind === 'drink' ? 'acqua' : 'panino')) || null
+}
 
 /** Un messaggio arrivato in una chat chiusa: il numero sulla pillola. */
 function countUnread(win) {
@@ -2221,6 +2319,11 @@ on('os:execute', async (_e, action, personaId) => {
   // Triggera animazione companion. Passano solo tipo e animazione: il resto
   // dell'oggetto arriva dal modello e non deve finire nel fumetto.
   if (!c) return
+  // Mangiare e bere davvero (Blocco 10b): sazia, la clip, il cibo in mano.
+  if (action.animation === 'eat' || action.animation === 'drink') {
+    const item = foodForAction(action)
+    if (item && c.feed(item)) return
+  }
   if (action.animation) {
     c.markActivity()
     const motion = checkMotion(action)
@@ -2504,6 +2607,7 @@ function startCursorFeed() {
     const head = speaker && speaker.viewMode === 'desktop' ? Companions.headPoint(speaker.bounds) : null
     for (const c of companions) c.cursorTick(cursor, head && c !== speaker && c.viewMode === 'desktop' ? head : null)
     hudTick(cursor)
+    itemsTick(cursor)
   }, CURSOR_TICK_MS)
   if (cursorTimer.unref) cursorTimer.unref()
 }
@@ -2567,6 +2671,12 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     if (companions.length < 2) return false
     await peerExchange(companions[0], companions[1])
     return true
+  })
+  // Un cibo lasciato in un punto dello schermo (Blocco 10b), come dal pannello.
+  handle('test:drop', (_e, msg) => {
+    if (!msg || !startItemDrag(String(msg.id || ''))) return null
+    const c = endItemDrag({ x: Number(msg.x) || 0, y: Number(msg.y) || 0 })
+    return c ? c.personaId : null
   })
   // Fame e sete a un valore preciso (Blocco 10a), per il companion che chiede.
   handle('test:needs', (e, values) => {

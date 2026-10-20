@@ -86,6 +86,8 @@ const ANIMATIONS = [
   'idle', 'walk-to', 'run-to', 'think', 'wave', 'sit', 'smoke',
   'click', 'happy', 'scroll', 'open-file', 'search',
   'stretch', 'yawn', 'doze', 'dance', 'highfive',
+  // Blocco 10b: mangi o bevi davvero (il campo item dice cosa).
+  'eat', 'drink',
 ]
 // look (Blocco 7b): l'utente chiede di guardare lo schermo; la chat prepara la
 // schermata e la manda solo se l'utente conferma.
@@ -121,6 +123,7 @@ const COMPANION_SCHEMA = {
         direction: { type: 'string', enum: DIRECTIONS, description: 'verso di walk-to / run-to' },
         distance:  { type: 'string', enum: DISTANCES, description: 'quanto lontano: short, medium, edge (fino al bordo)' },
         motion:    { type: 'string', description: 'movimento nuovo da generare, in inglese (solo se richiesto e non fra le animazioni)' },
+        item:      { type: 'string', description: 'solo per eat / drink: cosa mangi o bevi, una o due parole (es. "tè", "mela")' },
         server:    { type: 'string', description: 'solo per type "tool": id del server MCP' },
         tool:      { type: 'string', description: 'solo per type "tool": nome dello strumento' },
         args:      { type: 'object', description: 'solo per type "tool": argomenti dello strumento' },
@@ -149,7 +152,8 @@ Rispondi SEMPRE e SOLO con un oggetto JSON valido in questo formato, senza testo
     "path": "percorso assoluto (solo per open-path)",
     "cmd": "comando shell (solo per run-command)",
     "direction": ${DIRECTIONS.map(d => `"${d}"`).join(' | ')} (solo per walk-to / run-to),
-    "distance": ${DISTANCES.map(d => `"${d}"`).join(' | ')} (solo per walk-to / run-to)
+    "distance": ${DISTANCES.map(d => `"${d}"`).join(' | ')} (solo per walk-to / run-to),
+    "item": "cosa mangi o bevi, una o due parole (solo per eat / drink)"
   }
 }
 
@@ -168,6 +172,12 @@ Esempi:
 - "batti cinque!" / "dammi il cinque" -> type: "none", animation: "highfive", emotion: "joy"
 - "sono stanco, stiracchiati con me" -> type: "none", animation: "stretch"
 - "buonanotte" -> type: "none", animation: "doze", emotion: "calm"
+- "ti preparo un tè" -> type: "none", animation: "drink", item: "tè", emotion: "joy"
+- "vuoi una fetta di torta?" (se accetti) -> type: "none", animation: "eat", item: "torta", emotion: "joy"
+
+"eat" e "drink" sono per quando l'utente ti offre davvero qualcosa da mangiare o da
+bere e tu lo accetti: lo mangi o lo bevi davvero, e ti toglie la fame o la sete.
+Non usarle se ne parlate e basta.
 
 Le animazioni e gli spostamenti del tuo avatar non sono azioni sul sistema:
 usa sempre type "none" e scegli l'animazione che corrisponde alla richiesta.

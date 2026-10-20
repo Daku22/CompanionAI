@@ -95,6 +95,7 @@ const REPLIES = {
   // Una risposta lunga, da interrompere parlando nel microfono.
   'raccontami una storia': { reply: 'C\'era una volta una piccola barca che voleva vedere il mare aperto. Ogni mattina guardava l\'orizzonte e sognava isole lontane, pesci colorati e tramonti rossi. Un giorno il vento cambiò, e la barca finalmente partì.', emotion: 'joy', action: { type: 'none', animation: 'idle' } },
   'fai un inchino': { reply: 'Ci provo!', emotion: 'joy', action: { type: 'none', animation: 'idle', motion: 'A person does a deep, polite bow.' } },
+  'ti preparo un tè': { reply: 'Che bello, grazie!', emotion: 'joy', action: { type: 'none', animation: 'drink', item: 'tè' } },
 }
 const requests = []
 const fake = http.createServer((req, res) => {
@@ -1187,6 +1188,42 @@ try {
   arm = await armUp()
   check((await comp.evaluate('window.__companion3DTest.clips()')).clip === null && arm && arm[1] < 0, 'finita la clip torna la posa a riposo (braccio y ' + (arm ? arm[1].toFixed(2) : '?') + ')')
 
+  // 4c-cibo (Blocco 10b): un tè lasciato sul companion lo beve, con la tazza
+  // in mano, e la sete scende; "ti preparo un tè" in chat fa lo stesso.
+  {
+    const thirst = () => comp.evaluate('window.companion.getMood().then(m => m.needs.thirst)')
+    const heldProp = async () => {
+      let p = null
+      for (let i = 0; i < 25 && !p; i++) { await sleep(120); p = await comp.evaluate('window.__companion3DTest.prop()') }
+      return p
+    }
+    await comp.evaluate('window.companion.testNeeds({ hunger: 0.6, thirst: 0.9 })')
+    const b = await comp.evaluate('[window.screenX, window.screenY, window.innerWidth, window.innerHeight]')
+    const fed = await comp.evaluate(`window.companion.testDrop({ id: 'te', x: ${Math.round(b[0] + b[2] / 2)}, y: ${Math.round(b[1] + b[3] / 2)} })`)
+    const prop = await heldProp()
+    const clip = (await comp.evaluate('window.__companion3DTest.animator()')).clipName
+    // A meta' clip, con la mano alla bocca: la parte alta, ingrandita.
+    await sleep(1500)
+    {
+      const r = await comp.send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: b[2], height: Math.round(b[3] * 0.55), scale: 3 } })
+      fs.writeFileSync(path.join(OUT, '10b-te-in-mano.png'), Buffer.from(r.result.data, 'base64'))
+    }
+    const after = await thirst()
+    check(!!(fed && prop && /\/te\.glb$/.test(prop.url) && prop.size > 0.05 && prop.size < 0.2 && clip === 'drink' && after < 0.5),
+      'cibo: un tè lasciato sul companion, lo beve con la tazza in mano e la sete scende (' + JSON.stringify({ fed, prop, clip, after }) + ')')
+    const missed = await comp.evaluate(`window.companion.testDrop({ id: 'mela', x: ${b[0] - 300}, y: ${b[1] - 300} })`)
+    await sleep(4200)
+    const gone = await comp.evaluate('window.__companion3DTest.prop()')
+    check(missed === null && gone === null, 'cibo: lasciato fuori dal companion non succede niente, e finita la clip la tazza sparisce')
+    await comp.evaluate('window.companion.testNeeds({ hunger: 0.6, thirst: 0.9 })')
+    await say('ti preparo un tè')
+    const fromChat = await heldProp()
+    const after2 = await thirst()
+    check(!!(fromChat && /\/te\.glb$/.test(fromChat.url) && after2 < 0.5), 'cibo: "ti preparo un tè" in chat, lo beve davvero (' + JSON.stringify({ fromChat, after2 }) + ')')
+    await sleep(4200)
+    await comp.evaluate('window.companion.testNeeds({ hunger: 0, thirst: 0 })')
+  }
+
   // 4c'. "Siediti qui" con la clip di Kimodo: si siede a terra e ci resta.
   const standing = await comp.evaluate('window.__companion3DTest.hipsY()')
   await say('siediti qui')
@@ -1443,6 +1480,16 @@ try {
     check(!!(inChat && inChat.hunger && inChat.thirst && off && !off.hunger && !off.thirst),
       'chat: anelli di fame e sete, e spariscono con "Fame e sete" spento (' + JSON.stringify({ inChat, off }) + ')')
     await shot('9b-hud')
+    // Il pulsante del cibo (Blocco 10b): il pannello con le card, accanto a lui.
+    await hud.evaluate(`document.querySelector('#cap-right [data-cmd="food"]').click(); true`)
+    let itemsPage = null
+    for (let i = 0; i < 20 && !itemsPage; i++) { await sleep(250); itemsPage = await pageOf('items.html') }
+    let cards = 0
+    for (let i = 0; i < 20 && cards < 21; i++) { await sleep(200); cards = itemsPage ? await itemsPage.evaluate(`document.querySelectorAll('.item img').length`) : 0 }
+    const iconsOk = itemsPage && await itemsPage.evaluate(`[...document.querySelectorAll('.item img')].every(i => i.complete && i.naturalWidth === 256)`)
+    if (itemsPage) await chatShot(itemsPage, '10b-pannello-cibo')
+    check(cards >= 21 && iconsOk, 'HUD: il pulsante del cibo apre il pannello, ' + cards + ' card con le icone')
+    if (itemsPage) await itemsPage.evaluate('window.companion.itemsClose(); true').catch(() => {})
     await comp.evaluate('window.companion.testPeek({ cursor: null })')
     check(!!(hs && hs.shown && hs.name === 'Prova Audit' && around && hs.rings && chatOpen === 'visible' && title === 'Prova Audit' && groupButton),
       'HUD attorno al companion sotto il mouse: ' + JSON.stringify(hs) + ', chat singola ' + chatOpen + ' (' + title + '), tasto del gruppo ' + groupButton)

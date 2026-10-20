@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: vrm:">
+  <title>Cibo</title>
+  <link rel="stylesheet" href="ui.css">
+  <style>
+    /* Il pannello del cibo (Blocco 10b): una finestra trasparente accanto al
+       companion, con le card da trascinare su di lui. */
+    html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; font-family: var(--font); color: var(--text); user-select: none; }
+    #panel {
+      position: absolute; inset: 6px; display: flex; flex-direction: column;
+      border-radius: 18px; overflow: hidden; background: rgba(21, 20, 22, 0.94);
+    }
+    header { display: flex; align-items: center; gap: 10px; padding: 12px 10px 8px 14px; -webkit-app-region: drag; }
+    header h1 { flex: 1; font-family: var(--font-display); font-size: 14px; font-weight: 600; letter-spacing: -0.005em; }
+    header button { -webkit-app-region: no-drag; }
+    .close { width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--text-3); display: grid; place-items: center;
+      transition: background 0.2s var(--ease), color 0.2s var(--ease); }
+    .close:hover { background: var(--danger-soft); color: var(--danger); }
+    .seg { display: flex; gap: 2px; margin: 0 12px 8px; padding: 3px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+    .seg button { flex: 1; border: 0; background: transparent; padding: 5px 0; border-radius: 7px; color: var(--text-2); font-size: 12px; font-weight: 500;
+      transition: background 0.2s var(--ease), color 0.2s var(--ease); }
+    .seg button[aria-pressed="true"] { background: var(--surface-top); color: var(--text); }
+    #grid {
+      flex: 1; overflow-y: auto; padding: 2px 12px 8px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; align-content: start;
+      scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+    }
+    .item {
+      display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px 7px; border-radius: 12px;
+      background: var(--surface); border: 1px solid var(--line); cursor: grab; touch-action: none;
+      transition: background 0.2s var(--ease), border-color 0.2s var(--ease), transform 0.12s var(--ease);
+    }
+    .item:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+    .item:active, .item.dragging { cursor: grabbing; transform: scale(0.96); }
+    .item img { width: 58px; height: 58px; object-fit: contain; pointer-events: none; }
+    .item span { font-size: 11.5px; color: var(--text-2); }
+    footer { padding: 8px 14px 12px; font-size: 11px; color: var(--text-3); line-height: 1.45; text-wrap: pretty; }
+  </style>
+</head>
+<body>
+<div id="panel" class="glass">
+  <header>
+    <h1 id="title">Cibo</h1>
+    <button class="close" id="close" type="button" title="Chiudi" aria-label="Chiudi">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <nav class="seg" aria-label="Cosa mostrare">
+    <button type="button" data-kind="" aria-pressed="true">Tutto</button>
+    <button type="button" data-kind="food" aria-pressed="false">Da mangiare</button>
+    <button type="button" data-kind="drink" aria-pressed="false">Da bere</button>
+  </nav>
+  <main id="grid" aria-label="Cibi e bevande"></main>
+  <footer id="hint">Trascina un cibo o una bevanda sul companion: lo prende e lo mangia.</footer>
+</div>
+<script src="items.js"></script>
+</body>
+</html>
