@@ -5,6 +5,8 @@
 //   /scene/<n>    disegna la scena n (colori e forme diversi)
 //   /minimize     riduce a icona;  /restore  la riporta
 //   /title/<t>    cambia il titolo (come un gioco che ci scrive gli FPS)
+//   /black        schermata nera (come lo schermo intero esclusivo, che non si cattura)
+//   /fullscreen   grande quanto lo schermo e sempre in primo piano;  /windowed  torna in finestra
 //   /quit         chiude
 // Uso: electron scripts/fixtures/fake-game/main.js --port=<porta> [--title=<titolo>]
 const { app, BrowserWindow } = require('electron')
@@ -37,6 +39,9 @@ app.whenReady().then(() => {
     else if (cmd === 'minimize') win.minimize()
     else if (cmd === 'restore') { win.restore(); win.showInactive() }
     else if (cmd === 'title') { title = arg; win.setTitle(arg) }
+    else if (cmd === 'black') win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><title>' + title + '</title><body style="margin:0;background:#000;height:100vh">'))
+    else if (cmd === 'fullscreen') { win.setFullScreen(true); win.setAlwaysOnTop(true, 'screen-saver'); win.moveTop() }
+    else if (cmd === 'windowed') { win.setAlwaysOnTop(false); win.setFullScreen(false) }
     else if (cmd === 'quit') setTimeout(() => app.quit(), 50)
     res.end('ok ' + cmd)
   }).listen(PORT, '127.0.0.1')

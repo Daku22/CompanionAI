@@ -813,6 +813,16 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     }, DRAG_TICK_MS)
   }
 
+  /**
+   * Di nuovo sopra le altre finestre "sempre in primo piano" (Blocco 12d: un
+   * gioco senza bordi che si rimette sopra). Solo se e' in primo piano per
+   * scelta: seduto su una finestra o con l'opzione spenta, no.
+   */
+  function bringToFront() {
+    if (!alive() || viewMode === 'room' || !win.isVisible() || !win.isAlwaysOnTop()) return
+    win.moveTop()
+  }
+
   /** Un'app a schermo intero sul monitor del companion. */
   function fullscreenNow() {
     if (!winWindows.available() || !alive()) return false
@@ -1491,7 +1501,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     updateNeeds, worstNeed, feed, endVolley,
     get volleyBest() { return needs.volleyBest || 0 },
     buildHistoryWithMemory, withMoodLine, maybeWriteDiary,
-    animate, holdPose, markActivity, idleTick, sendIdle, requestGeneratedMotion, fullscreenNow,
+    animate, holdPose, markActivity, idleTick, sendIdle, requestGeneratedMotion, fullscreenNow, bringToFront,
     reportAvatar, chibiState, setChibi,
     startDrag, endDrag, peekGeometry, endPeek, tryPerch, tryPeek, keepOnScreen, moveTo, workArea, setSeatAnchor,
     peekState: () => peek && { side: peek.edge.side, edgeX: peek.edge.edgeX, cut: peek.cut, placed: peek.placed, armed: peek.armed, head: peek.head },

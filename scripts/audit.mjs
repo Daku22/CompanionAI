@@ -1054,6 +1054,29 @@ try {
         const dailyLine = await st.evaluate(`document.getElementById('game-status').textContent`)
         check(!daily.status.on && /gratuiti di oggi/.test(daily.status.ended) && /gratuiti di oggi/.test(dailyBubble) && /gratuiti di oggi/.test(dailyLine),
           'gioco: con un gratuito al limite di oggi si ferma e lo dice (' + JSON.stringify({ ended: daily.status.ended, dailyBubble, dailyLine }) + ')')
+        // Schermo intero (Blocco 12d): il gioco copre lo schermo e si mette
+        // sopra; il companion torna sopra. Nero per 15 s: e' lo schermo intero
+        // esclusivo, pausa con l'avviso; in finestra riparte.
+        await chat.evaluate(`window.companion.setConfig({ game: { vision: { provider: 'openrouter', model: 'audit/json:free' } } })`)
+        await hud.evaluate(`document.getElementById('b-game').click(); true`)
+        for (let i = 0; i < 20 && !(await chat.evaluate('window.companion.testGame()')).status.on; i++) await sleep(250)
+        await gameCmd('fullscreen')
+        await sleep(400)
+        const coveredBefore = await chat.evaluate('window.companion.testGameZorder()')
+        let zorder = null
+        for (let i = 0; i < 30 && !(zorder && zorder.companion >= 0 && zorder.companion < zorder.game); i++) { await sleep(300); zorder = await chat.evaluate('window.companion.testGameZorder()') }
+        await gameCmd('black')
+        let exclusive = null
+        for (let i = 0; i < 100 && !(exclusive && exclusive.status.paused === 'fullscreen'); i++) { await sleep(250); exclusive = await chat.evaluate('window.companion.testGame()') }
+        const exclusiveBubble = await bubble()
+        await gameCmd('windowed')
+        await gameCmd('scene/2')
+        let windowed = null
+        for (let i = 0; i < 60 && !(windowed && windowed.status.on && !windowed.status.paused); i++) { await sleep(250); windowed = await chat.evaluate('window.companion.testGame()') }
+        await chat.evaluate('window.companion.testGame({ off: true })')
+        check(zorder.companion >= 0 && zorder.companion < zorder.game && exclusive.status.paused === 'fullscreen' && /finestra senza bordi/.test(exclusive.status.text)
+          && /finestra senza bordi/.test(exclusiveBubble) && windowed.status.on && !windowed.status.paused,
+          'gioco: sopra il gioco a tutto schermo il companion torna davanti; lo schermo intero esclusivo (nero) mette in pausa e lo dice (' + JSON.stringify({ coveredBefore, zorder, paused: exclusive.status.text, exclusiveBubble, back: windowed.status.paused }) + ')')
         await comp.evaluate('window.companion.testPeek({ cursor: null })')
         check(paused.status.paused === 'minimized' && /ridotto a icona/.test(paused.status.text) && pausedButton.paused && pausedButton.hidden
           && back.status.on && !back.status.paused && !off.status.on,

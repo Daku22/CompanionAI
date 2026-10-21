@@ -1953,6 +1953,8 @@ let gameEnded = ''         // perche' si e' fermata da sola, per la pagina Visio
 let gameSecondChance = 0.2 // un altro companion aggiunge una battuta
 let gameLastComment = null // per l'audit
 let gameMemory = null      // per l'audit: l'ultima riga in memoria
+let gameBlank = 0          // impronte nere di fila con la finestra grande quanto lo schermo (12d)
+let gameWarned = false     // l'avviso dello schermo intero, una volta per partita
 
 /** Il companion che guarda, se c'e'. */
 function gameWatcher() {
@@ -1980,7 +1982,25 @@ async function gameSignature() {
   const r = await captureGame(GAME_SIG_SIDE)
   if (!r.ok) return { ok: false, state: r.state }
   const sig = GameMode.signature(r.picture.resize({ width: GameMode.SIG_W, height: GameMode.SIG_H }).toBitmap())
-  return sig ? { ok: true, sig, title: r.title } : { ok: false, state: 'empty' }
+  if (!sig) return { ok: false, state: 'empty' }
+  // Schermo intero (Blocco 12d): il gioco (o, per lo schermo, la finestra in
+  // primo piano) copre tutto il monitor. In finestra senza bordi i companion
+  // tornano sopra a ogni giro; se l'immagine e' nera da 15 s, e' lo schermo
+  // intero esclusivo, che non si cattura.
+  const st2 = winWindows.windowState(r.hwnd || winWindows.foregroundWindow())
+  const dip = st2 && st2.bounds ? screen.screenToDipRect(null, st2.bounds) : null
+  const full = !!dip && GameMode.coversDisplay(dip, screen.getDisplayMatching(dip).bounds)
+  if (full) raiseCompanions()
+  gameBlank = full && GameMode.blankSig(sig) ? gameBlank + 1 : 0
+  if (gameBlank >= GameMode.BLANK_TICKS) return { ok: false, state: 'fullscreen' }
+  return { ok: true, sig, title: r.title }
+}
+
+/** I companion (e la barra) di nuovo sopra un gioco che copre lo schermo. */
+function raiseCompanions() {
+  if (loadConfig().alwaysOnTop === false) return
+  for (const c of companions) c.bringToFront()
+  if (hudShown && hudWindow && !hudWindow.isDestroyed()) hudWindow.moveTop()
 }
 
 /** Lo sguardo: lo scatto a 1024 px al modello che guarda, in prosa (SCENA e COMMENTO). */
@@ -2083,6 +2103,12 @@ const gameLoop = createGameLoop({
   look: () => gameLook(),
   onResult: (r, info) => gameResult(r, info),
   onState: () => {
+    // Lo schermo intero esclusivo: lo si dice una volta, nel fumetto.
+    const w = gameWatcher()
+    if (w && gameLoop.state().paused === 'fullscreen' && !gameWarned) {
+      gameWarned = true
+      w.send('companion-bubble', { text: 'Non vedo il gioco: mettilo in finestra senza bordi', ms: 8000 })
+    }
     sendSettings('game-state', gameStatus())
     if (hudShown && hudFor) sendHud({ game: gameHud(hudFor) })
   },
@@ -2144,6 +2170,8 @@ async function toggleGame(c) {
   gameScenes = []
   gameErrors = 0
   gameEnded = ''
+  gameBlank = 0
+  gameWarned = false
   gameLoop.start(c.personaId)
   c.send('companion-bubble', { text: '🎮 Guardo la partita', ms: 2500 })
   console.log('[gioco] acceso per ' + c.personaId + ' (' + vision.provider + ' ' + vision.model + ')')
@@ -3508,6 +3536,14 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     return { ok: r.ok, state: r.state, title: r.title || '', app: r.app || '', size: r.picture ? r.picture.getSize() : null, jpeg: r.image ? r.image.length : 0 }
   })
   // La modalita' gioco (Blocco 12b): lo stato, l'ultimo sguardo e il pulsante.
+  // Il companion e' sopra la finestra del gioco? (ordine z di Windows, Blocco 12d)
+  handle('test:game-zorder', async () => {
+    const r = await captureGame(64)
+    const order = winWindows.listWindows().map(w => w.hwnd)
+    const c = companions[0]
+    const own = c && c.alive() ? winWindows.handleOf(c.win.getNativeWindowHandle()) : 0
+    return { game: order.indexOf(r.hwnd || 0), companion: order.indexOf(own) }
+  })
   handle('test:game', (_e, cmd) => {
     if (cmd && cmd.off === true) endGame()
     if (cmd && Number.isFinite(cmd.react)) gameSecondChance = cmd.react

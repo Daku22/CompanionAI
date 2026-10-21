@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('companion', {
     ipcRenderer.on('game-state', handler)
     return () => ipcRenderer.removeListener('game-state', handler)
   },
+  testGameZorder:   ()       => ipcRenderer.invoke('test:game-zorder'),
   testGame:         (cmd)    => ipcRenderer.invoke('test:game', cmd && typeof cmd === 'object' ? { off: cmd.off === true, react: Number(cmd.react) } : null),
   streamLive:       (on)     => ipcRenderer.invoke('stream:live', on === true),
   onStreamState: (cb) => {
