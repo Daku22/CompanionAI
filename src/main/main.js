@@ -33,6 +33,8 @@ const Food = require('./food')
 const { takeSentences } = require('./speech-text')
 const Objects = require('./objects')
 const { createDesktopObjects } = require('./desktop-objects')
+const { createLiveSession } = require('./live-session')
+const { streamConfig } = require('./live-chat')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
 const ActiveApp = require('./active-app')
@@ -232,6 +234,7 @@ function publicConfig(cfg) {
     micShortcuts: Object.entries(MIC_SHORTCUTS).map(([id, s]) => ({ id, label: s.label })),
     // Scorciatoie dell'app (Blocco 9c): quelle registrate davvero, e le scelte.
     shortcutsActive: { ...appShortcuts },
+    stream: streamConfig(cfg),
     appShortcuts: Object.entries(APP_SHORTCUTS).map(([id, label]) => ({ id, label })),
   }
 }
@@ -1240,6 +1243,7 @@ const SHORTCUT_ACTIONS = {
   chat: () => toggleChat(),
   hide: () => toggleCompanionsShown(),
   handsfree: () => toggleHandsFree(hudFor || chatTarget()),
+  live: () => toggleLive(),
 }
 function syncAppShortcuts(cfg) {
   const want = shortcutsConfig(cfg)
@@ -1260,6 +1264,42 @@ function toggleCompanionsShown() {
   if (live.some(c => c.win.isVisible())) { for (const c of live) c.win.hide(); hideHud() }
   else for (const c of live) c.win.show()
 }
+
+// ─── Live su Twitch (Blocco 11c) ─────────────────────────────────────────────
+// "In diretta" (pagina Streaming o il suo tasto rapido) collega la chat del
+// canale in sola lettura (twitch-chat.js) e la sessione (live-session.js)
+// sceglie a cosa rispondere; il registro va alle Impostazioni. Le risposte
+// dei companion arrivano nel passo dopo (11d).
+const liveSession = createLiveSession({
+  config: () => streamConfig(loadConfig()),
+  names: () => companions.filter(c => c.alive()).map(c => ({ id: c.personaId, name: (c.persona() || {}).name || c.personaId })),
+  respond: null,
+  onState: (st) => sendSettings('stream-state', st),
+})
+
+function toggleLive() {
+  const st = liveSession.state()
+  const c = chatTarget()
+  if (st.on) {
+    liveSession.stop()
+    if (c) c.send('companion-bubble', { text: 'Fine della diretta', ms: 2500 })
+    return liveSession.state()
+  }
+  const r = liveSession.start()
+  if (!r.ok) { openSettings('streaming'); return r.state }
+  if (c) c.send('companion-bubble', { text: 'In diretta!', ms: 2500 })
+  return r.state
+}
+handle('stream:state', () => liveSession.state())
+handle('stream:live', (_e, on) => {
+  const st = liveSession.state()
+  if (on === true && !st.on) {
+    const r = liveSession.start()
+    return { ok: r.ok, error: r.error || '', state: r.state }
+  }
+  if (on === false && st.on) liveSession.stop()
+  return { ok: true, error: '', state: liveSession.state() }
+})
 
 // ─── Mani libere (Blocco 11b) ────────────────────────────────────────────────
 // Il microfono della pillola (o il tasto rapido) accende l'ascolto continuo

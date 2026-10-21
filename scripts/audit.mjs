@@ -148,6 +148,24 @@ const fake = http.createServer((req, res) => {
 await new Promise(r => fake.listen(0, '127.0.0.1', () => r(null)))
 const FAKE_URL = 'http://127.0.0.1:' + /** @type {import('net').AddressInfo} */ (fake.address()).port
 
+// Un IRC di Twitch finto (Blocco 11c): entra nel canale, e il test gli fa
+// mandare messaggi ed eventi. ircSeen: tutto quello che l'app gli scrive.
+const { createFakeWsServer } = require('./lib/fake-ws-server.js')
+const ircClients = []
+const ircSeen = []
+const fakeIrc = createFakeWsServer((client) => {
+  ircClients.push(client)
+  client.onText = (text) => {
+    for (const line of text.split('\r\n')) {
+      if (!line) continue
+      ircSeen.push(line)
+      if (line.startsWith('JOIN #')) client.send('@room-id=1 :tmi.twitch.tv ROOMSTATE ' + line.slice(5))
+    }
+  }
+})
+await new Promise(r => fakeIrc.listen(0, '127.0.0.1', () => r(null)))
+const IRC_URL = 'ws://127.0.0.1:' + /** @type {import('net').AddressInfo} */ (fakeIrc.address()).port
+
 // ── Dati finti: config, un avatar PNG importato ──────────────────────────────
 fs.mkdirSync(path.join(HOME, '.desktop-companion'), { recursive: true })
 fs.writeFileSync(path.join(HOME, '.desktop-companion', 'config.json'), JSON.stringify({
@@ -306,7 +324,7 @@ const occlusionArgs = ['--disable-backgrounding-occluded-windows', '--disable-re
 
 const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA, ...occlusionArgs, ...micArgs], {
   cwd: ROOT, stdio: 'ignore',
-  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, COMPANION_ONLY_USER_CLIPS: "1", COMPANION_TEST_HOOKS: '1', COMPANION_NO_OLLAMA_START: '1' },
+  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, TWITCH_IRC_URL: IRC_URL, COMPANION_ONLY_USER_CLIPS: "1", COMPANION_TEST_HOOKS: '1', COMPANION_NO_OLLAMA_START: '1' },
 })
 
 // ── Protocollo DevTools ──────────────────────────────────────────────────────
@@ -843,6 +861,36 @@ try {
     check(names.length >= 11 && opened.length === names.length + 1, 'Impostazioni: ' + opened.length + ' pagine aperte per nome, "persone" compresa (' + names.join(', ') + ')')
     const outer = await st.evaluate('[window.outerWidth, window.outerHeight]')
     check(outer[0] >= 900 && outer[1] >= 640, 'Impostazioni: finestra ' + outer.join('x'))
+
+    // Streaming (Blocco 11c): con l'IRC finto, "In diretta" legge la chat in
+    // sola lettura (utente anonimo, mai un messaggio scritto), scarta il bot
+    // e il link, sceglie il comando e registra il raid.
+    {
+      await comp.evaluate(`window.companion.setConfig({ stream: { channel: 'canale_audit', bots: ['nightbot'] } }).then(c => c.stream.channel)`)
+      await chat.evaluate(`window.companion.openSettings('streaming'); true`)
+      await sleep(400)
+      await st.evaluate(`document.getElementById('stream-live').click(); true`)
+      let joined = false
+      for (let i = 0; i < 50 && !joined; i++) { await sleep(150); joined = ircSeen.includes('JOIN #canale_audit') }
+      await sleep(500)
+      const PRIV = (login, text) => '@display-name=' + login + ';id=' + login + Date.now() + ';mod=0 :' + login + '!' + login + '@x.tmi.twitch.tv PRIVMSG #canale_audit :' + text
+      const RAID = '@display-name=AmicoStreamer;login=amicostreamer;msg-id=raid;msg-param-viewerCount=9 :tmi.twitch.tv USERNOTICE #canale_audit'
+      if (ircClients.length) ircClients[ircClients.length - 1].send([PRIV('nightbot', 'Seguite il canale!'), PRIV('spammer', 'https://spam.example/x'), PRIV('marco', '!chiedi come va la live?'), RAID].join('\r\n'))
+      let live = null
+      for (let i = 0; i < 40 && !(live && live.counts.answered >= 2); i++) { await sleep(200); live = await st.evaluate('window.companion.streamState()') }
+      await sleep(500)
+      await stShot('11c-streaming')
+      const logText = await st.evaluate(`document.getElementById('stream-log').textContent`)
+      const nick = ircSeen.find(l => l.startsWith('NICK ')) || ''
+      const wrote = ircSeen.filter(l => l.startsWith('PASS') || l.startsWith('PRIVMSG'))
+      check(joined && /^NICK justinfan\d+$/.test(nick) && !wrote.length && live && live.counts.received === 3 && live.counts.discarded === 2 && live.counts.events === 1 && live.counts.answered >= 2
+        && /un bot/.test(logText) && /solo link/.test(logText) && /raid con 9/.test(logText) && /come va la live/.test(logText),
+        'streaming: legge la chat da anonimo, scarta bot e link, sceglie il comando e il raid (' + JSON.stringify({ joined, nick, wrote: wrote.length, counts: live && live.counts }) + ')')
+      await st.evaluate(`document.getElementById('stream-live').click(); true`)
+      await sleep(600)
+      const off = await st.evaluate('window.companion.streamState()')
+      check(!off.on && off.status.state === 'off', 'streaming: spenta, si scollega (' + JSON.stringify(off.status) + ')')
+    }
     await st.evaluate(`document.querySelector('nav .item[data-page="personaggi"]').click(); true`)
     let gal = null
     for (let i = 0; i < 60 && !(gal && gal.thumb && gal.worn); i++) {
@@ -1763,6 +1811,8 @@ try {
 } finally {
   killTree(app)
   fake.close()
+  fakeIrc.close()
+  for (const c of ircClients) c.close()
   await sleep(1000)
   // Prima le junction di --xtts, da sole: la cancellazione della cartella di
   // lavoro non deve mai scendere nell'installazione vera.

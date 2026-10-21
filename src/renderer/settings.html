@@ -262,6 +262,19 @@
     .key-row select { flex: none; width: 190px; }
     .key-row .what span.warn { color: var(--danger); }
 
+  /* Registro della live (Blocco 11c). */
+  .row output.wide { min-width: 92px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .stream-counts { display: flex; gap: 18px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+  .stream-counts b { color: var(--text); font-weight: 600; }
+  .stream-log { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; display: grid; gap: 4px;
+    scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  .stream-log li { display: grid; grid-template-columns: 44px 1fr; gap: 8px; font-size: 12px; padding: 5px 8px; border-radius: 8px; background: var(--surface); }
+  .stream-log time { color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .stream-log .who { font-weight: 600; color: var(--text); margin-right: 4px; }
+  .stream-log .what { color: var(--text-2); overflow-wrap: anywhere; }
+  .stream-log .tag { display: inline-block; margin-left: 6px; font-size: 10.5px; padding: 0 6px; border-radius: 999px; background: var(--surface-top); color: var(--text-2); }
+  .stream-log .tag.ok { background: var(--accent-soft); color: var(--accent); }
+  .stream-log .tag.no { background: var(--danger-soft); color: var(--danger); }
   </style>
 </head>
 <body>
@@ -282,6 +295,8 @@
     <div class="group">Avatar</div>
     <button class="item" data-page="movimenti"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="2"/><path d="M8 21l3-6 3 2v4M11 15l1-6 4 3h3M12 9l-4 2-1 3"/></svg> Movimenti</button>
     <button class="item" data-page="live2d"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M5 20c.8-3.6 3.6-6 7-6s6.2 2.4 7 6"/><path d="M8.5 7.5c1.5-2 5.5-2 7 0"/></svg> Live2D</button>
+    <div class="group">Live</div>
+    <button class="item" data-page="streaming"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="12" rx="2.5"/><path d="M8 21h8M12 17.5V21"/><circle cx="7.5" cy="9.5" r="1.2" fill="currentColor" stroke="none"/></svg> Streaming</button>
     <div class="group">Comandi</div>
     <button class="item" data-page="tasti"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6.5" width="18" height="11" rx="2.5"/><path d="M7 10.5h.01M10.5 10.5h.01M14 10.5h.01M17.5 10.5h.01M8.5 14.5h7"/></svg> Tasti rapidi</button>
   </nav>
@@ -619,6 +634,42 @@
     </section>
    </div>
 
+   <div class="page hidden" id="page-streaming">
+    <h1>Streaming</h1>
+    <p class="sub">I companion fanno da co-conduttori della tua live su Twitch: leggono la chat senza account, solo in lettura,
+      e rispondono a chi li chiama. In OBS cattura lo schermo: i companion si vedono sopra le altre finestre.</p>
+    <section>
+      <div class="box">
+        <label class="switch"><input type="checkbox" id="stream-live"> In diretta</label>
+        <div class="state" id="stream-status" role="status"></div>
+        <div class="row"><label class="name" for="stream-channel">Canale</label><input class="pf-input" id="stream-channel" maxlength="80" spellcheck="false" placeholder="il nome del tuo canale Twitch"></div>
+        <div class="row"><label class="name" for="stream-command">Comando</label><input class="pf-input pf-mono" id="stream-command" maxlength="21" spellcheck="false"></div>
+        <p class="muted">Rispondono a chi scrive il nome di un companion (anche con @) o comincia con il comando, per esempio
+          «!chiedi che gioco è?». Con più companion sul desktop si alternano.</p>
+      </div>
+    </section>
+    <section>
+      <h2>Quanto parlano</h2>
+      <div class="box">
+        <div class="row"><label class="name" for="stream-per-minute">Risposte</label><input type="range" id="stream-per-minute" min="1" max="10" step="1"><output class="wide" id="stream-per-minute-out"></output></div>
+        <div class="row"><label class="name" for="stream-cooldown">Attesa</label><input type="range" id="stream-cooldown" min="0" max="300" step="15"><output class="wide" id="stream-cooldown-out"></output></div>
+        <div class="row"><label class="name" for="stream-spontaneous">Spontanei</label><input type="range" id="stream-spontaneous" min="0" max="15" step="1"><output class="wide" id="stream-spontaneous-out"></output></div>
+        <p class="muted">Risposte: quante al massimo in un minuto. Attesa: quanto passa prima di rispondere di nuovo allo stesso
+          spettatore. Spontanei: ogni quanto commentano un messaggio della chat anche senza essere chiamati (solo se la chat ha
+          scritto). Abbonamenti, regali e raid li ringraziano sempre.</p>
+        <div class="row"><label class="name" for="stream-bots">Bot</label><input class="pf-input pf-mono" id="stream-bots" maxlength="800" spellcheck="false"></div>
+      </div>
+    </section>
+    <section>
+      <h2>Registro</h2>
+      <div class="box">
+        <div class="stream-counts" id="stream-counts"></div>
+        <ol class="stream-log" id="stream-log" aria-live="polite"></ol>
+        <p class="muted" id="stream-log-empty">In diretta, qui vedi i messaggi ricevuti, a chi hanno risposto e quelli scartati, con il motivo.</p>
+      </div>
+    </section>
+   </div>
+
    <div class="page hidden" id="page-movimenti">
     <h1>Movimenti</h1>
     <p class="sub">I movimenti nuovi generati con Kimodo, dal più recente. Dagli un nome per ritrovarli nel menu "Prova", provali sull'avatar o eliminali.</p>
@@ -718,6 +769,10 @@
         <div class="key-row">
           <span class="what"><b>Mani libere</b><span id="key-handsfree-note">Accende e spegne l'ascolto continuo del microfono.</span></span>
           <select id="key-handsfree" aria-label="Scorciatoia delle mani libere"></select>
+        </div>
+        <div class="key-row">
+          <span class="what"><b>In diretta</b><span id="key-live-note">Accende e spegne la live su Twitch (pagina Streaming).</span></span>
+          <select id="key-live" aria-label="Scorciatoia della live"></select>
         </div>
         <div class="key-row">
           <span class="what"><b>Parla con il microfono</b><span id="shortcut-note"></span></span>

@@ -734,8 +734,8 @@
   // ─── Tasti rapidi (Blocco 9c) ──────────────────────────────────────────────
   // La chat e i companion: scorciatoie dell'app (shortcuts nella config). Il
   // microfono sta con la voce (voice.micShortcut): la sua riga e' piu' sotto.
-  const KEY_NOTES = { chat: 'L\'ultima chat che hai usato.', hide: 'Tutti insieme, con i loro comandi.', handsfree: 'Accende e spegne l\'ascolto continuo del microfono.' }
-  const KEYS = ['chat', 'hide', 'handsfree']
+  const KEY_NOTES = { chat: 'L\'ultima chat che hai usato.', hide: 'Tutti insieme, con i loro comandi.', handsfree: 'Accende e spegne l\'ascolto continuo del microfono.', live: 'Accende e spegne la live su Twitch (pagina Streaming).' }
+  const KEYS = ['chat', 'hide', 'handsfree', 'live']
   function showKeys(cfg) {
     const choices = cfg.appShortcuts || []
     const want = cfg.shortcuts || {}
@@ -757,6 +757,85 @@
       try { showKeys(await api.setConfig({ shortcuts: { [key]: e.target.value } })) } catch (_) {}
     })
   }
+
+  // ─── Streaming (Blocco 11c) ────────────────────────────────────────────────
+  // Le impostazioni della live (config.stream), "In diretta" e il registro.
+  const STREAM_STATES = { off: 'Spenta.', connecting: 'Mi collego…', connected: 'In diretta: leggo la chat di #', retry: 'Collegamento perso: riprovo fra ' }
+  const OUTCOMES = { risposto: ['risposto', 'ok'], scelto: ['scelto', 'ok'], scartato: ['scartato', 'no'], evento: ['evento', ''], 'non riuscito': ['non riuscito', 'no'], inizio: ['', ''], fine: ['', ''] }
+  function showStreamConfig(s) {
+    if (!s) return
+    if (document.activeElement !== $('stream-channel')) $('stream-channel').value = s.channel
+    if (document.activeElement !== $('stream-command')) $('stream-command').value = s.command
+    $('stream-per-minute').value = String(s.perMinute)
+    $('stream-cooldown').value = String(s.userCooldownS)
+    $('stream-spontaneous').value = String(s.spontaneousMin)
+    if (document.activeElement !== $('stream-bots')) $('stream-bots').value = s.bots.join(', ')
+    showStreamOutputs()
+  }
+  function showStreamOutputs() {
+    $('stream-per-minute-out').textContent = $('stream-per-minute').value + ' al minuto'
+    const cd = Number($('stream-cooldown').value)
+    $('stream-cooldown-out').textContent = cd ? cd + ' s' : 'nessuna'
+    const sp = Number($('stream-spontaneous').value)
+    $('stream-spontaneous-out').textContent = sp ? 'ogni ' + sp + ' min' : 'spenti'
+  }
+  function showStreamState(st) {
+    if (!st) return
+    $('stream-live').checked = !!st.on
+    const status = st.status || {}
+    const line = $('stream-status')
+    line.className = 'state' + (status.state === 'connected' ? ' ok' : '')
+    line.textContent = !st.on ? '' : status.state === 'connected' ? STREAM_STATES.connected + status.channel + '.'
+      : status.state === 'retry' ? STREAM_STATES.retry + status.retryIn + ' s.' + (status.note ? ' ' + status.note : '')
+        : (status.note || STREAM_STATES[status.state] || '')
+    const c = st.counts || {}
+    $('stream-counts').replaceChildren(...[['ricevuti', c.received], ['risposte', c.answered], ['scartati', c.discarded], ['eventi', c.events]].map(([k, v]) => {
+      const span = document.createElement('span')
+      const b = document.createElement('b')
+      b.textContent = String(v || 0)
+      span.append(b, ' ' + k)
+      return span
+    }))
+    const items = (st.log || []).map((e) => {
+      const li = document.createElement('li')
+      const time = document.createElement('time')
+      time.textContent = new Date(e.at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+      const body = document.createElement('span')
+      body.className = 'what'
+      if (e.user) { const who = document.createElement('span'); who.className = 'who'; who.textContent = e.user; body.append(who) }
+      body.append(e.text || '')
+      const [label, kind] = OUTCOMES[e.outcome] || [e.outcome, '']
+      if (label) {
+        const tag = document.createElement('span')
+        tag.className = 'tag' + (kind ? ' ' + kind : '')
+        tag.textContent = label + (e.by ? ' da ' + e.by : '') + (e.reason ? ': ' + e.reason : '')
+        body.append(tag)
+      }
+      li.append(time, body)
+      return li
+    })
+    $('stream-log').replaceChildren(...items)
+    $('stream-log-empty').classList.toggle('hidden', items.length > 0)
+  }
+  async function saveStream(partial) {
+    try { showStreamConfig((await api.setConfig({ stream: partial })).stream) } catch (_) {}
+  }
+  $('stream-channel').addEventListener('change', () => saveStream({ channel: $('stream-channel').value }))
+  $('stream-command').addEventListener('change', () => saveStream({ command: $('stream-command').value }))
+  for (const [id, key] of [['stream-per-minute', 'perMinute'], ['stream-cooldown', 'userCooldownS'], ['stream-spontaneous', 'spontaneousMin']]) {
+    $(id).addEventListener('input', showStreamOutputs)
+    $(id).addEventListener('change', () => saveStream({ [key]: Number($(id).value) }))
+  }
+  $('stream-bots').addEventListener('change', () => saveStream({ bots: $('stream-bots').value.split(/[\s,;]+/).filter(Boolean) }))
+  $('stream-live').addEventListener('change', async () => {
+    const want = $('stream-live').checked
+    if (want) await saveStream({ channel: $('stream-channel').value })
+    const r = await api.streamLive(want)
+    showStreamState(r.state)
+    if (!r.ok) { const line = $('stream-status'); line.className = 'state err'; line.textContent = r.error }
+  })
+  if (api.onStreamState) api.onStreamState(showStreamState)
+  api.streamState().then(showStreamState).catch(() => {})
 
   // ─── Generale ──────────────────────────────────────────────────────────────
   // Si salva subito: niente pulsante. Il main cerca la citta' del meteo e
@@ -787,6 +866,7 @@
     if (document.activeElement !== weatherCity) weatherCity.value = cfg.weatherCity || ''
     $('weather-status').textContent = cfg.weather && cfg.weatherStatus ? '→ ' + cfg.weatherStatus : ''
     showKeys(cfg)
+    showStreamConfig(cfg.stream)
   }
   async function saveGeneral(partial) {
     try { showGeneral(await api.setConfig(partial)) } catch (_) {}

@@ -98,6 +98,14 @@ contextBridge.exposeInMainWorld('companion', {
   testDrop:         (msg)    => ipcRenderer.invoke('test:drop', msg),
   testObjects:      (msg)    => ipcRenderer.invoke('test:objects', msg),
   testChatShown:    (show)   => ipcRenderer.invoke('test:chat-shown', show),
+  // Live su Twitch (Blocco 11c): lo stato, il registro, "In diretta".
+  streamState:      ()       => ipcRenderer.invoke('stream:state'),
+  streamLive:       (on)     => ipcRenderer.invoke('stream:live', on === true),
+  onStreamState: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('stream-state', handler)
+    return () => ipcRenderer.removeListener('stream-state', handler)
+  },
   // Il pannello del cibo e degli oggetti (Blocchi 10b e 10c): le card, il
   // trascinamento (kind: 'food' o 'object'), la chiusura.
   itemsList:        ()       => ipcRenderer.invoke('items:list'),
