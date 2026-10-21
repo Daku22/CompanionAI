@@ -23,6 +23,8 @@ conversations from one day to the next.
 - **Voice and live:** replies appear as they are written and the voice starts
   at the first sentence, with captions in its speech bubble; a hands-free
   microphone; and a co-host for your Twitch live.
+- **Game companion:** it watches the game you are playing and comments on it,
+  calling the model only when the scene changes.
 - **Restricted system actions:** checked before you are asked to approve them.
 - **Private by design:** no telemetry, no account, everything runs inside the app.
 
@@ -271,6 +273,28 @@ skipped, and a log shows what was answered and what was dropped, and why.
 Viewers' messages are always treated as text to read, never as instructions,
 and they never go into the persona's memory; when you end the live, each
 companion that spoke writes a short paragraph about it in its diary.
+
+**Game mode.** In Settings → Visione pick the game's window from the
+thumbnails (or the whole screen) and a model that sees images (the chat's
+one, or another: there are free ones on OpenRouter; "Prova" shows it a red
+square to check). Then press the gamepad button in the bar around the
+companion, or give it a hotkey in Tasti rapidi. Every 5 seconds the app takes
+a tiny fingerprint of the window, without calling any model; the model looks
+only when the scene really changes, at most every 30 seconds and 20 times an
+hour (both adjustable in Settings → Visione). The bar shows how many looks it
+made in the last hour and, on OpenRouter, roughly what they cost. The
+companion comments out loud and in its speech bubble, not in the chat: as a
+fan, a commentator or with a tip (never spoilers), as its personality
+decides. Now and then another companion on the desktop chimes in; during a
+live the comments are for the viewers too. It does not look while you talk
+or type, pauses by itself when the game is closed or minimized or an app
+from the ignore list is in front, and resumes when it comes back. For 2
+minutes it knows the last scene, so you can ask "what do you think of this
+boss?" in the chat or hands-free; guides and builds only if you ask. When
+you stop, it keeps one line in its memory about what you played. Play in
+borderless windowed mode: the companion stays on top, while exclusive
+fullscreen cannot be captured (it pauses and tells you). Screenshots are
+never saved.
 
 **Senses.** The 👁 button in the chat (or "guarda il mio schermo") takes a
 screenshot of the companion's monitor and shows it as a preview: it is sent

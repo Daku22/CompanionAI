@@ -80,6 +80,7 @@ src/
              (oggetti sul desktop), SceneLibrary.js (scene e oggetti importati),
              live-chat.js (la chat della live, puro), twitch-chat.js (IRC di
              Twitch), live-session.js (la live: scelta e registro),
+             game-mode.js (la modalita' gioco, puro), game-loop.js (il ciclo),
              write-atomic.js, logger.js
   memory/    MemoryManager.js + types.ts
   renderer/  companion.html + companion-2d.js + companion-3d.js, chat.html + chat.js,
@@ -514,6 +515,49 @@ dallo streaming con voce, sottotitoli e animazione; niente azioni e niente
 memoria, solo gli ultimi 20 messaggi della live. Spenta la live, chi ha
 risposto scrive un paragrafo nel diario (`liveTranscript`, voce di tipo
 `live`, che non toglie la pagina del giorno).
+
+## Modalità gioco (Blocco 12)
+
+Piano in `docs/blocco-12.md`.
+
+**La finestra e il modello.** La pagina Visione mostra le finestre aperte con
+la miniatura (`vision:sources`: `desktopCapturer` per le finestre, e da
+`window:<HWND>:0` il programma con `exeOf` in `win-windows.js`); la scelta si
+salva come titolo e programma (`game.source`), perche' l'HWND cambia a ogni
+avvio. `findSource` la ritrova dal titolo, o dal programma se il titolo e'
+cambiato ma comincia allo stesso modo (gli FPS): cosi' un gioco chiuso in un
+browser non diventa un'altra scheda. Prima del ripiego si cercano le
+finestre ridotte a icona, che `desktopCapturer` non da'. Il modello che guarda
+e' quello della chat se vede le immagini, o uno scelto (`game.vision`);
+"Prova" gli mostra un quadrato rosso.
+
+**Il ciclo** (`game-loop.js`, con le dipendenze da fuori). Ogni 5 s
+`signature`: la finestra a 64 px, ridotta a 32x18 grigi. `nextStep` guarda
+solo se la scena e' cambiata (differenza media dalla scena dell'ultimo
+sguardo almeno 10 su 255), nessuno parla o scrive (`busy`), e' passato
+l'intervallo e c'e' posto nel tetto all'ora. Uno sguardo alla volta; se nel
+frattempo la scena e' cambiata molto (28), il risultato e' "vecchio" e non si
+commenta. In pausa da solo: finestra chiusa, ridotta, un'app dell'elenco da
+ignorare in primo piano, o lo schermo intero esclusivo (impronta nera e
+piatta per 3 giri con la finestra grande quanto lo schermo, `blankSig` e
+`coversDisplay`). Con il gioco a tutto schermo i companion e la barra tornano
+sopra a ogni giro (`bringToFront`, `moveTop`). Il costo stimato viene dai
+prezzi dell'elenco di OpenRouter (`caps.price`, `lookCost`).
+
+**Lo sguardo e il commento.** Una chiamata in prosa (`jsonMode: false`) con
+lo scatto a 1024 px, la personalita' e `LOOK_PROMPT`; `lookRequest` aggiunge
+il gioco, la scena e il commento di prima e se si e' in diretta.
+`parseGameLook` legge `SCENA:` e `COMMENTO:` (anche in markdown; "niente" e'
+vuoto). `canComment` decide se dirlo: va in `speechSession` o
+`captionSession` (voce e fumetto, mai la chat), in diretta anche nel contesto
+della live, e con una probabilita' di 0,2 un altro companion aggiunge una
+battuta (`spokenReply`, la stessa delle risposte alla live). L'ultima scena
+entra per 2 minuti nella riga di sistema di `withMoodLine` (`sceneLine`),
+quindi la usano chat, mani libere, live e iniziative. Spenta la modalita',
+`sessionText` e `SUMMARY_PROMPT` danno una frase al modello della chat e
+`memoryLine` la mette nella memoria di chi guardava. Si ferma da sola al
+limite giornaliero dei gratuiti (`err.daily`) o dopo 3 sguardi falliti, e lo
+dice nel fumetto e nella pagina Visione.
 
 ## Umore e vita a riposo
 
@@ -1239,6 +1283,7 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | Collegamento a Twitch | Contro un IRC finto: utente anonimo, ingresso nel canale, PING/PONG, RECONNECT, riconnessione |
 | Sessione della live | Scarti e scelte, eventi, commenti spontanei, una risposta alla volta, il riassunto |
 | Sottotitoli | Frasi lunghe divise in pezzi che stanno nel fumetto |
+| Modalità gioco | Impostazioni, la finestra dal titolo o dal programma, impronte e differenze, quando guardare (intervallo, tetto, occupato), il ciclo con orologio finto (uno alla volta, risultato vecchio, pausa, spegnimento), costo, SCENA/COMMENTO, la scena per 2 minuti, la riga in memoria, lo schermo intero |
 | Oggetti | Inclusi con modello e icona, tipi e misure, cibo importato, l'oggetto nominato in chat |
 | Controlli | Allowlist dei comandi, percorsi eseguibili, config dal renderer (voce, microfono e scorciatoie comprese), opzioni della finestra, mittenti IPC, permessi del browser (solo il microfono) |
 | Animazioni | Player di pose: dissolvenze, ritorno a idle, nessun residuo fra clip, VRM 0.x e 1.0; ciglia uguali a ogni frame rate, sguardo, pesi dell'umore; testa che segue il mouse nei limiti, posa in braccio |
@@ -1356,6 +1401,8 @@ Fatto:
   da solo;
 - risposte in streaming con la voce dalla prima frase, sottotitoli nel
   fumetto, microfono a mani libere, co-host per le live su Twitch;
+- modalita' gioco: guarda la finestra del gioco e commenta la partita,
+  chiamando il modello solo quando la scena cambia;
 - installer NSIS con Fuses, CI e release automatiche.
 
 Da fare:

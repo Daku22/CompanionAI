@@ -225,6 +225,23 @@
   Viewers' messages are always treated as text to read, never as
   instructions, and never go into memory; after the live each companion
   that spoke writes a short paragraph in its diary.
+- Game mode: pick the game's window from thumbnails in Settings → Visione
+  (or the whole screen), then press the gamepad button in the bar (or give it
+  a hotkey). Every 5 seconds the app takes a tiny fingerprint of the window,
+  without calling any model; the model that sees images looks only when the
+  scene really changes, at most every 30 seconds and 20 times an hour (both
+  adjustable), and the bar shows how many looks it made and, on OpenRouter,
+  roughly what they cost. The companion comments out loud and in its speech
+  bubble (not in the chat), as a fan, a commentator or with a tip, as its
+  personality decides; now and then another companion chimes in, and during
+  a live the comments are for the viewers too. It stays quiet while you talk
+  or type, pauses by itself when the game is closed, minimized or an ignored
+  app is in front, and knows the last scene for 2 minutes, so you can ask it
+  about the game. When you stop, it keeps one line in its memory about what
+  you played. Over a borderless fullscreen game it stays on top; exclusive
+  fullscreen cannot be captured, so it pauses and tells you to switch to
+  borderless. It stops and says so when a free model runs out of today's
+  requests. Screenshots are never saved.
 - 32 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions,
   eating, drinking, picking up, hugging, volleyball), in the repository and

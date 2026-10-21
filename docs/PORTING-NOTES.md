@@ -1145,6 +1145,40 @@ sbirciata, ballo) restano del companion di casa; gli ospiti non le usano.
 (`\\'`, `\n` dentro stringhe JS): per le sostituzioni lunghe si usa un JSON
 scritto con lo strumento di scrittura e un piccolo `rep.py` che lo applica.
 
+## Blocco 12: compagna di gioco (2026-10-21)
+
+**Riferimenti.** Le idee che costano poco da `docs/blocchi-9-12.md`
+(un'impronta minuscola prima di ogni chiamata, una richiesta alla volta, lo
+schermo come dato). Nessun codice copiato, nessuna dipendenza nuova: la
+cattura e' `desktopCapturer` di Electron, il programma di una finestra viene
+da `QueryFullProcessImageNameW` (koffi, gia' usato).
+
+**Scelte dell'utente.** La finestra si sceglie con le miniature, lo schermo
+come ripiego; pulsante nella barra e tasto rapido; spesso (30 s, 20 all'ora,
+regolabili); tifoso, commentatore e consigli decisi dalla personalita'; voce
+e fumetto, non la chat; un modello per la visione a parte; guarda quello del
+pulsante e gli altri ogni tanto aggiungono una battuta; in diretta anche per
+gli spettatori; una riga in memoria; parlandogli usa l'ultima scena.
+
+**Trappole.**
+- Le finestre ridotte a icona non sono fra quelle di `desktopCapturer`: un
+  gioco ridotto sembrava chiuso, e il ripiego sul programma prendeva un'altra
+  finestra dello stesso `.exe` (nell'audit, un'altra istanza di Electron
+  aperta dall'utente). Ora prima si cerca il titolo esatto fra tutte le
+  finestre di Windows, e il ripiego vuole un titolo che cominci allo stesso
+  modo.
+- Electron su Windows non passa lo stdin a un processo figlio con finestra:
+  il gioco finto delle prove si comanda via HTTP.
+- La pagina Visione aperta per nome non riceveva il clic sulla voce del menu:
+  le miniature si caricano con l'evento `settings-page-shown`.
+- Lo schermo intero esclusivo non si cattura: arriva nero. Un nero breve e'
+  un caricamento, quindi servono 15 s e la finestra grande quanto lo schermo.
+- Con un secondo schermo a destra il bordo destro non c'e' piu': la prova
+  della sbirciata fallisce, e prima fermava tutto l'audit. Ora va avanti.
+- Lo smoke usa i dati veri: con l'app gia' aperta il blocco dell'istanza
+  unica lo ferma. Si lancia con `--user-data` in una cartella a parte (con
+  il Cubism Core copiato, per Hiyori).
+
 ## Blocco 11: voce continua, streaming e co-host su Twitch (2026-10-21)
 
 **Riferimenti.** Le idee che costano poco dal piano di CompanionOS (una

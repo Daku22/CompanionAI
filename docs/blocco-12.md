@@ -150,3 +150,23 @@ Regole di sempre:
   modalità gioco non partono azioni.
 - **Lasciato fuori di proposito** (da `docs/blocchi-9-12.md`): event bus, cattura a 5–15 FPS,
   OCR, UI Automation, cattura nativa (WGC/DXGI), estensione del browser.
+
+## Com'è andata (chiusura, 21 ottobre)
+- **12a:** come da piano. Il programma di una finestra viene dal suo processo
+  (`exeOf`); le miniature si caricano anche aprendo la pagina per nome.
+- **12b:** come da piano, con il costo stimato dai prezzi di OpenRouter e il
+  tasto rapido Ctrl+Alt+G fra quelli sceglibili (spento di base). Dall'audit:
+  un gioco ridotto a icona si cerca prima del ripiego sul programma, e il
+  ripiego vuole un titolo simile (un gioco chiuso nel browser non diventa
+  un'altra scheda).
+- **12c:** come da piano. La battuta di un altro companion circa 2 volte su
+  10; il limite giornaliero dei gratuiti e tre sguardi falliti di fila
+  fermano la modalita' e lo dicono.
+- **12d:** come da piano. Lo schermo intero esclusivo si riconosce da 15 s di
+  nero con la finestra a tutto schermo.
+- **Non fatto:** quello lasciato fuori di proposito (event bus, cattura
+  veloce, OCR, UI Automation, cattura nativa, estensione del browser).
+- **Verifica:** `npm test`, smoke e audit verdi. Restano da provare a mano un
+  gioco vero (in finestra e senza bordi) con un modello gratuito che vede le
+  immagini, e il ritorno in primo piano sopra un gioco che si mette davanti:
+  nell'audit il gioco finto non riesce a coprire il companion nemmeno prima.
