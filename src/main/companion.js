@@ -374,7 +374,9 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
     const cfg = ctx.loadConfig()
     const app = cfg.activeApp ? ActiveApp.activeAppLine(ctx.lastForeign(), cfg.activeAppIgnore, process.pid) : null
     const hungry = ctx.prefs.needs ? Needs.promptLine(needs) : ''
-    const line = { role: 'system', content: moodLib.promptLine(mood) + ' ' + Rapport.promptLine(rapport) + (hungry ? ' ' + hungry : '') + (touched ? ' ' + touched : '') + (app ? ' ' + app : '') }
+    // La scena del gioco che state guardando, se e' di meno di 2 minuti fa (Blocco 12c).
+    const game = ctx.gameLine ? ctx.gameLine() : null
+    const line = { role: 'system', content: moodLib.promptLine(mood) + ' ' + Rapport.promptLine(rapport) + (hungry ? ' ' + hungry : '') + (touched ? ' ' + touched : '') + (app ? ' ' + app : '') + (game ? ' ' + game : '') }
     const firstDialog = history.findIndex(m => m.role !== 'system')
     if (firstDialog === -1) return [...history, line]
     return [...history.slice(0, firstDialog), line, ...history.slice(firstDialog)]

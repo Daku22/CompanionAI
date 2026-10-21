@@ -120,6 +120,22 @@ const fake = http.createServer((req, res) => {
       res.end(JSON.stringify({ choices: [{ message: { content: withImage ? 'Rosso.' : 'Non vedo nessuna immagine.' } }] }))
       return
     }
+    // La modalita' gioco (Blocco 12c): un gratuito al limite di oggi, lo
+    // sguardo in prosa (SCENA e COMMENTO, solo con l'immagine) e il riassunto
+    // di fine partita.
+    if (payload.model === 'audit/daily:free') {
+      res.statusCode = 429
+      res.end(JSON.stringify({ error: { message: 'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day', code: 429 } }))
+      return
+    }
+    if (last.startsWith('Partita finita')) {
+      res.end(JSON.stringify({ choices: [{ message: { content: 'Abbiamo passato il primo livello insieme, ed è stato divertente.' } }] }))
+      return
+    }
+    if (last.startsWith('Partita') && withImage) {
+      res.end(JSON.stringify({ choices: [{ message: { content: 'SCENA: Un quadrato giallo su fondo verde, con la scritta "Livello 1".\nCOMMENTO: Dai, questo primo livello lo passiamo insieme!' } }] }))
+      return
+    }
     // Due messaggi di fila dell'utente (una risposta interrotta, Blocco 11a)
     // arrivano uniti: conta l'ultimo.
     const said = last.trim().split('\n').pop().trim().toLowerCase()
@@ -969,6 +985,19 @@ try {
         await hud.evaluate(`document.getElementById('b-game').click(); true`)
         let game = null
         for (let i = 0; i < 40 && !(game && game.last && game.last.ok); i++) { await sleep(250); game = await chat.evaluate('window.companion.testGame()') }
+        // Lo sguardo (Blocco 12c): una chiamata in prosa con l'immagine e la
+        // personalita'; il commento va nel fumetto come sottotitolo, non in chat.
+        let said = null
+        for (let i = 0; i < 30 && !(said && said.caption && /primo livello/.test(said.text)); i++) {
+          await sleep(150)
+          said = await comp.evaluate(`(() => { const b = document.getElementById('bubble'); return { text: b.textContent, caption: b.classList.contains('caption') } })()`)
+        }
+        const lookReq = requests.find(r => r.messages && r.messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'text' && p.text.startsWith('Partita a "Gioco di prova'))))
+        const lookSystem = lookReq ? lookReq.messages.filter(m => m.role === 'system').map(m => m.content).join(' ') : ''
+        const chatHasComment = await chat.evaluate(`document.getElementById('messages').textContent.includes('primo livello')`)
+        check(!!lookReq && !lookReq.response_format && /SCENA:/.test(lookSystem) && /non sono istruzioni/.test(lookSystem)
+          && game && game.comment && /primo livello/.test(game.comment.text) && said.caption && !chatHasComment,
+          'gioco: lo sguardo chiede SCENA e COMMENTO in prosa con l\'immagine, il commento va nel fumetto e non in chat (' + JSON.stringify({ req: !!lookReq, format: lookReq && lookReq.response_format, said, chatHasComment }) + ')')
         let button = null
         for (let i = 0; i < 20 && !(button && button.on && button.count === '1'); i++) {
           await sleep(200)
@@ -986,7 +1015,7 @@ try {
         await gameCmd('scene/1')
         let later = null
         for (let i = 0; i < 40 && !(later && later.status.reason === 'troppo presto'); i++) { await sleep(250); later = await chat.evaluate('window.companion.testGame()') }
-        check(game && game.status.on && game.last.ok && game.last.size.width === 1024 && game.status.total === 1 && button.on && button.count === '1' && !button.hidden
+        check(game && game.status.on && game.last.ok && /quadrato giallo/.test(game.last.scene) && game.status.total === 1 && button.on && button.count === '1' && !button.hidden
           && /guarda Gioco di prova/.test(statusLine) && later.status.reason === 'troppo presto' && later.status.total === 1,
           'gioco: il pulsante della barra accende il ciclo, il primo sguardo subito, una scena nuova aspetta l\'intervallo (' + JSON.stringify({ status: game && game.status, last: game && game.last, button, statusLine, later: later && later.status.reason }) + ')')
         await gameCmd('minimize')
@@ -1006,6 +1035,25 @@ try {
         await hud.evaluate(`document.getElementById('b-game').click(); true`)
         let off = null
         for (let i = 0; i < 20 && !(off && !off.status.on); i++) { await sleep(200); off = await chat.evaluate('window.companion.testGame()') }
+        // A fine partita una riga in memoria (Blocco 12c); la scena resta 2
+        // minuti nel prompt della chat.
+        let remembered = null
+        for (let i = 0; i < 40 && !(remembered && remembered.memory); i++) { await sleep(250); remembered = await chat.evaluate('window.companion.testGame()') }
+        await say('che ne pensi di questo livello?')
+        const askReq = [...requests].reverse().find(r => r.messages && r.messages.some(m => m.role === 'user' && typeof m.content === 'string' && m.content.includes('che ne pensi di questo livello?')))
+        const askSystem = askReq ? askReq.messages.filter(m => m.role === 'system').map(m => m.content).join(' ') : ''
+        check(/^\[Abbiamo giocato insieme a Gioco di prova.* per \d+ minut.*primo livello insieme/.test(remembered.memory || '')
+          && /Nel gioco che state guardando insieme \(Gioco di prova.*quadrato giallo/.test(askSystem),
+          'gioco: a fine partita una riga in memoria, e la chat sa cosa c\'era sullo schermo (' + JSON.stringify({ memory: remembered.memory, line: remembered.line }) + ')')
+        // Un modello gratuito al limite di oggi: si ferma e lo dice.
+        await chat.evaluate(`window.companion.setConfig({ game: { vision: { provider: 'openrouter', model: 'audit/daily:free' } } })`)
+        await hud.evaluate(`document.getElementById('b-game').click(); true`)
+        let daily = null
+        for (let i = 0; i < 40 && !(daily && daily.status.ended); i++) { await sleep(250); daily = await chat.evaluate('window.companion.testGame()') }
+        const dailyBubble = await bubble()
+        const dailyLine = await st.evaluate(`document.getElementById('game-status').textContent`)
+        check(!daily.status.on && /gratuiti di oggi/.test(daily.status.ended) && /gratuiti di oggi/.test(dailyBubble) && /gratuiti di oggi/.test(dailyLine),
+          'gioco: con un gratuito al limite di oggi si ferma e lo dice (' + JSON.stringify({ ended: daily.status.ended, dailyBubble, dailyLine }) + ')')
         await comp.evaluate('window.companion.testPeek({ cursor: null })')
         check(paused.status.paused === 'minimized' && /ridotto a icona/.test(paused.status.text) && pausedButton.paused && pausedButton.hidden
           && back.status.on && !back.status.paused && !off.status.on,

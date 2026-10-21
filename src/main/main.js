@@ -468,6 +468,8 @@ const companionCtx = {
   chatFocused: () => allChats().some(w => w.isFocused()),
   isChatTarget: (c) => chatTarget() === c,
   lastForeign: () => lastForeign,
+  // La scena del gioco, per 2 minuti (Blocco 12c).
+  gameLine: () => GameMode.sceneLine(gameScene, Date.now()),
   testCursor: () => testCursor,
   listening: () => micBusy || !!micHold,
   voiceOn: () => voiceConfig(loadConfig()).enabled,
@@ -1309,8 +1311,12 @@ function liveResponder(item, present) {
   return c
 }
 
-/** Una risposta in diretta di c alla riga line; il testo detto, o '' se non e' andata. */
-async function liveReply(c, line) {
+/**
+ * Una risposta a voce di c alla riga line, con i sottotitoli nel fumetto; il
+ * testo detto, o '' se non e' andata. context e prompt: quelli della live, o
+ * (Blocco 12c) nessun contesto e il prompt della battuta sul gioco.
+ */
+async function spokenReply(c, line, { context = liveContext, prompt = LIVE_PROMPT } = {}) {
   const cfg = loadConfig()
   const apiKey = cfg.keys?.[cfg.provider] || ''
   if (cfg.provider !== 'ollama' && !apiKey) return ''
@@ -1318,10 +1324,10 @@ async function liveReply(c, line) {
   c.busy = true
   const speech = speechSession(c) || captionSession(c, null)
   try {
-    const history = c.withMoodLine(await c.buildHistoryWithMemory(Group.historyFor([...liveContext, { role: 'user', content: line }], c.personaId, names)))
+    const history = c.withMoodLine(await c.buildHistoryWithMemory(Group.historyFor([...context, { role: 'user', content: line }], c.personaId, names)))
     const result = await route({
       provider: cfg.provider, model: cfg.model, apiKey, history,
-      systemPrompt: Personas.systemPrompt(c.persona(), SYSTEM_PROMPT + LIVE_PROMPT),
+      systemPrompt: Personas.systemPrompt(c.persona(), SYSTEM_PROMPT + prompt),
       onDelta: speech ? (t) => speech.push(t) : null,
     })
     const reply = String((result && result.reply) || '').trim().slice(0, 600)
@@ -1348,7 +1354,7 @@ async function liveRespond(item) {
   if (!present.length) return { ok: false, reason: 'nessun companion sul desktop' }
   const c = liveResponder(item, present)
   const line = liveLine(item)
-  const reply = await liveReply(c, line)
+  const reply = await spokenReply(c, line)
   if (!reply) return { ok: false, reason: 'nessuna risposta dal modello' }
   liveContext.push({ role: 'user', content: line }, { role: 'assistant', content: reply, speaker: c.personaId })
   // A volte un altro companion aggiunge una battuta, quando il primo ha finito.
@@ -1357,7 +1363,7 @@ async function liveRespond(item) {
     await waitForSpeech()
     const o = others[liveTurn % others.length]
     const extraLine = '[Live su Twitch] ' + nameOf(c) + ' ha appena risposto in diretta. Se ti va, aggiungi una battuta breve.'
-    const extra = await liveReply(o, extraLine)
+    const extra = await spokenReply(o, extraLine)
     if (extra) liveContext.push({ role: 'user', content: extraLine }, { role: 'assistant', content: extra, speaker: o.personaId })
   }
   if (liveContext.length > LIVE_CONTEXT) liveContext = liveContext.slice(-LIVE_CONTEXT)
@@ -1862,7 +1868,7 @@ async function captureGame(longSide = GAME_LONG_SIDE) {
   if (g.source.kind === 'screen') {
     const c = chatTarget()
     const r = await captureScreen(c && c.alive() ? c.win : currentChat(), longSide, { hideApp: false })
-    return r.ok ? { ...r, state: 'ok' } : { ok: false, state: 'empty', error: r.error }
+    return r.ok ? { ...r, state: 'ok', title: 'lo schermo', screen: true } : { ok: false, state: 'empty', error: r.error }
   }
   const sources = await gameWindows({ width: longSide, height: longSide })
   let w = GameMode.findSource(sources, g.source, { exact: true })
@@ -1923,18 +1929,44 @@ handle('game:test-vision', async (_e, input) => {
 // Il pulsante "gioco" della pillola (o il suo tasto rapido) accende il ciclo
 // (game-loop.js) per quel companion: ogni 5 s l'impronta minuscola della
 // finestra, lo sguardo vero (lo scatto a 1024 px) solo quando la scena cambia,
-// e' passato l'intervallo e il tetto all'ora lo permette. Il modello che
-// guarda e il commento arrivano nel 12c. In pausa da sola se la finestra si
-// chiude o si riduce a icona, o se va in primo piano un'app da ignorare.
+// e' passato l'intervallo e il tetto all'ora lo permette. In pausa da sola
+// se la finestra si chiude o si riduce a icona, o se va in primo piano
+// un'app da ignorare.
+// Lo sguardo (Blocco 12c) e' una chiamata in prosa al modello che guarda:
+// SCENA e COMMENTO. La scena resta 2 minuti come contesto della chat, delle
+// mani libere e della live; il commento va a voce e nel fumetto (non in
+// chat), e ogni tanto un altro companion aggiunge una battuta. A fine
+// partita una riga nella memoria di chi guardava. Le immagini non si salvano
+// mai, e nel log c'e' solo com'e' andato lo sguardo.
 const GAME_SIG_SIDE = 64
-let gameModel = null   // { provider, model, cost }: il modello che guarda e quanto costa uno sguardo
-let gameLast = null    // l'ultimo sguardo (il 12c ne fa il contesto della chat)
+const GAME_MAX_ERRORS = 3          // sguardi falliti di fila prima di fermarsi
+const GAME_REACT_PROMPT = `
+
+MODALITA' GIOCO
+L'utente sta giocando e tu guardi la partita insieme a un altro companion, che l'ha appena commentata. Rispondi con una battuta breve da dire ad alta voce (al massimo 15 parole), nel tuo carattere, senza ripetere quello che ha detto l'altro. Niente azioni sul computer.`
+let gameModel = null       // { provider, model, cost }: il modello che guarda e quanto costa uno sguardo
+let gameLast = null        // l'ultimo sguardo (per l'audit)
+let gameScene = null       // { text, title, at }: l'ultima scena vista, contesto per 2 minuti
+let gameScenes = []        // { text, comment, at }: le scene della partita, per la riga in memoria
+let gameErrors = 0
+let gameEnded = ''         // perche' si e' fermata da sola, per la pagina Visione
+let gameSecondChance = 0.2 // un altro companion aggiunge una battuta
+let gameLastComment = null // per l'audit
+let gameMemory = null      // per l'audit: l'ultima riga in memoria
+
+/** Il companion che guarda, se c'e'. */
+function gameWatcher() {
+  const st = gameLoop.state()
+  return st.on ? companions.find(c => c.alive() && c.personaId === st.watcher) || null : null
+}
 
 /** Perche' adesso non si guarda: parli, scrivi o il companion sta parlando; null se si puo'. */
 function gameBusy() {
   if (micBusy || (handsFree && handsFree.hearing)) return 'stai parlando'
   if (allChats().some(w => w.isFocused())) return 'stai scrivendo'
   if (Date.now() < speechEndsAt) return 'sta parlando'
+  const w = gameWatcher()
+  if (w && w.busy) return 'sta rispondendo'
   return null
 }
 
@@ -1951,12 +1983,97 @@ async function gameSignature() {
   return sig ? { ok: true, sig, title: r.title } : { ok: false, state: 'empty' }
 }
 
-/** Lo sguardo: per ora lo scatto; il modello e il commento nel 12c. */
+/** Lo sguardo: lo scatto a 1024 px al modello che guarda, in prosa (SCENA e COMMENTO). */
 async function gameLook() {
-  const r = await captureGame()
-  if (!r.ok) return { ok: false, error: r.state }
-  console.log('[gioco] sguardo su "' + r.title + '"')
-  return { ok: true, title: r.title, size: r.picture.getSize() }
+  const c = gameWatcher()
+  const vision = gameModel
+  if (!c || !vision) return { ok: false, capture: true, error: 'nessuno guarda' }
+  const shot = await captureGame()
+  if (!shot.ok) return { ok: false, capture: true, error: shot.state }
+  const title = shot.screen ? '' : shot.title
+  const last = gameScenes[gameScenes.length - 1]
+  const started = Date.now()
+  try {
+    const result = await route({
+      provider: vision.provider, model: vision.model, apiKey: loadConfig().keys?.[vision.provider] || '',
+      jsonMode: false, maxTokens: 400, retries: 1,
+      systemPrompt: Personas.systemPrompt(c.persona(), GameMode.LOOK_PROMPT),
+      history: [{ role: 'user', image: shot.image,
+        content: GameMode.lookRequest({ title, previous: last ? { scene: last.text, comment: last.comment } : null, live: liveSession.state().on }) }],
+    })
+    const look = GameMode.parseGameLook(result && result.reply)
+    const ms = Date.now() - started
+    // Nel log solo com'e' andata: niente immagine, niente scena.
+    console.log('[gioco] sguardo, ' + ms + ' ms, ' + (!look ? 'risposta fuori formato' : look.comment ? 'con un commento' : 'senza commento'))
+    return look ? { ok: true, ...look, title, ms } : { ok: false, error: 'Il modello non ha risposto nel formato SCENA / COMMENTO.', ms }
+  } catch (err) {
+    console.warn('[gioco] sguardo non riuscito:', err.message)
+    return { ok: false, daily: !!err.daily, error: describeError(err, vision.provider) }
+  }
+}
+
+/** Il risultato di uno sguardo: la scena come contesto, e il commento se si puo'. */
+function gameResult(r, info) {
+  gameLast = r ? { ok: !!r.ok, scene: r.scene || '', comment: r.comment || '', error: r.error || '', stale: info.stale, ms: r.ms || 0 } : null
+  if (!r || r.capture) return   // la finestra non c'era: al prossimo giro va in pausa
+  if (!r.ok) {
+    // Il limite giornaliero dei modelli gratuiti: inutile riprovare fino a domani.
+    if (r.daily) { endGame('Ho finito gli sguardi gratuiti di oggi: riprova domani, o scegli un altro modello qui sopra', 'Ho finito gli sguardi gratuiti di oggi'); return }
+    if (++gameErrors >= GAME_MAX_ERRORS) endGame('Non riesco a vedere il gioco: ' + r.error, 'Non riesco a vedere il gioco')
+    return
+  }
+  gameErrors = 0
+  gameScene = { text: r.scene, title: r.title, at: Date.now() }
+  gameScenes.push({ text: r.scene, comment: '', at: Date.now() })
+  // Tante scene: se ne tiene una si' e una no, cosi' il riassunto copre tutta la partita.
+  if (gameScenes.length > GameMode.MAX_SCENES) gameScenes = gameScenes.filter((_, i) => i % 2 === 0)
+  const c = gameWatcher()
+  if (!c || !GameMode.canComment({ comment: r.comment, stale: info.stale, busy: gameBusy(), paused })) return
+  gameScenes[gameScenes.length - 1].comment = r.comment
+  gameComment(c, r).catch(e => console.error('[gioco] commento:', e.message))
+}
+
+/** Il commento a voce e nel fumetto; in diretta e' anche per gli spettatori. */
+async function gameComment(c, r) {
+  const speech = speechSession(c) || captionSession(c, null)
+  speech.end(r.comment)
+  c.markActivity()
+  gameLastComment = { by: c.personaId, text: r.comment, at: Date.now() }
+  if (liveSession.state().on) {
+    liveContext.push({ role: 'user', content: '[Modalità gioco] La scena: ' + r.scene }, { role: 'assistant', content: r.comment, speaker: c.personaId })
+    if (liveContext.length > LIVE_CONTEXT) liveContext = liveContext.slice(-LIVE_CONTEXT)
+  }
+  // Ogni tanto un altro companion sul desktop aggiunge una battuta, quando il primo ha finito.
+  const others = companions.filter(o => o !== c && o.alive() && o.win.isVisible() && !o.busy)
+  if (!others.length || Math.random() >= gameSecondChance) return
+  await waitForSpeech()
+  if (gameWatcher() !== c || gameBusy()) return
+  const o = others[Math.floor(Math.random() * others.length)]
+  const extra = await spokenReply(o, '[Modalità gioco] ' + nameOf(c) + ' ha appena detto: "' + r.comment + '". La scena: ' + r.scene, { context: [], prompt: GAME_REACT_PROMPT })
+  if (extra) gameLastComment = { by: o.personaId, text: extra, at: Date.now(), reaction: true }
+}
+
+/** A fine partita: una riga nella memoria di chi guardava (a cosa, per quanto, com'e' andata). */
+async function rememberGame(c, summary, scenes) {
+  const minutes = (summary.endedAt - summary.startedAt) / 60000
+  const title = summary.title === 'lo schermo' ? '' : summary.title
+  let text = ''
+  const cfg = loadConfig()
+  const apiKey = cfg.keys?.[cfg.provider] || ''
+  if (cfg.provider === 'ollama' || apiKey) {
+    try {
+      const result = await route({
+        provider: cfg.provider, model: cfg.model, apiKey, jsonMode: false, maxTokens: 300,
+        systemPrompt: Personas.systemPrompt(c.persona(), GameMode.SUMMARY_PROMPT),
+        history: [{ role: 'user', content: GameMode.sessionText({ title, minutes, scenes }) }],
+      })
+      text = String((result && result.reply) || '').split('\n')[0].trim()
+    } catch (e) { console.warn('[gioco] riassunto della partita non riuscito:', e.message) }
+  }
+  const line = GameMode.memoryLine({ title, minutes, summary: text })
+  if (c.memory) await c.memory.addTurn(line, 'user')
+  gameMemory = line
+  console.log('[gioco] una riga nella memoria di ' + c.personaId)
 }
 
 const gameLoop = createGameLoop({
@@ -1964,7 +2081,7 @@ const gameLoop = createGameLoop({
   sigCapture: () => gameSignature(),
   busy: () => gameBusy(),
   look: () => gameLook(),
-  onResult: (r, info) => { gameLast = { ...r, stale: info.stale, at: info.at } },
+  onResult: (r, info) => gameResult(r, info),
   onState: () => {
     sendSettings('game-state', gameStatus())
     if (hudShown && hudFor) sendHud({ game: gameHud(hudFor) })
@@ -1975,7 +2092,7 @@ const gameLoop = createGameLoop({
 function gameStatus() {
   const st = gameLoop.state()
   const c = companions.find(x => x.personaId === st.watcher)
-  return { ...st, text: GameMode.statusText(st, { name: c ? nameOf(c) : '', cost: gameModel ? gameModel.cost : null }) }
+  return { ...st, ended: gameEnded, text: GameMode.statusText(st, { name: c ? nameOf(c) : '', cost: gameModel ? gameModel.cost : null }) }
 }
 
 /** Il pulsante della pillola per il companion c: acceso se guarda lui. */
@@ -2015,24 +2132,40 @@ async function toggleGame(c) {
     c.send('companion-bubble', { text: 'Mi serve un modello che vede le immagini', ms: 3500 })
     return gameLoop.state()
   }
+  if (vision.provider !== 'ollama' && !cfg.keys?.[vision.provider]) {
+    openSettings('modello')
+    c.send('companion-bubble', { text: 'Manca la chiave per il modello che guarda', ms: 3500 })
+    return gameLoop.state()
+  }
   // Il costo di uno sguardo: Ollama e' gratis, OpenRouter dice i prezzi, gli altri non si sa.
   const caps = vision.provider === 'openrouter' ? await modelCapsOf('openrouter', vision.model).catch(() => null) : null
   gameModel = { ...vision, cost: vision.provider === 'ollama' ? 0 : GameMode.lookCost(caps && caps.price) }
   gameLast = null
+  gameScenes = []
+  gameErrors = 0
+  gameEnded = ''
   gameLoop.start(c.personaId)
   c.send('companion-bubble', { text: '🎮 Guardo la partita', ms: 2500 })
   console.log('[gioco] acceso per ' + c.personaId + ' (' + vision.provider + ' ' + vision.model + ')')
   return gameLoop.state()
 }
 
-/** Spegne la modalita' gioco. */
-function endGame() {
+/**
+ * Spegne la modalita' gioco e la fa ricordare. why: perche' si ferma da sola
+ * (per la pagina Visione); bubble: la versione corta per il fumetto (80 caratteri).
+ */
+function endGame(why = '', bubble = why) {
   const summary = gameLoop.stop()
   if (!summary) return
   gameModel = null
+  gameEnded = why
+  const scenes = gameScenes
+  gameScenes = []
   const c = companions.find(x => x.personaId === summary.watcher && x.alive())
-  if (c) c.send('companion-bubble', { text: 'Fine della partita', ms: 2500 })
-  console.log('[gioco] spento: ' + summary.looks + ' sguardi')
+  if (c) c.send('companion-bubble', { text: bubble || 'Fine della partita', ms: why ? 5000 : 2500 })
+  console.log('[gioco] spento: ' + summary.looks + ' sguardi' + (why ? ' (' + why + ')' : ''))
+  sendSettings('game-state', gameStatus())
+  if (c && scenes.length) rememberGame(c, summary, scenes).catch(e => console.error('[gioco] memoria:', e.message))
 }
 
 handle('game:state', () => gameStatus())
@@ -3377,7 +3510,9 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
   // La modalita' gioco (Blocco 12b): lo stato, l'ultimo sguardo e il pulsante.
   handle('test:game', (_e, cmd) => {
     if (cmd && cmd.off === true) endGame()
-    return { status: gameStatus(), last: gameLast, model: gameModel, hud: hudFor ? gameHud(hudFor) : null }
+    if (cmd && Number.isFinite(cmd.react)) gameSecondChance = cmd.react
+    return { status: gameStatus(), last: gameLast, model: gameModel, hud: hudFor ? gameHud(hudFor) : null,
+      scene: gameScene, line: GameMode.sceneLine(gameScene, Date.now()), comment: gameLastComment, memory: gameMemory }
   })
   // La finestra di chat che chiede: mostrata o nascosta davvero (Blocco 11b,
   // sottotitoli senza voce); la pagina non lo sa con certezza.

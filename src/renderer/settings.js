@@ -824,7 +824,8 @@
     if (!st) return
     const line = $('game-status')
     line.className = 'state' + (st.on && !st.paused ? ' ok' : '')
-    line.textContent = st.on ? st.text : 'Spenta: si accende con il pulsante "gioco" nella barra del companion o con il suo tasto rapido.'
+    line.textContent = st.on ? st.text : st.ended ? 'Si è fermata. ' + st.ended + '.' : 'Spenta: si accende con il pulsante "gioco" nella barra del companion o con il suo tasto rapido.'
+    if (!st.on && st.ended) line.className = 'state error'
   }
   if (api.onGameState) api.onGameState(showGameState)
   if (api.gameState) api.gameState().then(showGameState, () => {})
