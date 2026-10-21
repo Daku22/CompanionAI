@@ -68,6 +68,37 @@ function splitSentences(text) {
   return merged.flatMap(splitLong)
 }
 
+/**
+ * Le frasi gia' complete di un testo che sta ancora arrivando (Blocco 11a):
+ * la voce comincia dalla prima mentre il modello scrive il resto. rest e' il
+ * pezzo aperto, da rimettere davanti al testo che arriva dopo; con final esce
+ * tutto. Una frase troppo corta da sola ("Ah! ") aspetta la seguente, e un
+ * blocco di codice aperto aspetta di chiudersi (non si legge comunque).
+ * @param {string} buffer
+ * @param {boolean} [final]
+ * @returns {{ sentences: string[], rest: string }}
+ */
+function takeSentences(buffer, final = false) {
+  const text = String(buffer || '')
+  if (final) return { sentences: splitSentences(cleanForSpeech(text)), rest: '' }
+  // L'ultimo confine: punteggiatura forte (con virgolette o parentesi dopo)
+  // e uno spazio, o un a capo.
+  let cut = -1
+  for (const m of text.matchAll(/[.!?…]+["'”»)\]]*\s+|\n+/g)) cut = m.index + m[0].length
+  if (cut <= 0) {
+    // Nessun confine ma gia' lunghissima: si taglia dove si puo' (virgole, spazi).
+    if (text.length <= MAX_SENTENCE * 1.5) return { sentences: [], rest: text }
+    const parts = splitLong(text)
+    const rest = parts.pop()
+    return { sentences: parts.flatMap(p => splitSentences(cleanForSpeech(p))), rest: text.slice(text.lastIndexOf(rest)) }
+  }
+  const ready = text.slice(0, cut)
+  if ((ready.match(/```/g) || []).length % 2 === 1) return { sentences: [], rest: text }
+  const sentences = splitSentences(cleanForSpeech(ready))
+  if (sentences.join(' ').length < MIN_SENTENCE) return { sentences: [], rest: text }
+  return { sentences, rest: text.slice(cut) }
+}
+
 // Frasi che Whisper si inventa sul rumore di fondo: le ha imparate dai titoli
 // di coda dei sottotitoli. Il filtro VAD del servizio ne toglie quasi tutte;
 // queste, se restano, non sono dell'utente.
@@ -94,4 +125,4 @@ function cleanTranscript(text) {
   return /[\p{L}\p{N}]/u.test(out) ? out.slice(0, MAX_TRANSCRIPT) : ''
 }
 
-module.exports = { cleanForSpeech, splitSentences, cleanTranscript, MAX_SENTENCE }
+module.exports = { cleanForSpeech, splitSentences, takeSentences, cleanTranscript, MAX_SENTENCE }

@@ -147,6 +147,13 @@ contextBridge.exposeInMainWorld('companion', {
 
   // ─── AI Router (renderer → main → provider) ────────────────────────────────
   sendMessage: (payload)     => ipcRenderer.invoke('ai:send-message', payload),
+  // Streaming (Blocco 11a): il testo della risposta mentre arriva, e l'annullamento.
+  cancelReply: ()            => ipcRenderer.invoke('ai:cancel-reply'),
+  onReplyDelta: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('reply-delta', handler)
+    return () => ipcRenderer.removeListener('reply-delta', handler)
+  },
   // Guarda lo schermo (Blocco 7b): la schermata torna qui come anteprima.
   visionCapture: ()          => ipcRenderer.invoke('vision:capture'),
 

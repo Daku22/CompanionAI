@@ -13,6 +13,7 @@ const {
   describeError, ollamaFailure, parseOpenRouterModels, parseAnthropicModels, parseOpenAIModels, parseOllamaTags,
   directFromOpenRouter, cloudName, mergeOllamaModels, withImage, validImage,
   capsFromParams, outputMode, openRouterBody, readChoice, openRouterUrl, DIRECTIONS, DISTANCES,
+  replySoFar, streamLine,
 } = require('../src/main/ai-router')
 
 let passed = 0
@@ -648,6 +649,102 @@ async function main() {
     assert.match(reset.message, /ECONNRESET/)
   })
 
+  // ── Streaming (Blocco 11a) ──────────────────────────────────────────────
+  /** Un server che risponde a pezzi: OpenRouter in SSE o Ollama in NDJSON. */
+  async function streamingServer(kind, pieces, { status = 200 } = {}) {
+    const seen = []
+    const server = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', c => { body += c })
+      req.on('end', () => {
+        if (req.url === '/api/v1/models') {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ data: [{ id: 'finto/json:free', name: 'JSON finto', supported_parameters: ['response_format', 'max_tokens'] }] }))
+          return
+        }
+        seen.push(JSON.parse(body))
+        if (status !== 200) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'occupato' } })); return }
+        res.writeHead(200, { 'Content-Type': kind === 'sse' ? 'text/event-stream' : 'application/x-ndjson' })
+        let i = 0
+        const next = () => {
+          if (i === pieces.length) {
+            res.end(kind === 'sse' ? 'data: [DONE]\n\n' : JSON.stringify({ message: { content: '' }, done: true }) + '\n')
+            return
+          }
+          const piece = pieces[i++]
+          res.write(kind === 'sse'
+            ? ': OPENROUTER PROCESSING\n\ndata: ' + JSON.stringify({ choices: [{ delta: { content: piece } }] }) + '\n\n'
+            : JSON.stringify({ message: { content: piece }, done: false }) + '\n')
+          setTimeout(next, 5)
+        }
+        next()
+      })
+    })
+    await new Promise(r => server.listen(0, '127.0.0.1', () => r(null)))
+    return { server, seen, port: /** @type {import('net').AddressInfo} */ (server.address()).port }
+  }
+  const ANSWER = JSON.stringify({ reply: 'Ciao! Come stai? Io benissimo, grazie.', emotion: 'joy', action: { type: 'none', animation: 'wave' } })
+  const inPieces = (text, n) => Array.from({ length: Math.ceil(text.length / n) }, (_, i) => text.slice(i * n, i * n + n))
+
+  await testAsync('streaming da OpenRouter: il testo arriva a pezzi, la risposta intera alla fine', async () => {
+    const { server, seen, port } = await streamingServer('sse', inPieces(ANSWER, 7))
+    const previous = process.env.OPENROUTER_URL
+    try {
+      process.env.OPENROUTER_URL = 'http://127.0.0.1:' + port
+      const deltas = []
+      const r = await route({ provider: 'openrouter', model: 'finto/json:free', apiKey: 'sk-or-test',
+        history: [{ role: 'user', content: 'ciao' }], onDelta: (t) => deltas.push(t) })
+      assert.equal(seen[0].stream, true, 'la richiesta chiede lo streaming')
+      assert.ok(deltas.length >= 4, 'piu\' pezzi: ' + deltas.length)
+      assert.ok(deltas.every((d, i) => i === 0 || d.startsWith(deltas[i - 1])), 'ogni pezzo allunga il precedente')
+      assert.equal(deltas[deltas.length - 1], 'Ciao! Come stai? Io benissimo, grazie.')
+      assert.equal(r.reply, 'Ciao! Come stai? Io benissimo, grazie.')
+      assert.equal(r.action.animation, 'wave')
+      assert.equal(r.emotion, 'joy')
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_URL; else process.env.OPENROUTER_URL = previous
+      server.close()
+    }
+  })
+
+  await testAsync('streaming da Ollama (NDJSON)', async () => {
+    const { server, seen, port } = await streamingServer('ndjson', inPieces(ANSWER, 5))
+    const previous = process.env.OLLAMA_PORT
+    try {
+      process.env.OLLAMA_PORT = String(port)
+      const deltas = []
+      const r = await route({ provider: 'ollama', model: 'mistral', history: [{ role: 'user', content: 'ciao' }], onDelta: (t) => deltas.push(t) })
+      assert.equal(seen[0].stream, true)
+      assert.ok(deltas.length >= 4 && r.reply === deltas[deltas.length - 1])
+    } finally {
+      if (previous === undefined) delete process.env.OLLAMA_PORT; else process.env.OLLAMA_PORT = previous
+      server.close()
+    }
+  })
+
+  await testAsync('un errore in streaming e\' un errore come gli altri; annullare chiude la richiesta', async () => {
+    const busy = await streamingServer('sse', [], { status: 401 })
+    const previous = process.env.OPENROUTER_URL
+    try {
+      process.env.OPENROUTER_URL = 'http://127.0.0.1:' + busy.port
+      await assert.rejects(() => route({ provider: 'openrouter', model: 'finto/json:free', apiKey: 'sk-or-test',
+        history: [{ role: 'user', content: 'ciao' }], onDelta: () => {} }), /occupato/)
+    } finally { busy.server.close() }
+    const slow = await streamingServer('sse', inPieces(ANSWER, 2))
+    try {
+      process.env.OPENROUTER_URL = 'http://127.0.0.1:' + slow.port
+      const ctrl = new AbortController()
+      const deltas = []
+      const p = route({ provider: 'openrouter', model: 'finto/json:free', apiKey: 'sk-or-test', signal: ctrl.signal,
+        history: [{ role: 'user', content: 'ciao' }], onDelta: (t) => { deltas.push(t); if (deltas.length === 3) ctrl.abort() } })
+      await assert.rejects(p, (err) => err.aborted === true)
+      assert.equal(deltas.length, 3, 'dopo l\'annullamento non arriva piu\' niente')
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_URL; else process.env.OPENROUTER_URL = previous
+      slow.server.close()
+    }
+  })
+
   await testAsync('route pretende una key tranne che per ollama', async () => {
     await assert.rejects(
       () => route({ provider: 'claude', model: 'claude-opus-5',
@@ -660,6 +757,35 @@ async function main() {
 }
 
 main()
+
+test('streaming: la risposta finora, tagliata in qualunque punto del JSON', () => {
+  const full = JSON.stringify({ emotion: 'joy', reply: 'Ciao "amico"!\nPerché sì: è bello \\ ok', action: { type: 'none', animation: 'wave' } })
+  let last = ''
+  for (let i = 0; i <= full.length; i++) {
+    const r = replySoFar(full.slice(0, i))
+    if (r == null) { assert.equal(last, '', 'una volta cominciata, la risposta non sparisce (taglio a ' + i + ')'); continue }
+    assert.ok(r.startsWith(last), 'cresce sempre: "' + last + '" -> "' + r + '"')
+    assert.ok(!/\\u/.test(r) && !r.endsWith('\\\\'), 'niente escape a meta\': ' + r)
+    last = r
+  }
+  assert.equal(last, 'Ciao "amico"!\nPerché sì: è bello \\ ok')
+  assert.equal(replySoFar('Ciao, ti rispondo in prosa'), null, 'la prosa si mostra alla fine')
+  assert.equal(replySoFar('```json\n{"reply": "Ec'), 'Ec')
+  assert.equal(replySoFar('{"emotion": "joy", '), null)
+})
+
+test('streaming: cosa porta ogni riga, per provider', () => {
+  assert.deepEqual(streamLine('openai', 'data: {"choices":[{"delta":{"content":"Ci"}}]}'), { text: 'Ci' })
+  assert.deepEqual(streamLine('openai', 'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}'), { text: '', stop: 'stop' })
+  assert.equal(streamLine('openai', ': OPENROUTER PROCESSING'), null)
+  assert.equal(streamLine('openai', 'data: [DONE]'), null)
+  assert.deepEqual(streamLine('openai', 'data: {"error":{"message":"limite"}}'), { error: 'limite' })
+  assert.deepEqual(streamLine('claude', 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ao"}}'), { text: 'ao' })
+  assert.deepEqual(streamLine('claude', 'data: {"type":"message_delta","delta":{"stop_reason":"refusal"}}'), { stop: 'refusal' })
+  assert.equal(streamLine('claude', 'event: ping'), null)
+  assert.deepEqual(streamLine('ollama', '{"message":{"content":"x"},"done":false}'), { text: 'x' })
+  assert.deepEqual(streamLine('ollama', '{"message":{"content":""},"done":true,"done_reason":"stop"}'), { text: '', stop: 'stop' })
+})
 
 test('il resto del JSON non finisce nel testo mostrato', () => {
   assert.equal(parseResponse('{"reply":"Riprovo dopo.},\\"emotion\\":\\"calm\\",\\"rapport\\":0}').reply, 'Riprovo dopo.')

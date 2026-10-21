@@ -93,6 +93,36 @@ async function main() {
       v.shutdown()
     })
 
+    await t('a pezzi (Blocco 11a): la prima frase suona prima che arrivi il resto', async () => {
+      const { spawn } = fakeEngine({ delay: 5 })
+      const played = []
+      const v = new VoiceService({ dir, spawn, play: m => played.push({ ...m, at: Date.now() }) })
+      v.begin()
+      v.push('Ciao a tutti quanti!')
+      await sleep(60)
+      assert.deepEqual(played.filter(m => m.type === 'chunk').map(c => c.text), ['Ciao a tutti quanti!'], 'la prima e\' gia\' partita')
+      v.push('Come state oggi? Io bene.')
+      const ended = v.end()
+      v.push('Questa arriva dopo end e non si dice.')
+      assert.equal(await ended, true)
+      assert.deepEqual(played.filter(m => m.type === 'chunk').map(c => c.text), ['Ciao a tutti quanti!', 'Come state oggi?', 'Io bene.'])
+      assert.deepEqual(played.filter(m => m.type === 'chunk').map(c => c.seq), [0, 1, 2])
+      v.shutdown()
+    })
+
+    await t('a pezzi: una risposta nuova chiude quella che aspettava altro testo', async () => {
+      const { spawn } = fakeEngine({ delay: 5 })
+      const v = new VoiceService({ dir, spawn, play: () => {} })
+      v.begin()
+      v.push('Prima risposta che resta aperta.')
+      await sleep(40)
+      const firstDone = v.current.done
+      v.stop()
+      assert.equal(await firstDone, false, 'non resta appesa')
+      assert.equal(await v.speak('Seconda risposta.'), true)
+      v.shutdown()
+    })
+
     await t('un errore del motore ferma la frase e finisce nello stato', async () => {
       const { spawn } = fakeEngine({ failOn: 'impossibile' })
       const played = []

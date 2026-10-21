@@ -65,6 +65,7 @@ class VoiceService {
     this.nextId = 1
     this.utterance = 0           // quella in corso; una nuova interrompe le vecchie
     this.speaking = null         // AbortController della frase XTTS in corso
+    this.current = null          // la frase aperta da begin (Blocco 11a)
     this.idleTimer = null
     this.xtts = xtts || null
     this.setup = setup || setupDefaults
@@ -229,23 +230,73 @@ class VoiceService {
    *   voice: la voce di Kokoro; speaker: quella di XTTS; volume: 0..1, lo applica il companion
    */
   async speak(text, opts = {}) {
-    const sentences = splitSentences(cleanForSpeech(text))
-    if (!sentences.length) return false
-    let engine = this._pick(opts)
-    if (!engine) return false
+    if (!splitSentences(cleanForSpeech(text)).length || !this._pick(opts)) return false
+    this.begin(opts)
+    this.push(text)
+    return this.end()
+  }
+
+  /**
+   * Una risposta che arriva a pezzi (Blocco 11a): begin apre una frase nuova
+   * (e zittisce quella di prima), push aggiunge testo (frasi complete, vedi
+   * takeSentences), end dice che non arriva altro e aspetta la fine. La prima
+   * frase parte appena arriva, mentre il modello scrive ancora.
+   * @param {Parameters<VoiceService['speak']>[1]} [opts]
+   */
+  begin(opts = {}) {
     this.stop()
-    const utterance = this.utterance
-    const live = () => utterance === this.utterance
-    const send = (seq, pcm, rate) => { if (live()) this.play({ type: 'chunk', utterance, seq, pcm, rate, text: sentences[seq], volume: opts.volume }) }
+    const u = { id: this.utterance, opts, queue: /** @type {string[]} */ ([]), closed: false, wake: null, done: null }
+    this.current = u
+    const engine = this._pick(opts)
+    u.done = engine ? this._run(u, engine) : Promise.resolve(false)
+    return u.id
+  }
+
+  /** Altro testo per la frase aperta da begin. */
+  push(text) {
+    const u = this.current
+    if (!u || u.id !== this.utterance || u.closed) return
+    const sentences = splitSentences(cleanForSpeech(text))
+    if (!sentences.length) return
+    u.queue.push(...sentences)
+    this._wake(u)
+  }
+
+  /** Non arriva altro: finite le frasi in coda, la risposta e' detta. */
+  end() {
+    const u = this.current
+    if (!u) return Promise.resolve(false)
+    u.closed = true
+    this._wake(u)
+    return u.done
+  }
+
+  _wake(u) {
+    if (!u.wake) return
+    const w = u.wake
+    u.wake = null
+    w()
+  }
+
+  async _run(u, engine) {
+    const live = () => u.id === this.utterance
+    const send = (seq, sentence, pcm, rate) => { if (live()) this.play({ type: 'chunk', utterance: u.id, seq, pcm, rate, text: sentence, volume: u.opts.volume }) }
+    let seq = 0
     try {
       if (engine === 'kokoro') await this._ready()
-      for (let seq = 0; seq < sentences.length; seq++) {
+      for (;;) {
         if (!live()) return false
+        if (!u.queue.length) {
+          if (u.closed) break
+          await new Promise(r => { u.wake = r })
+          continue
+        }
+        const sentence = u.queue.shift()
         if (engine === 'xtts') {
           const ctrl = new AbortController()
           this.speaking = ctrl
           try {
-            await this.xtts.synth(sentences[seq], { speaker: opts.speaker || {}, speed: opts.speed, signal: ctrl.signal }, (pcm, rate) => send(seq, pcm, rate))
+            await this.xtts.synth(sentence, { speaker: u.opts.speaker || {}, speed: u.opts.speed, signal: ctrl.signal }, (pcm, rate) => send(seq, sentence, pcm, rate))
             this.xttsError = null
           } catch (error) {
             if (!live()) return false
@@ -255,26 +306,27 @@ class VoiceService {
             if (!packStatus(this.dir, KOKORO_FILES).installed) throw error
             engine = 'kokoro'
             await this._ready()
-            seq--
+            u.queue.unshift(sentence)
             continue
           } finally {
             if (this.speaking === ctrl) this.speaking = null
           }
         } else {
-          const res = await this._ask({ type: 'synth', text: sentences[seq], voice: opts.voice, speed: opts.speed }, SYNTH_TIMEOUT_MS)
+          const res = await this._ask({ type: 'synth', text: sentence, voice: u.opts.voice, speed: u.opts.speed }, SYNTH_TIMEOUT_MS)
           if (!live()) return false
-          send(seq, res.pcm, res.rate)
+          send(seq, sentence, res.pcm, res.rate)
         }
-        if (live()) this.play({ type: 'gap', utterance, seconds: SENTENCE_GAP_S })
+        seq++
+        if (live()) this.play({ type: 'gap', utterance: u.id, seconds: SENTENCE_GAP_S })
       }
-      return live()
+      return live() && seq > 0
     } catch (error) {
       if (engine === 'kokoro') {
         this.error = error.message
         if (this.engine === 'loading') this.engine = 'error'
       }
       this._emit()
-      if (live()) this.play({ type: 'stop', utterance })
+      if (live()) this.play({ type: 'stop', utterance: u.id })
       return false
     } finally {
       if (engine === 'kokoro') this._touch()
@@ -285,6 +337,8 @@ class VoiceService {
   stop() {
     this.utterance++
     if (this.speaking) { this.speaking.abort(); this.speaking = null }
+    // Una frase aperta che aspettava altro testo si chiude.
+    if (this.current) this._wake(this.current)
     this.play({ type: 'stop', utterance: this.utterance })
   }
 

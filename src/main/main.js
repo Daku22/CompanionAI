@@ -30,6 +30,7 @@ const Personas = require('./personas')
 const Rapport = require('./rapport')
 const Needs = require('./needs')
 const Food = require('./food')
+const { takeSentences } = require('./speech-text')
 const Objects = require('./objects')
 const { createDesktopObjects } = require('./desktop-objects')
 const Diary = require('./diary')
@@ -1343,6 +1344,46 @@ function speakReply(c, text) {
     .catch(e => console.error('[voce] ' + e.message))
 }
 
+/**
+ * La voce di una risposta che arriva a pezzi (Blocco 11a): parte alla prima
+ * frase finita mentre il modello scrive il resto. push riceve il testo della
+ * risposta finora, end quello finale (anche se non e' arrivato niente a
+ * pezzi: allora la dice tutta, come speakReply). null con la voce spenta o in
+ * pausa.
+ */
+function speechSession(c) {
+  const voice = voiceFor(c)
+  if (!voice.enabled || !voiceService || paused) return null
+  speakingCompanion = c
+  voiceService.begin(speakOptions(voice))
+  const started = Date.now()
+  let seen = ''
+  let buffer = ''
+  let spoke = false
+  const feed = (final) => {
+    const { sentences, rest } = takeSentences(buffer, final)
+    buffer = rest
+    if (!sentences.length) return
+    if (!spoke) { spoke = true; console.log('[voce] prima frase dopo ' + (Date.now() - started) + ' ms') }
+    voiceService.push(sentences.join(' '))
+  }
+  return {
+    push(text) {
+      // Un testo che non continua il precedente (un secondo tentativo): si
+      // aspetta quello finale.
+      if (typeof text !== 'string' || !text.startsWith(seen)) return
+      buffer += text.slice(seen.length)
+      seen = text
+      feed(false)
+    },
+    end(text) {
+      if (typeof text === 'string' && text.startsWith(seen)) { buffer += text.slice(seen.length); seen = text }
+      feed(true)
+      voiceService.end().catch(e => console.error('[voce] ' + e.message))
+    },
+  }
+}
+
 // ─── Tray Icon ───────────────────────────────────────────────────────────────
 
 function createTray() {
@@ -1866,7 +1907,7 @@ async function waitForSpeech(maxMs = 60000) {
  * @param {any} c
  * @param {{ cfg: any, apiKey: string, history: any[], group: string, others: any[] }} turn
  */
-async function replyFrom(c, { cfg, apiKey, history, group, others }) {
+async function replyFrom(c, { cfg, apiKey, history, group, others, onDelta = null, signal = null }) {
   c.busy = true
   c.markActivity()
   const mm = c.memory
@@ -1877,13 +1918,18 @@ async function replyFrom(c, { cfg, apiKey, history, group, others }) {
     console.log('[Main] Chiamata route per ' + c.personaId + '...')
     // Il campo motion si spiega al modello solo quando si puo' usare; gli
     // strumenti MCP solo se ce ne sono di ammessi.
-    const basePrompt = ((await motionsEnabled(c.avatarId())) ? SYSTEM_PROMPT + MOTION_PROMPT : SYSTEM_PROMPT) + Mcp.toolsPrompt(cfg.mcpServers)
+    const toolsLine = Mcp.toolsPrompt(cfg.mcpServers)
+    const basePrompt = ((await motionsEnabled(c.avatarId())) ? SYSTEM_PROMPT + MOTION_PROMPT : SYSTEM_PROMPT) + toolsLine
     let result = await route({
       provider: cfg.provider,
       model:    cfg.model,
       apiKey,
       history: historyWithMemory,
       systemPrompt: Personas.systemPrompt(c.persona(), basePrompt),
+      // In streaming (Blocco 11a), ma non con gli strumenti MCP: la prima
+      // risposta li' e' spesso "ora cerco…", e conta quella dopo lo strumento.
+      onDelta: toolsLine ? null : onDelta,
+      signal,
     })
     console.log('[Main] route() completato, reply length:', result?.reply?.length)
 
@@ -1920,7 +1966,8 @@ async function replyFrom(c, { cfg, apiKey, history, group, others }) {
         provider: cfg.provider, model: cfg.model, apiKey,
         history: [...historyWithMemory, ...turns],
         systemPrompt: Personas.systemPrompt(c.persona(), basePrompt),
-      }).catch(err => { console.error('[mcp] giro dopo lo strumento fallito:', err.message); return null })
+        signal,
+      }).catch(err => { if (err && err.aborted) throw err; console.error('[mcp] giro dopo lo strumento fallito:', err.message); return null })
       if (!next || !next.reply) { result.notice = 'Lo strumento ha risposto, ma il modello non ha scritto la risposta: riprova.'; break }
       result.reply = next.reply
       result.action = next.action || { type: 'none', animation: 'idle' }
@@ -1947,7 +1994,29 @@ async function replyFrom(c, { cfg, apiKey, history, group, others }) {
   }
 }
 
+// La richiesta in corso per ogni finestra di chat (Blocco 11a): un messaggio
+// nuovo, o "ai:cancel-reply", la annulla.
+const replyAborts = new Map()
+handle('ai:cancel-reply', (e) => {
+  const ctrl = replyAborts.get(e.sender.id)
+  if (ctrl) ctrl.abort()
+  return !!ctrl
+})
+
 handle('ai:send-message', async (_e, { history, image, to, mode }) => {
+  const sender = _e.sender
+  const previous = replyAborts.get(sender.id)
+  if (previous) previous.abort()
+  const ctrl = new AbortController()
+  replyAborts.set(sender.id, ctrl)
+  try {
+    return await sendMessage(sender, ctrl.signal, { history, image, to, mode })
+  } finally {
+    if (replyAborts.get(sender.id) === ctrl) replyAborts.delete(sender.id)
+  }
+})
+
+async function sendMessage(sender, signal, { history, image, to, mode }) {
   const cfg = loadConfig()
   const apiKey = cfg.keys?.[cfg.provider] || ''
   // Le risposte dei companion portano chi le ha dette (speaker): ognuno vede
@@ -2006,20 +2075,33 @@ handle('ai:send-message', async (_e, { history, image, to, mode }) => {
   }
 
   const first = responders[0]
+  // Streaming (Blocco 11a): la chat scrive mentre arriva, la voce parte alla
+  // prima frase. Senza streaming (strumenti MCP, tool call forzata, una
+  // scorta) arriva tutto alla fine, e la voce dice tutto come prima.
+  const speech = speechSession(first)
+  const started = Date.now()
+  let firstText = 0
+  const onDelta = (text) => {
+    if (!firstText) { firstText = Date.now(); console.log('[stream] primo testo dopo ' + (firstText - started) + ' ms') }
+    try { sender.send('reply-delta', { text, personaId: first.personaId, name: names[first.personaId] }) } catch (_) {}
+    if (speech) speech.push(text)
+  }
   let result
   try {
-    result = await replyFrom(first, { cfg, apiKey, history: historyOf(first), group: group ? groupFor(first) : '', others: hearers })
+    result = await replyFrom(first, { cfg, apiKey, history: historyOf(first), group: group ? groupFor(first) : '', others: hearers, onDelta, signal })
   } catch (err) {
+    if (err && err.aborted) return { ok: false, aborted: true }
+    if (speech) speech.end('')
     console.error('[Main] Errore in route():', err)
     return { ok: false, error: describeError(err, cfg.provider) }
   }
-  if (result?.reply) speakReply(first, result.reply)
+  if (speech) speech.end(result?.reply || '')
 
   // Il secondo, se c'e', reagisce al primo: arriva dopo, quando il primo ha finito di parlare.
   const second = responders[1]
   if (second && result?.reply) {
     const extra = [{ role: 'assistant', content: result.reply, speaker: first.personaId }]
-    replyFrom(second, { cfg, apiKey, history: historyOf(second, extra), group: groupFor(second, names[first.personaId]), others: hearers })
+    replyFrom(second, { cfg, apiKey, history: historyOf(second, extra), group: groupFor(second, names[first.personaId]), others: hearers, signal })
       .then(async (r) => {
         if (!r || !r.reply || turnId !== groupTurn) return
         await waitForSpeech()
@@ -2032,10 +2114,10 @@ handle('ai:send-message', async (_e, { history, image, to, mode }) => {
         }
         speakReply(second, r.reply)
       })
-      .catch(err => console.error('[gruppo] seconda risposta non riuscita:', err.message))
+      .catch(err => { if (!err || !err.aborted) console.error('[gruppo] seconda risposta non riuscita:', err.message) })
   }
   return { ok: true, result: { ...result, personaId: first.personaId, name: names[first.personaId] }, group }
-})
+}
 
 // Impostazioni e voce. Gli indirizzi dei file, gli hash e la cartella li
 // decide il main: la pagina chiede solo di scaricare, eliminare o provare.

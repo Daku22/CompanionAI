@@ -112,7 +112,28 @@ const fake = http.createServer((req, res) => {
     const payload = JSON.parse(body)
     requests.push(payload)
     const last = [...payload.messages].reverse().find(m => m.role === 'user')?.content || ''
-    const answer = REPLIES[last.trim().toLowerCase()] || { reply: 'Ok.', action: { type: 'none', animation: 'idle' } }
+    // Due messaggi di fila dell'utente (una risposta interrotta, Blocco 11a)
+    // arrivano uniti: conta l'ultimo.
+    const said = last.trim().split('\n').pop().trim().toLowerCase()
+    const answer = REPLIES[said] || { reply: 'Ok.', action: { type: 'none', animation: 'idle' } }
+    // Streaming (Blocco 11a): il testo a pezzi in SSE, come OpenRouter. La
+    // storia arriva piano, per poterla interrompere a meta'.
+    if (payload.stream) {
+      const content = payload.model === 'audit/prosa:free' ? answer.reply + ' (in prosa, senza JSON)' : JSON.stringify(answer)
+      const size = 8
+      const pieces = Array.from({ length: Math.ceil(content.length / size) }, (_, i) => content.slice(i * size, i * size + size))
+      const delay = answer.reply.length > 150 ? 60 : 12
+      res.setHeader('Content-Type', 'text/event-stream')
+      let i = 0
+      const next = () => {
+        if (res.destroyed || res.writableEnded) return
+        if (i === pieces.length) { res.end('data: [DONE]\n\n'); return }
+        res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: pieces[i++] } }] }) + '\n\n')
+        setTimeout(next, delay)
+      }
+      next()
+      return
+    }
     let message
     if (payload.model === 'audit/tools:free') {
       message = { content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'rispondi_companion', arguments: JSON.stringify(answer) } }] }
@@ -323,12 +344,14 @@ const results = []
 const check = (ok, text) => { results.push({ ok, text }); console.log((ok ? 'ok  ' : 'NO  ') + text) }
 
 let comp, chat
+// Le risposte finite: il fumetto provvisorio dello streaming (Blocco 11a) non conta.
+const DONE_REPLIES = `document.querySelectorAll('.msg.assistant:not(.streaming)').length`
 async function say(text) {
-  const before = await chat.evaluate(`document.querySelectorAll('.msg.assistant').length`)
+  const before = await chat.evaluate(DONE_REPLIES)
   await comp.evaluate('window.__trig = []')
   await chat.evaluate(`document.getElementById('input').value = ${JSON.stringify(text)}; document.getElementById('send-btn').click(); true`)
   for (let i = 0; i < 80; i++) {
-    if (await chat.evaluate(`document.querySelectorAll('.msg.assistant').length`) > before) break
+    if (await chat.evaluate(DONE_REPLIES) > before) break
     await sleep(250)
   }
   await sleep(400)
@@ -592,8 +615,34 @@ try {
   check(await chat.evaluate(`[...document.querySelectorAll('.msg.system')].some(m => m.textContent.includes('non ha risposto nel formato'))`),
     'solo prosa: la chat avvisa che il modello non manda azioni')
 
-  // 3. Immagine importata: nessun "Nya" di Yanineko.
+  // 3a. Streaming (Blocco 11a): con un modello JSON la risposta compare a
+  // pezzi e poi resta quella intera; un messaggio nuovo la interrompe e
+  // resta il pezzo arrivato.
   await setModel('audit/json:free')
+  {
+    await chat.evaluate(`window.__streamSeen = []; window.__streamObs && window.__streamObs.disconnect();
+      window.__streamObs = new MutationObserver(() => { const s = document.querySelector('.msg.streaming'); if (s) window.__streamSeen.push(s.lastChild.textContent) });
+      window.__streamObs.observe(document.getElementById('messages'), { subtree: true, childList: true, characterData: true }); true`)
+    await say('salutami')
+    await sleep(300)
+    const seen = [...new Set(await chat.evaluate('window.__streamSeen'))]
+    const lastReply = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant:not(.streaming)')].pop()?.lastChild.textContent || ''`)
+    const leftover = await chat.evaluate(`document.querySelectorAll('.msg.streaming').length`)
+    const streamed = requests.at(-1).stream === true
+    check(streamed && seen.length >= 1 && seen.every(t => 'Ciao!'.startsWith(t)) && lastReply === 'Ciao!' && leftover === 0,
+      'streaming: la risposta arriva a pezzi e resta quella intera (' + JSON.stringify({ streamed, seen, lastReply, leftover }) + ')')
+    await chat.evaluate(`window.__streamSeen = []; document.getElementById('input').value = 'raccontami una storia'; document.getElementById('send-btn').click(); true`)
+    let midway = ''
+    for (let i = 0; i < 60 && midway.length < 40; i++) { await sleep(100); midway = (await chat.evaluate('window.__streamSeen')).pop() || '' }
+    const storyPieces = new Set(await chat.evaluate('window.__streamSeen')).size
+    const trig = await say('salutami')
+    const texts = await chat.evaluate(`[...document.querySelectorAll('.msg.assistant:not(.streaming)')].slice(-2).map(m => m.lastChild.textContent)`)
+    check(storyPieces >= 3 && /^C'era una volta/.test(texts[0] || '') && texts[0].endsWith(' …') && texts[0].length < 200 && texts[1] === 'Ciao!' && trig.some(a => a.animation === 'wave'),
+      'streaming: un messaggio nuovo interrompe la storia, resta il pezzo arrivato e la risposta nuova arriva (' + JSON.stringify({ storyPieces, texts }) + ')')
+    await waitIdle(4000)
+  }
+
+  // 3. Immagine importata: nessun "Nya" di Yanineko.
   await pickAvatar(imported.name)
   await sleep(2500)
   await say('salutami')

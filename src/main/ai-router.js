@@ -8,6 +8,7 @@
 
 const https = require('https')
 const http  = require('http')
+const { StringDecoder } = require('string_decoder')
 const { REPLY_EMOTIONS } = require('./mood')
 
 // ─── Provider definitions ────────────────────────────────────────────────────
@@ -242,7 +243,22 @@ function requestBudget(provider, model, maxTokens, caps = null) {
 }
 const MAX_BODY_BYTES = 5 * 1024 * 1024
 
-function requestJSON(url, options, body, timeoutMs = REQUEST_TIMEOUT_MS) {
+/** L'errore di una richiesta annullata (un messaggio nuovo, Blocco 11a). */
+function abortError() {
+  const err = new Error('Richiesta annullata')
+  // @ts-ignore: proprieta' aggiunta all'errore
+  err.aborted = true
+  return err
+}
+
+/** Lega una richiesta a un AbortSignal: annullata, si chiude subito. */
+function bindAbort(req, signal, reject) {
+  if (!signal) return
+  if (signal.aborted) { req.destroy(); reject(abortError()); return }
+  signal.addEventListener('abort', () => { req.destroy(); reject(abortError()) }, { once: true })
+}
+
+function requestJSON(url, options, body, timeoutMs = REQUEST_TIMEOUT_MS, signal = null) {
   return new Promise((resolve, reject) => {
     let urlObj
     try { urlObj = new URL(url) } catch (_) { return reject(new Error('URL non valido: ' + url)) }
@@ -279,9 +295,127 @@ function requestJSON(url, options, body, timeoutMs = REQUEST_TIMEOUT_MS) {
 
     req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout dopo ' + timeoutMs + 'ms')))
     req.on('error', reject)
+    bindAbort(req, signal, reject)
     if (payload) req.write(payload)
     req.end()
   })
+}
+
+/**
+ * Come requestJSON, ma la risposta arriva a righe mentre il modello scrive
+ * (Blocco 11a): SSE per OpenAI, OpenRouter e Claude, NDJSON per Ollama.
+ * onLine riceve ogni riga completa; i caratteri UTF-8 spezzati fra due chunk
+ * li ricompone StringDecoder. Una risposta che non e' 200 si legge intera,
+ * come con requestJSON, per gli stessi messaggi d'errore. timeoutMs vale come
+ * silenzio massimo fra un pezzo e l'altro.
+ * @returns {Promise<{ status: number, body?: any }>}
+ */
+function requestStream(url, options, body, onLine, timeoutMs = REQUEST_TIMEOUT_MS, signal = null) {
+  return new Promise((resolve, reject) => {
+    let urlObj
+    try { urlObj = new URL(url) } catch (_) { return reject(new Error('URL non valido: ' + url)) }
+    const transport = urlObj.protocol === 'http:' ? http : https
+    const payload = JSON.stringify(body)
+    const req = transport.request({
+      hostname: urlObj.hostname,
+      port: urlObj.port || undefined,
+      path: urlObj.pathname + urlObj.search,
+      method: 'POST',
+      headers: { ...(options.headers || {}), 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        const chunks = []
+        res.on('data', c => chunks.push(c))
+        res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8')
+          try { resolve({ status: res.statusCode, body: JSON.parse(data) }) } catch (_) { resolve({ status: res.statusCode, body: data }) }
+        })
+        return
+      }
+      const decoder = new StringDecoder('utf8')
+      let pending = ''
+      let bytes = 0
+      const feed = (text) => {
+        pending += text
+        let nl
+        while ((nl = pending.indexOf('\n')) !== -1) {
+          const line = pending.slice(0, nl).replace(/\r$/, '')
+          pending = pending.slice(nl + 1)
+          try { onLine(line) } catch (err) { req.destroy(err); return }
+        }
+      }
+      res.on('data', chunk => {
+        bytes += chunk.length
+        if (bytes > MAX_BODY_BYTES) { req.destroy(new Error('Risposta troppo grande')); return }
+        feed(decoder.write(chunk))
+      })
+      res.on('end', () => {
+        feed(decoder.end())
+        if (pending.trim()) { try { onLine(pending) } catch (err) { return reject(err) } }
+        resolve({ status: 200 })
+      })
+    })
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout dopo ' + timeoutMs + 'ms')))
+    req.on('error', reject)
+    bindAbort(req, signal, reject)
+    req.write(payload)
+    req.end()
+  })
+}
+
+/**
+ * Cosa porta una riga dello streaming, per provider: il pezzo di testo, un
+ * errore, il motivo della fine. Pura, con test.
+ * @param {'openai'|'claude'|'ollama'} style
+ * @param {string} line
+ * @returns {{ text?: string, error?: string, stop?: string } | null}
+ */
+function streamLine(style, line) {
+  let value
+  if (style === 'ollama') {
+    if (!line.trim()) return null
+    try { value = JSON.parse(line) } catch (_) { return null }
+    if (value.error) return { error: String(value.error) }
+    return { text: (value.message && typeof value.message.content === 'string') ? value.message.content : '', ...(value.done ? { stop: value.done_reason || 'stop' } : {}) }
+  }
+  // SSE: solo le righe "data:"; i commenti (": OPENROUTER PROCESSING") e
+  // "event:" no (Claude ripete il tipo dentro il JSON).
+  if (!line.startsWith('data:')) return null
+  const data = line.slice(5).trim()
+  if (!data || data === '[DONE]') return null
+  try { value = JSON.parse(data) } catch (_) { return null }
+  if (value.error) return { error: String(value.error.message || value.error) }
+  if (style === 'claude') {
+    if (value.type === 'content_block_delta' && value.delta && value.delta.type === 'text_delta') return { text: value.delta.text || '' }
+    if (value.type === 'message_delta' && value.delta && value.delta.stop_reason) return { stop: value.delta.stop_reason }
+    return null
+  }
+  const choice = value.choices && value.choices[0]
+  if (!choice) return null
+  return { text: (choice.delta && typeof choice.delta.content === 'string') ? choice.delta.content : '', ...(choice.finish_reason ? { stop: choice.finish_reason } : {}) }
+}
+
+/**
+ * Una chiamata in streaming: raccoglie il testo e lo passa a onText a ogni
+ * pezzo. Torna come requestJSON: il corpo, se 200, ha la forma della risposta
+ * intera del provider, cosi' il resto del codice non cambia.
+ */
+async function streamCall(style, url, options, body, opts) {
+  let text = ''
+  let stop = null
+  let failure = null
+  const res = await requestStream(url, options, body, (line) => {
+    const part = streamLine(style, line)
+    if (!part) return
+    if (part.error) { failure = part.error; return }
+    if (part.stop) stop = part.stop
+    if (part.text) { text += part.text; opts.onText(text) }
+  }, opts.timeoutMs, opts.signal)
+  if (res.status !== 200) return res
+  if (failure) return { status: 502, body: { error: { message: failure } } }
+  if (style === 'claude') return { status: 200, body: { content: [{ type: 'text', text }], stop_reason: stop } }
+  if (style === 'ollama') return { status: 200, body: { message: { content: text } } }
+  return { status: 200, body: { choices: [{ message: { content: text }, finish_reason: stop }] } }
 }
 
 // Nome storico mantenuto per compatibilita' con eventuali import esterni.
@@ -656,6 +790,25 @@ function recoverReply(raw) {
 /** Il resto del JSON finito dentro il testo: '...},"emotion":"calm",...'. */
 const cutJsonTail = (s) => String(s).replace(/["}\s]*,\s*\\*"(emotion|rapport|action)\\*"\s*:[^]*$/, '').trim() || String(s)
 
+/**
+ * Il campo reply di un JSON che sta ancora arrivando (Blocco 11a): quello che
+ * c'e' finora, senza le sequenze di escape tagliate a meta'. null finche' il
+ * campo non comincia, o se il testo non e' un JSON (un modello in prosa: la
+ * risposta si mostra intera alla fine).
+ * @param {string} raw
+ * @returns {string | null}
+ */
+function replySoFar(raw) {
+  const text = String(raw || '')
+  if (!/^\s*(```(json)?\s*)?\{/.test(text)) return null
+  const m = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)/)
+  if (!m) return null
+  const body = m[1].replace(/\\u[0-9a-fA-F]{0,3}$/, '')
+  try { return JSON.parse('"' + body + '"') } catch (_) {
+    return body.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\//g, '/').replace(/\\\\/g, '\\')
+  }
+}
+
 function recoverRaw(raw) {
   const text = String(raw)
   const unescape = (v) => v.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\//g, '/')
@@ -691,9 +844,10 @@ async function callClaude(apiKey, model, history, opts) {
   if (opts.jsonMode) body.output_config = { format: { type: 'json_schema', schema: COMPANION_SCHEMA } }
   if (opts.effort) body.output_config = { ...(body.output_config || {}), effort: opts.effort }
 
-  const res = await requestJSON('https://api.anthropic.com/v1/messages', {
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-  }, body, opts.timeoutMs)
+  const headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
+  const res = opts.onText
+    ? await streamCall('claude', 'https://api.anthropic.com/v1/messages', { headers }, { ...body, stream: true }, opts)
+    : await requestJSON('https://api.anthropic.com/v1/messages', { headers }, body, opts.timeoutMs, opts.signal)
 
   if (res.status !== 200) throw httpError('Claude', res)
   if (res.body?.stop_reason === 'refusal') throw new Error('Claude ha rifiutato la richiesta')
@@ -707,7 +861,9 @@ async function callClaude(apiKey, model, history, opts) {
 async function callOpenAICompatible(url, headers, model, history, opts, label) {
   const { system, messages } = prepare(history, opts.systemPrompt)
   const payload = openaiPayload(model, [{ role: 'system', content: system }, ...messages.map(m => withImage(m, 'openai'))], opts.maxTokens, opts.jsonMode)
-  const res = await requestJSON(url, { headers }, payload, opts.timeoutMs)
+  const res = opts.onText
+    ? await streamCall('openai', url, { headers }, { ...payload, stream: true }, opts)
+    : await requestJSON(url, { headers }, payload, opts.timeoutMs, opts.signal)
   if (res.status !== 200) throw httpError(label, res)
   return parseResponse(res.body.choices?.[0]?.message?.content || '', opts.jsonMode)
 }
@@ -738,18 +894,22 @@ async function callOllama(model, history, opts) {
   const body = { model, messages: [{ role: 'system', content: system }, ...messages.map(m => withImage(m, 'ollama'))], stream: false }
   if (opts.jsonMode) body.format = 'json'
 
-  const chat = () => requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs))
+  const timeoutMs = Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs)
+  const chat = () => opts.onText
+    ? streamCall('ollama', 'http://' + host + ':' + port + '/api/chat', {}, { ...body, stream: true }, { ...opts, timeoutMs })
+    : requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, timeoutMs, opts.signal)
   let res
   try {
     res = await chat()
   } catch (err) {
+    if (err && err.aborted) throw err
     // Ollama spento: lo si avvia da soli (Blocco 7a) e si riprova una volta.
     if (!err || err.code !== 'ECONNREFUSED' || !(await require('./ollama').start()).ok) throw ollamaFailure(err)
     try { res = await chat() } catch (again) { throw ollamaFailure(again) }
   }
   if (res.status === 404 && isCloudName(model)) {
     const pulled = await requestJSON('http://' + host + ':' + port + '/api/pull', {}, { model, stream: false }, 60000).catch(() => null)
-    if (pulled && pulled.status === 200) res = await requestJSON('http://' + host + ':' + port + '/api/chat', {}, body, Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs)).catch(err => { throw ollamaFailure(err) })
+    if (pulled && pulled.status === 200) res = await chat().catch(err => { throw ollamaFailure(err) })
   }
   if (res.status !== 200) throw httpError('Ollama', res)
   return parseResponse(res.body.message?.content || '', opts.jsonMode)
@@ -867,7 +1027,13 @@ async function callOpenRouter(apiKey, model, history, opts) {
     const mode = outputMode(caps, opts.jsonMode)
     const budget = isPrimary ? opts : { ...opts, ...requestBudget('openrouter', candidate, opts.maxTokens, caps) }
     let body = { ...openRouterBody(candidate, chat, budget, mode) }
-    const send = () => requestJSON(openRouterUrl('/chat/completions'), { headers: sendHeaders(apiKey) }, body, budget.timeoutMs)
+    // In streaming (Blocco 11a) solo il modello scelto e non con la tool call
+    // forzata: il testo li' arriva a pezzi di argomenti, e una scorta parte
+    // dopo un errore, quando la chat aspetta gia' da un po'.
+    const stream = !!opts.onText && isPrimary && mode !== 'tool'
+    const send = () => stream
+      ? streamCall('openai', openRouterUrl('/chat/completions'), { headers: sendHeaders(apiKey) }, { ...body, stream: true }, budget)
+      : requestJSON(openRouterUrl('/chat/completions'), { headers: sendHeaders(apiKey) }, body, budget.timeoutMs, opts.signal)
 
     let res = await send()
     if (noEndpointForParams(res) && body.provider) {
@@ -891,7 +1057,7 @@ async function callOpenRouter(apiKey, model, history, opts) {
         { role: 'assistant', content: result.reply },
         { role: 'user', content: REMINDER },
       ] }
-      const again = await requestJSON(openRouterUrl('/chat/completions'), { headers: sendHeaders(apiKey) }, retry, budget.timeoutMs)
+      const again = await requestJSON(openRouterUrl('/chat/completions'), { headers: sendHeaders(apiKey) }, retry, budget.timeoutMs, opts.signal)
         .catch(() => null)
       const second = again && again.status === 200 ? readChoice(again.body, mode, opts.jsonMode) : null
       return second && second.via !== 'fallback' ? { ...second, retried: true } : result
@@ -924,9 +1090,11 @@ async function callOpenRouter(apiKey, model, history, opts) {
  * @param {number}  [req.maxTokens=1024]
  * @param {boolean} [req.fallback=true] false: su OpenRouter niente altri modelli come scorta
  * @param {number}  [req.retries=3]     tentativi in piu' su OpenRouter quando il fornitore e' occupato
+ * @param {(reply: string) => void} [req.onDelta] streaming (Blocco 11a): il testo della risposta finora, a ogni pezzo
+ * @param {AbortSignal} [req.signal]   annulla la richiesta (un messaggio nuovo)
  * @returns {Promise<{reply: string, emotion?: string, action?: object, via?: string, raw?: string, retried?: boolean}>}
  */
-async function route({ provider, model, apiKey, history, systemPrompt, jsonMode = true, maxTokens = 1024, fallback = true, retries = 3 }) {
+async function route({ provider, model, apiKey, history, systemPrompt, jsonMode = true, maxTokens = 1024, fallback = true, retries = 3, onDelta = null, signal = null }) {
   if (!provider || !PROVIDERS[provider]) throw new Error('Provider "' + provider + '" non supportato')
   if (!model || typeof model !== 'string') throw new Error('Modello non valido')
   const clean = sanitizeHistory(history)
@@ -941,7 +1109,15 @@ async function route({ provider, model, apiKey, history, systemPrompt, jsonMode 
 
   const caps = provider === 'openrouter' ? await modelCaps(provider, model) : null
   const budget = requestBudget(provider, model, maxTokens, caps)
-  const opts = { systemPrompt: systemPrompt || SYSTEM_PROMPT, jsonMode, caps, fallback, retries, ...budget }
+  const opts = { systemPrompt: systemPrompt || SYSTEM_PROMPT, jsonMode, caps, fallback, retries, ...budget, signal, onText: null }
+  // Streaming: a chi chiama arriva solo il testo della risposta, e solo quando cambia.
+  if (typeof onDelta === 'function') {
+    let last = ''
+    opts.onText = (raw) => {
+      const reply = jsonMode ? replySoFar(raw) : String(raw)
+      if (reply != null && reply !== last) { last = reply; onDelta(reply) }
+    }
+  }
 
   switch (provider) {
     case 'claude':     return callClaude(apiKey, model, clean, opts)
@@ -983,6 +1159,9 @@ module.exports = {
   SYSTEM_PROMPT,
   MOTION_PROMPT,
   parseResponse,
+  replySoFar,
+  streamLine,
+  requestStream,
   sanitizeHistory,
   withImage,
   validImage,

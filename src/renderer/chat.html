@@ -315,7 +315,12 @@
     #attach button { background: transparent; border: none; color: var(--text-3); width: 26px; height: 26px; border-radius: 8px; cursor: pointer; }
     #attach button:hover { background: var(--surface-hi); color: var(--text); }
 
-  </style>
+    /* La risposta mentre arriva (Blocco 11a): un cursore che lampeggia in fondo. */
+  .msg.streaming::after { content: ''; display: inline-block; width: 6px; height: 1em; margin-left: 3px; vertical-align: -0.15em;
+    border-radius: 1px; background: currentColor; opacity: 0.5; animation: stream-caret 1s steps(2, start) infinite; }
+  @keyframes stream-caret { to { visibility: hidden; } }
+  @media (prefers-reduced-motion: reduce) { .msg.streaming::after { animation: none; } }
+</style>
 </head>
 <body>
 <div id="panel">

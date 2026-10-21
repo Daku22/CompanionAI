@@ -454,9 +454,12 @@ document.getElementById('attach-cancel').addEventListener('click', () => setAtta
 async function sendMessage(spoken) {
   const fromMic = typeof spoken === 'string'
   if (sending) {
-    // Una risposta e' ancora in arrivo: quello che hai detto resta da inviare.
-    if (fromMic) inputEl.value = (inputEl.value.trim() + ' ' + spoken).trim()
-    return
+    // Una risposta e' ancora in arrivo: il messaggio nuovo la interrompe
+    // (Blocco 11a). Resta quello che era arrivato, e si manda il nuovo.
+    if (!(fromMic ? spoken.trim() : inputEl.value.trim())) return
+    try { await api.cancelReply() } catch (_) {}
+    if (replyDone) await replyDone.catch(() => {})
+    if (sending) return
   }
   const image = pendingImage
   const text = (fromMic ? spoken.trim() : inputEl.value.trim()) || (image ? 'Cosa vedi sul mio schermo?' : '')
@@ -509,11 +512,49 @@ messagesEl.addEventListener('click', (e) => {
   requestReply(currentKey, c.retryTo, null)
 })
 
+// ── Streaming (Blocco 11a) ──────────────────────────────────────────────────
+// Il testo della risposta mentre arriva, in un fumetto provvisorio che non
+// entra nella cronologia: alla fine lo sostituisce la risposta vera.
+let replyDone = null
+let stream = null   // { el, text, name, pid, key }
+
+function dropStream() {
+  const s = stream
+  stream = null
+  if (s && s.el) s.el.remove()
+  return s
+}
+
+if (api && api.onReplyDelta) api.onReplyDelta((d) => {
+  if (!sending || !d || typeof d.text !== 'string') return
+  if (!stream) stream = { el: null, text: '', name: d.name, pid: d.personaId, key: sendingKey }
+  stream.text = d.text
+  if (stream.key !== currentKey) return
+  if (!stream.el || !stream.el.isConnected) {
+    setTyping(false)
+    stream.el = messageEl({ role: 'assistant', text: d.text, who: d.name, group: isGroupKey(stream.key), pid: d.personaId })
+    const bubble = stream.el.classList.contains('msg') ? stream.el : stream.el.querySelector('.msg')
+    bubble.classList.add('streaming')
+    const typing = document.getElementById('typing')
+    if (typing && typing.parentNode === messagesEl) messagesEl.insertBefore(stream.el, typing)
+    else messagesEl.appendChild(stream.el)
+  }
+  const bubble = stream.el.classList.contains('msg') ? stream.el : stream.el.querySelector('.msg')
+  bubble.lastChild.textContent = d.text
+  messagesEl.scrollTop = messagesEl.scrollHeight
+})
+
 /** Chiede la risposta per la conversazione key (l'ultimo messaggio e' gia' nella cronologia). */
-async function requestReply(key, to, image) {
+function requestReply(key, to, image) {
+  replyDone = askReply(key, to, image)
+  return replyDone
+}
+
+async function askReply(key, to, image) {
   const group = isGroupKey(key)
   sending = true
   sendingKey = key
+  dropStream()
   setTyping(true)
 
   // Animazione "think" immediata sul companion (quello scelto, nel gruppo)
@@ -526,14 +567,22 @@ async function requestReply(key, to, image) {
   } catch (e) {
     setTyping(false)
     sending = false
+    dropStream()
     sendFailed(key, to, 'Messaggio non arrivato: ' + (e.message || e))
     return
   }
 
   setTyping(false)
   sending = false
+  const partial = dropStream()
 
   const { ok, result, error } = resp || {}
+  // Interrotta da un messaggio nuovo: resta a schermo quello che era arrivato,
+  // ma non entra nella cronologia (il modello non l'ha finita).
+  if (resp && resp.aborted) {
+    if (partial && partial.text) addMessage('assistant', partial.text + ' …', partial.name, key, { pid: partial.pid })
+    return
+  }
   if (!ok) {
     sendFailed(key, to, 'Nessuna risposta: ' + (error || 'risposta vuota'))
     return
