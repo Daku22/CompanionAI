@@ -28,7 +28,7 @@ function describeEvent(ev) {
 
 /**
  * @param {{ config: () => ReturnType<typeof L.streamConfig>, names: () => { id: string, name: string }[],
- *   respond?: ((item: any) => Promise<{ ok: boolean, by?: string } | boolean>) | null,
+ *   respond?: ((item: any) => Promise<{ ok: boolean, by?: string, reply?: string, reason?: string } | boolean>) | null,
  *   onState?: (state: any) => void, Client?: any, now?: () => number, tickMs?: number }} ctx
  */
 function createLiveSession(ctx) {
@@ -113,26 +113,27 @@ function createLiveSession(ctx) {
       mine.memory.answeredAt = mine.memory.answeredAt.filter(x => t - x < 60 * 1000).concat(t)
       mine.memory.lastByUser[item.msg.login] = t
     }
+    /** @type {{ ok: boolean, by?: string, reply?: string, reason?: string }} */
     let result = { ok: true, by: '' }
     try {
       if (ctx.respond) {
         const r = await ctx.respond(item)
         result = typeof r === 'object' && r ? r : { ok: !!r, by: '' }
       }
-    } catch (e) { result = { ok: false, by: '' }; console.error('[live] risposta non riuscita:', e.message) }
+    } catch (e) { result = { ok: false, by: '', reason: 'errore' }; console.error('[live] risposta non riuscita:', e.message) }
     mine.busy = false
     if (mine !== s) return
     const who = item.event ? item.event.user : item.msg.user
     const text = item.event ? describeEvent(item.event) : item.msg.text.slice(0, 160)
     if (result.ok) {
       s.counts.answered++
-      s.answered.push({ at: t, kind: item.kind, user: who, text, by: result.by || '' })
+      s.answered.push({ at: t, kind: item.kind, user: who, text, by: result.by || '', reply: String(result.reply || '').slice(0, 400) })
       if (s.answered.length > 200) s.answered.shift()
     }
     log({
       user: who, text, by: result.by || '',
       outcome: !result.ok ? 'non riuscito' : ctx.respond ? 'risposto' : 'scelto',
-      reason: item.kind === 'spontaneous' ? 'commento spontaneo' : item.kind === 'event' ? 'ringraziamento' : '',
+      reason: !result.ok && result.reason ? result.reason : item.kind === 'spontaneous' ? 'commento spontaneo' : item.kind === 'event' ? 'ringraziamento' : '',
     })
   }
 

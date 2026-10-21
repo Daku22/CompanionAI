@@ -19,7 +19,7 @@ Scelte dell'utente (20 e 21 ottobre):
   lui; ogni tanto un altro aggiunge una battuta (come nella chat di gruppo, al massimo due).
 - **Quando risponde:**
   - se lo nominano o usano il comando (`!nome`, modificabile);
-  - ogni tanto anche senza essere chiamato: regolabile da 2 a 15 minuti (o spento), di base
+  - ogni tanto anche senza essere chiamato: regolabile da 1 a 15 minuti (o spento), di base
     ogni 5, solo se nel frattempo la chat ha scritto qualcosa;
   - eventi: abbonamenti, regali di abbonamenti e raid (i follow no: servirebbe un account).
 - **Come risponde:** sceglie lui, di volta in volta, se dire il nome dello spettatore, leggere
@@ -105,7 +105,7 @@ Regole di sempre:
   - un'attesa per utente (60 s) e un tetto al minuto (4 di base);
   - con tanti messaggi passano prima i mod, chi scrive per la prima volta e le domande; gli
     altri si scartano, non si accodano all'infinito.
-- `pickSpontaneous(coda, ultimo, ora, ogni)`, pura: ogni N minuti (2–15, di base 5, o
+- `pickSpontaneous(coda, ultimo, ora, ogni)`, pura: ogni N minuti (1–15, di base 5, o
   spento), se dall'ultimo commento la chat ha scritto, il messaggio più interessante (domande
   prima) non rivolto a nessuno.
 - Eventi: raid sempre; i regali di abbonamenti a raffica diventano un solo ringraziamento.

@@ -30,7 +30,8 @@ function dayToWrite(turns, entries, now = Date.now()) {
     const day = dayOf(ms)
     if (day < today && (!last || day > last)) last = day
   }
-  if (!last || entries.some(e => e.day === last)) return null
+  // Il paragrafo di una live (Blocco 11d) non e' la pagina del giorno.
+  if (!last || entries.some(e => e.day === last && e.kind !== 'live')) return null
   return last
 }
 
@@ -51,6 +52,41 @@ function systemPrompt(persona) {
     "Non inventare cose successe tra te e l'utente che non sono nel dialogo."
 }
 
+/**
+ * Il prompt del paragrafo dopo una live (Blocco 11d): breve, in prima persona,
+ * su com'e' andata, cosa e' successo e come si e' sentito.
+ */
+function liveSystemPrompt(persona) {
+  const who = persona && persona.prompt ? `Ti chiami ${persona.name}. La tua personalità:\n${persona.prompt}\n\n` : ''
+  return who + "E' il tuo diario personale. Hai appena fatto una live su Twitch insieme all'utente, che è lo streamer: " +
+    'scrivi un piccolo paragrafo, da tre a sei frasi, in prima persona, su com\'è andata, cosa è successo durante la live ' +
+    'e come ti sei sentito. Solo testo, senza JSON. Non inventare cose che non sono nel riassunto.'
+}
+
+/**
+ * Il riassunto di una live per quel paragrafo: quanto e' durata, quanti
+ * messaggi, gli eventi e le risposte di questo companion (a chi, e cosa ha
+ * detto lui). I messaggi degli spettatori no: solo i loro nomi.
+ * @param {{ startedAt: number, endedAt: number, channel?: string, counts: any,
+ *   answered: { kind: string, user: string, by: string, reply?: string }[], events: { user: string, text: string }[] }} summary
+ * @param {string} name il nome del companion
+ */
+function liveTranscript(summary, name) {
+  const mins = Math.max(1, Math.round((summary.endedAt - summary.startedAt) / 60000))
+  const lines = ['Live su Twitch' + (summary.channel ? ' sul canale ' + summary.channel : '') + ', durata circa ' + mins + ' minut' + (mins === 1 ? 'o' : 'i') + '.',
+    'Messaggi in chat: ' + (summary.counts.received || 0) + '; risposte dei companion: ' + (summary.counts.answered || 0) + '.']
+  if (summary.events.length) lines.push('Eventi: ' + summary.events.slice(0, 12).map(e => e.user + ' ' + e.text).join('; ') + '.')
+  const mine = summary.answered.filter(a => a.by === name).slice(-15)
+  if (mine.length) {
+    lines.push('Le tue risposte:')
+    for (const a of mine) {
+      const to = a.kind === 'event' ? 'ringraziando ' + a.user : a.kind === 'spontaneous' ? 'commentando un messaggio di ' + a.user : 'rispondendo a ' + a.user
+      lines.push('- ' + to + (a.reply ? ': «' + String(a.reply).slice(0, 220) + '»' : ''))
+    }
+  } else lines.push('Tu non hai risposto: hanno parlato gli altri companion.')
+  return lines.join('\n')
+}
+
 /** Il testo del modello, ripulito; null se vuoto. */
 function cleanEntry(text) {
   const t = String(text || '').replace(/^```\w*\s*|```$/g, '').trim().slice(0, MAX_ENTRY)
@@ -65,7 +101,7 @@ async function loadDiary(file) {
   for (const line of raw.split('\n')) {
     try {
       const e = JSON.parse(line)
-      if (e && typeof e.day === 'string' && typeof e.text === 'string') entries.push({ day: e.day, text: e.text })
+      if (e && typeof e.day === 'string' && typeof e.text === 'string') entries.push({ day: e.day, text: e.text, ...(e.kind === 'live' ? { kind: 'live' } : {}) })
     } catch (_) {}
   }
   return entries.sort((a, b) => b.day.localeCompare(a.day))
@@ -73,7 +109,7 @@ async function loadDiary(file) {
 
 async function appendDiary(file, entry) {
   await fs.promises.mkdir(path.dirname(file), { recursive: true })
-  await fs.promises.appendFile(file, JSON.stringify({ day: entry.day, text: entry.text, at: new Date().toISOString() }) + '\n', 'utf8')
+  await fs.promises.appendFile(file, JSON.stringify({ day: entry.day, text: entry.text, ...(entry.kind === 'live' ? { kind: 'live' } : {}), at: new Date().toISOString() }) + '\n', 'utf8')
 }
 
-module.exports = { MAX_TRANSCRIPT, MAX_ENTRY, MAX_TOKENS, MAX_ENTRIES_SHOWN, dayToWrite, transcript, systemPrompt, cleanEntry, loadDiary, appendDiary }
+module.exports = { MAX_TRANSCRIPT, MAX_ENTRY, MAX_TOKENS, MAX_ENTRIES_SHOWN, dayToWrite, transcript, systemPrompt, liveSystemPrompt, liveTranscript, cleanEntry, loadDiary, appendDiary }

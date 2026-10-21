@@ -380,7 +380,7 @@
     $('diary-list').replaceChildren(...entries.map(e => {
       const a = document.createElement('article')
       const h = document.createElement('h3')
-      h.textContent = fmt(e.day)
+      h.textContent = fmt(e.day) + (e.kind === 'live' ? ' · dopo la live' : '')
       const p = document.createElement('p')
       p.textContent = e.text
       a.append(h, p)

@@ -72,6 +72,28 @@ async function main() {
     await fs.promises.rm(dir, { recursive: true, force: true })
   })
 
+  await test('la live (Blocco 11d): un paragrafo a parte, che non toglie la pagina del giorno', async () => {
+    const turns = [{ timestamp: '2026-10-03T10:00:00Z', speaker: 'user', content: 'ciao' }]
+    const now = Date.parse('2026-10-04T09:00:00Z')
+    assert.equal(D.dayToWrite(turns, [{ day: '2026-10-03', kind: 'live' }], now), '2026-10-03', 'la pagina del 3 si scrive lo stesso')
+    const summary = { startedAt: 0, endedAt: 47 * 60000, channel: 'canale', counts: { received: 30, answered: 5 },
+      events: [{ user: 'Amico', text: 'raid con 9 spettatori' }],
+      answered: [{ kind: 'mention', user: 'Marco', by: 'Feniel', reply: 'Benissimo, grazie Marco!' }, { kind: 'event', user: 'Amico', by: 'Luma', reply: 'Benvenuti!' }] }
+    const t = D.liveTranscript(summary, 'Feniel')
+    assert.match(t, /circa 47 minuti/)
+    assert.match(t, /raid con 9/)
+    assert.match(t, /rispondendo a Marco: «Benissimo, grazie Marco!»/)
+    assert.doesNotMatch(t, /Benvenuti/, 'solo le sue risposte')
+    assert.match(D.liveTranscript(summary, 'Nessuno'), /non hai risposto/)
+    assert.match(D.liveSystemPrompt({ name: 'Feniel', prompt: 'allegra' }), /live su Twitch.*come ti sei sentito/)
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'diary-live-'))
+    const file = path.join(dir, 'diary.jsonl')
+    await D.appendDiary(file, { day: '2026-10-03', text: 'live!', kind: 'live' })
+    await D.appendDiary(file, { day: '2026-10-03', text: 'giornata' })
+    assert.deepEqual((await D.loadDiary(file)).map(e => e.kind || 'pagina').sort(), ['live', 'pagina'])
+    await fs.promises.rm(dir, { recursive: true, force: true })
+  })
+
   console.log(`=== ${passed} test superati ===`)
 }
 

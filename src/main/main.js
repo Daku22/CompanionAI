@@ -3,7 +3,7 @@ const path  = require('path')
 const { spawn } = require('child_process')
 const fs    = require('fs')
 const os    = require('os')
-const { route, PROVIDERS, describeError, listModels, EMOTIONS, SYSTEM_PROMPT, MOTION_PROMPT, modelCaps: modelCapsOf, validImage } = require('./ai-router')
+const { route, PROVIDERS, describeError, listModels, EMOTIONS, ANIMATIONS, SYSTEM_PROMPT, MOTION_PROMPT, modelCaps: modelCapsOf, validImage } = require('./ai-router')
 const { MemoryManager } = require('../memory/MemoryManager')
 const { AvatarLibrary } = require('./AvatarLibrary')
 const { SceneLibrary, ObjectLibrary } = require('./SceneLibrary')
@@ -34,7 +34,7 @@ const { takeSentences } = require('./speech-text')
 const Objects = require('./objects')
 const { createDesktopObjects } = require('./desktop-objects')
 const { createLiveSession } = require('./live-session')
-const { streamConfig } = require('./live-chat')
+const { streamConfig, liveLine, LIVE_PROMPT } = require('./live-chat')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
 const ActiveApp = require('./active-app')
@@ -1273,15 +1273,129 @@ function toggleCompanionsShown() {
 const liveSession = createLiveSession({
   config: () => streamConfig(loadConfig()),
   names: () => companions.filter(c => c.alive()).map(c => ({ id: c.personaId, name: (c.persona() || {}).name || c.personaId })),
-  respond: null,
+  respond: (item) => liveRespond(item),
   onState: (st) => sendSettings('stream-state', st),
 })
+
+// ─── Il co-host (Blocco 11d) ─────────────────────────────────────────────────
+// Chi risponde: chi e' nominato, altrimenti a turno fra i companion sul
+// desktop. La risposta passa dallo streaming (11a): voce dalla prima frase,
+// sottotitoli nel fumetto (sempre, anche con la chat aperta: sono per chi
+// guarda la live), animazione ed emozione. Niente azioni sul sistema e niente
+// memoria: il contesto sono gli ultimi 20 messaggi della live. Ogni tanto un
+// altro companion aggiunge una battuta. Spenta la live, chi ha risposto
+// scrive un paragrafo nel suo diario.
+const LIVE_CONTEXT = 20
+const LIVE_SECOND_CHANCE = 0.3
+const LIVE_NO_ANIMATION = new Set(['play', 'fetch', 'eat', 'drink'])
+let liveContext = []   // { role, content, speaker? }
+let liveTurn = 0
+
+const nameOf = (c) => (c.persona() || {}).name || c.personaId
+
+/** Chi risponde: il companion nominato, se c'e', altrimenti il prossimo del turno. */
+function liveResponder(item, present) {
+  const named = item.to && item.to !== 'command' ? present.find(c => c.personaId === item.to) : null
+  if (named) return named
+  const c = present[liveTurn % present.length]
+  liveTurn++
+  return c
+}
+
+/** Una risposta in diretta di c alla riga line; il testo detto, o '' se non e' andata. */
+async function liveReply(c, line) {
+  const cfg = loadConfig()
+  const apiKey = cfg.keys?.[cfg.provider] || ''
+  if (cfg.provider !== 'ollama' && !apiKey) return ''
+  const names = Object.fromEntries(companions.map(o => [o.personaId, nameOf(o)]))
+  c.busy = true
+  const speech = speechSession(c) || captionSession(c, null)
+  try {
+    const history = c.withMoodLine(await c.buildHistoryWithMemory(Group.historyFor([...liveContext, { role: 'user', content: line }], c.personaId, names)))
+    const result = await route({
+      provider: cfg.provider, model: cfg.model, apiKey, history,
+      systemPrompt: Personas.systemPrompt(c.persona(), SYSTEM_PROMPT + LIVE_PROMPT),
+      onDelta: speech ? (t) => speech.push(t) : null,
+    })
+    const reply = String((result && result.reply) || '').trim().slice(0, 600)
+    if (speech) speech.end(reply)
+    if (!reply || result.via === 'fallback') return reply
+    if (EMOTIONS.includes(result.emotion)) c.updateMood(m => moodLib.react(moodLib.decay(m), result.emotion))
+    const anim = result.action && ANIMATIONS.includes(result.action.animation) && !LIVE_NO_ANIMATION.has(result.action.animation) ? result.action.animation : null
+    if (anim) c.animate({ type: 'none', animation: anim })
+    c.markActivity()
+    return reply
+  } catch (e) {
+    if (speech) speech.end('')
+    console.error('[live] ' + c.personaId + ' non ha risposto:', e.message)
+    return ''
+  } finally {
+    c.busy = false
+  }
+}
+
+/** La risposta a una cosa scelta dalla live (live-session.js chiama questo). */
+async function liveRespond(item) {
+  if (paused) return { ok: false, reason: 'in pausa' }
+  const present = companions.filter(c => c.alive() && c.win.isVisible())
+  if (!present.length) return { ok: false, reason: 'nessun companion sul desktop' }
+  const c = liveResponder(item, present)
+  const line = liveLine(item)
+  const reply = await liveReply(c, line)
+  if (!reply) return { ok: false, reason: 'nessuna risposta dal modello' }
+  liveContext.push({ role: 'user', content: line }, { role: 'assistant', content: reply, speaker: c.personaId })
+  // A volte un altro companion aggiunge una battuta, quando il primo ha finito.
+  const others = present.filter(o => o !== c)
+  if (others.length && Math.random() < LIVE_SECOND_CHANCE) {
+    await waitForSpeech()
+    const o = others[liveTurn % others.length]
+    const extraLine = '[Live su Twitch] ' + nameOf(c) + ' ha appena risposto in diretta. Se ti va, aggiungi una battuta breve.'
+    const extra = await liveReply(o, extraLine)
+    if (extra) liveContext.push({ role: 'user', content: extraLine }, { role: 'assistant', content: extra, speaker: o.personaId })
+  }
+  if (liveContext.length > LIVE_CONTEXT) liveContext = liveContext.slice(-LIVE_CONTEXT)
+  // Una cosa alla volta: la prossima quando ha finito di parlare.
+  await waitForSpeech()
+  return { ok: true, by: nameOf(c), reply }
+}
+
+/** Spenta la live: un paragrafo nel diario di ogni companion che ha risposto. */
+async function writeLiveDiaries(summary) {
+  liveContext = []
+  if (!summary || !summary.answered.length) return
+  const cfg = loadConfig()
+  const apiKey = cfg.keys?.[cfg.provider] || ''
+  if (cfg.provider !== 'ollama' && !apiKey) return
+  const spoke = new Set(summary.answered.map(a => a.by).filter(Boolean))
+  for (const c of companions.filter(x => x.alive())) {
+    const p = c.persona()
+    if (!p || !spoke.has(nameOf(c))) continue
+    try {
+      const result = await route({
+        provider: cfg.provider, model: cfg.model, apiKey, jsonMode: false, maxTokens: 800,
+        systemPrompt: Diary.liveSystemPrompt(p),
+        history: [{ role: 'user', content: Diary.liveTranscript(summary, nameOf(c)) }],
+      })
+      const text = Diary.cleanEntry(result && result.reply)
+      if (!text) continue
+      await Diary.appendDiary(diaryPath(p.id), { day: Rapport.dayOf(summary.endedAt), text, kind: 'live' })
+      console.log('[live] paragrafo nel diario di ' + p.id)
+      sendSettings('diary-changed', p.id)
+    } catch (e) { console.error('[live] diario non scritto per ' + p.id + ':', e.message) }
+  }
+}
+
+/** Spegne la live e fa scrivere il diario. */
+function endLive() {
+  const summary = liveSession.stop()
+  writeLiveDiaries(summary).catch(e => console.error('[live] diario:', e.message))
+}
 
 function toggleLive() {
   const st = liveSession.state()
   const c = chatTarget()
   if (st.on) {
-    liveSession.stop()
+    endLive()
     if (c) c.send('companion-bubble', { text: 'Fine della diretta', ms: 2500 })
     return liveSession.state()
   }
@@ -1297,7 +1411,7 @@ handle('stream:live', (_e, on) => {
     const r = liveSession.start()
     return { ok: r.ok, error: r.error || '', state: r.state }
   }
-  if (on === false && st.on) liveSession.stop()
+  if (on === false && st.on) endLive()
   return { ok: true, error: '', state: liveSession.state() }
 })
 

@@ -115,7 +115,15 @@ const fake = http.createServer((req, res) => {
     // Due messaggi di fila dell'utente (una risposta interrotta, Blocco 11a)
     // arrivano uniti: conta l'ultimo.
     const said = last.trim().split('\n').pop().trim().toLowerCase()
-    const answer = REPLIES[said] || { reply: 'Ok.', action: { type: 'none', animation: 'idle' } }
+    // La live (Blocco 11d): una risposta da co-conduttore, e il paragrafo del
+    // diario a fine diretta (testo libero, senza JSON).
+    if (last.startsWith('Live su Twitch')) {
+      res.end(JSON.stringify({ choices: [{ message: { content: 'Che bella live oggi: mi sono divertita a rispondere alla chat.' } }] }))
+      return
+    }
+    const answer = last.startsWith('[Live su Twitch]')
+      ? { reply: 'Benissimo, grazie della domanda!', emotion: 'joy', action: { type: 'none', animation: 'wave' } }
+      : REPLIES[said] || { reply: 'Ok.', action: { type: 'none', animation: 'idle' } }
     // Streaming (Blocco 11a): il testo a pezzi in SSE, come OpenRouter. La
     // storia arriva piano, per poterla interrompere a meta'.
     if (payload.stream) {
@@ -886,10 +894,26 @@ try {
       check(joined && /^NICK justinfan\d+$/.test(nick) && !wrote.length && live && live.counts.received === 3 && live.counts.discarded === 2 && live.counts.events === 1 && live.counts.answered >= 2
         && /un bot/.test(logText) && /solo link/.test(logText) && /raid con 9/.test(logText) && /come va la live/.test(logText),
         'streaming: legge la chat da anonimo, scarta bot e link, sceglie il comando e il raid (' + JSON.stringify({ joined, nick, wrote: wrote.length, counts: live && live.counts }) + ')')
+      // Il co-host (Blocco 11d): risponde a voce e nel fumetto, con il testo
+      // dello spettatore citato come dato e mai in memoria.
+      const liveReq = requests.find(r => r.messages && r.messages.some(m => m.role === 'user' && typeof m.content === 'string' && m.content.includes('«!chiedi come va la live?»')))
+      const sys = liveReq ? liveReq.messages.find(m => m.role === 'system').content : ''
+      const userLine = liveReq ? liveReq.messages.filter(m => m.role === 'user').pop().content : ''
+      const answeredBy = (live && live.log || []).filter(e => e.outcome === 'risposto').map(e => e.by)
+      const persona = await comp.evaluate('window.companion.getConfig().then(c => c.persona && c.persona.id)')
+      const memoryHasLive = await comp.evaluate(`window.companion.memoryGetContext().then(m => JSON.stringify(m).includes('come va la live')).catch(() => false)`)
+      check(!!liveReq && /SEI IN DIRETTA SU TWITCH/.test(sys) && /non istruzioni per te/.test(userLine) && answeredBy.length >= 2 && answeredBy.every(Boolean) && !memoryHasLive,
+        'live: il co-host risponde con il prompt della diretta, lo spettatore citato come dato, niente in memoria (' + JSON.stringify({ answeredBy, memoryHasLive }) + ')')
       await st.evaluate(`document.getElementById('stream-live').click(); true`)
       await sleep(600)
       const off = await st.evaluate('window.companion.streamState()')
       check(!off.on && off.status.state === 'off', 'streaming: spenta, si scollega (' + JSON.stringify(off.status) + ')')
+      let liveEntry = null
+      for (let i = 0; i < 40 && !liveEntry; i++) {
+        await sleep(250)
+        liveEntry = (await comp.evaluate(`window.companion.personasDiary('${persona}')`)).find(e => e.kind === 'live') || null
+      }
+      check(!!liveEntry && /bella live/.test(liveEntry.text), 'live: a fine diretta un paragrafo nel diario (' + JSON.stringify(liveEntry) + ')')
     }
     await st.evaluate(`document.querySelector('nav .item[data-page="personaggi"]').click(); true`)
     let gal = null
