@@ -25,6 +25,7 @@ const SWP_NOSIZE = 0x1
 const SWP_NOMOVE = 0x2
 const SWP_NOACTIVATE = 0x10
 const SWP_NOOWNERZORDER = 0x200
+const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 /** @type {any} */
 let api = null
@@ -38,6 +39,7 @@ function load() {
     const koffi = require('koffi')
     const user32 = koffi.load('user32.dll')
     const dwmapi = koffi.load('dwmapi.dll')
+    const kernel32 = koffi.load('kernel32.dll')
     koffi.struct('RECT', { left: 'int32', top: 'int32', right: 'int32', bottom: 'int32' })
     koffi.proto('bool __stdcall EnumWindowsProc(intptr_t hwnd, intptr_t lParam)')
     api = {
@@ -58,6 +60,9 @@ function load() {
       SetWindowPos: user32.func('bool __stdcall SetWindowPos(intptr_t hwnd, intptr_t after, int x, int y, int cx, int cy, uint32 flags)'),
       DwmRect: dwmapi.func('int32 __stdcall DwmGetWindowAttribute(intptr_t hwnd, uint32 attr, _Out_ RECT *value, uint32 size)'),
       DwmInt: dwmapi.func('int32 __stdcall DwmGetWindowAttribute(intptr_t hwnd, uint32 attr, _Out_ uint32 *value, uint32 size)'),
+      OpenProcess: kernel32.func('intptr_t __stdcall OpenProcess(uint32 access, bool inherit, uint32 pid)'),
+      QueryFullProcessImageNameW: kernel32.func('bool __stdcall QueryFullProcessImageNameW(intptr_t process, uint32 flags, _Out_ char16_t *name, _Inout_ uint32 *size)'),
+      CloseHandle: kernel32.func('bool __stdcall CloseHandle(intptr_t handle)'),
     }
   } catch (e) {
     loadError = e
@@ -144,6 +149,27 @@ function windowInfo(hwnd) {
 }
 
 /**
+ * Il nome del programma di un processo ("game.exe"), '' se non si sa (Blocco
+ * 12a: il gioco si ritrova dal programma anche quando il titolo cambia).
+ * Basta il permesso minimo di lettura: va anche con i processi di un altro
+ * utente o protetti, senza leggerne la memoria.
+ * @param {number} pid
+ */
+function exeOf(pid) {
+  if (!load() || !pid) return ''
+  let h = 0
+  try {
+    h = api.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+    if (!h) return ''
+    const max = [1024]
+    const buf = Buffer.alloc(max[0] * 2)
+    if (!api.QueryFullProcessImageNameW(h, 0, buf, max)) return ''
+    const full = api.koffi.decode(buf, 'char16_t', max[0])
+    return require('path').win32.basename(full)
+  } catch (_) { return '' } finally { if (h) try { api.CloseHandle(h) } catch (_) {} }
+}
+
+/**
  * Stato di una finestra sola, per seguirla senza rileggere tutte le altre.
  * null se non esiste piu'.
  * @param {number} hwnd
@@ -216,4 +242,4 @@ function isKeyDown(vk) {
   return (api.GetAsyncKeyState(vk) & 0x8000) !== 0
 }
 
-module.exports = { available, unavailableReason, listWindows, foregroundWindow, windowInfo, windowState, placeAbove, handleOf, isKeyDown }
+module.exports = { available, unavailableReason, listWindows, foregroundWindow, windowInfo, windowState, exeOf, placeAbove, handleOf, isKeyDown }

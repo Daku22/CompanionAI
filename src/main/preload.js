@@ -100,6 +100,10 @@ contextBridge.exposeInMainWorld('companion', {
   testChatShown:    (show)   => ipcRenderer.invoke('test:chat-shown', show),
   // Live su Twitch (Blocco 11c): lo stato, il registro, "In diretta".
   streamState:      ()       => ipcRenderer.invoke('stream:state'),
+  // Modalita' gioco (Blocco 12a): le finestre da scegliere e la prova del modello che guarda.
+  visionSources:    ()       => ipcRenderer.invoke('vision:sources'),
+  gameTestVision:   (input)  => ipcRenderer.invoke('game:test-vision', input && typeof input === 'object' ? { provider: String(input.provider || ''), model: String(input.model || '') } : null),
+  testGameCapture:  ()       => ipcRenderer.invoke('test:game-capture'),
   streamLive:       (on)     => ipcRenderer.invoke('stream:live', on === true),
   onStreamState: (cb) => {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }

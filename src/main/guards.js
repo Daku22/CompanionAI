@@ -378,6 +378,8 @@ function mergeConfig(current, incoming) {
   if (incoming.shortcuts && typeof incoming.shortcuts === 'object') merged.shortcuts = mergeShortcuts(current.shortcuts, incoming.shortcuts)
   // La live su Twitch (Blocco 11c): canale, comando, tetti, bot (live-chat.js).
   if (incoming.stream && typeof incoming.stream === 'object') merged.stream = require('./live-chat').mergeStream(current.stream, incoming.stream)
+  // La modalita' gioco (Blocco 12): la finestra, il modello che guarda, i tempi.
+  if (incoming.game && typeof incoming.game === 'object') merged.game = require('./game-mode').mergeGame(current.game, incoming.game, Object.keys(require('./ai-router').PROVIDERS))
   if (typeof incoming.activeApp === 'boolean') merged.activeApp = incoming.activeApp
   if (incoming.activeAppIgnore !== undefined) { const list = require('./active-app').cleanIgnore(incoming.activeAppIgnore); if (list) merged.activeAppIgnore = list }
   if (typeof incoming.initiativeVoice === 'boolean') merged.initiativeVoice = incoming.initiativeVoice

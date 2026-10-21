@@ -34,6 +34,8 @@
     }
     for (const p of document.querySelectorAll('.page')) p.classList.toggle('hidden', p.id !== 'page-' + name)
     try { localStorage.setItem('settings-page', name) } catch (_) { /* niente memoria: si riparte da Modello */ }
+    // Le pagine che si aggiornano quando si aprono (Visione: le finestre aperte).
+    document.dispatchEvent(new CustomEvent('settings-page-shown', { detail: name }))
   }
   for (const t of tabs) t.addEventListener('click', () => showPage(t.dataset.page))
   // Rimandi da una pagina all'altra ("si sceglie in Tasti rapidi").
@@ -758,6 +760,108 @@
     })
   }
 
+  // ─── Il gioco (Blocco 12a) ─────────────────────────────────────────────────
+  // La finestra che la modalita' gioco guarda (o tutto lo schermo) e il modello
+  // che guarda: quello della chat se vede le immagini, o uno scelto qui.
+  let game = null
+  let gameCfg = null
+  const gameCard = (choice, label, sub, thumb) => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'game-win'
+    b.setAttribute('role', 'radio')
+    const same = game && game.source && choice && game.source.kind === choice.kind && (choice.kind === 'screen' || (game.source.title === choice.title && game.source.app === choice.app))
+    b.setAttribute('aria-checked', String(!!same))
+    const shot = document.createElement('span')
+    shot.className = 'shot'
+    if (thumb) shot.style.backgroundImage = 'url("' + thumb + '")'
+    else shot.textContent = choice.kind === 'screen' ? 'Schermo' : 'ridotta a icona'
+    const t = document.createElement('span')
+    t.className = 't'
+    t.textContent = label
+    const a = document.createElement('span')
+    a.className = 'a'
+    a.textContent = sub
+    b.append(shot, t, a)
+    b.title = label + (sub ? ' — ' + sub : '')
+    b.addEventListener('click', () => saveGame({ source: choice }))
+    return b
+  }
+  async function loadGameWindows() {
+    $('game-windows-note').textContent = 'Leggo le finestre aperte…'
+    let list = []
+    try { list = await api.visionSources() } catch (_) {}
+    const cards = list.map(w => gameCard({ kind: 'window', title: w.title, app: w.app }, w.title, w.app + (w.minimized ? ' · ridotta a icona' : ''), w.thumb))
+    cards.push(gameCard({ kind: 'screen' }, 'Tutto lo schermo', 'Quello su cui sta il companion', ''))
+    $('game-windows').replaceChildren(...cards)
+    $('game-windows-note').textContent = list.length ? '' : 'Nessun\'altra finestra aperta: apri il gioco e premi Aggiorna.'
+  }
+  function showGame(cfg) {
+    if (!cfg || !cfg.game) return
+    game = cfg.game
+    gameCfg = cfg
+    const s = game.source
+    $('game-choice').textContent = !s ? 'Nessuna finestra scelta: scegli il gioco qui sotto.'
+      : s.kind === 'screen' ? 'Guarda: tutto lo schermo del companion.'
+        : 'Guarda: ' + (s.title || s.app) + (s.app && s.title ? ' (' + s.app + ')' : '')
+    for (const b of document.querySelectorAll('#game-windows .game-win')) b.setAttribute('aria-checked', 'false')
+    showGameModel().catch(() => {})
+  }
+  async function saveGame(partial) {
+    try {
+      const cfg = await api.setConfig({ game: partial })
+      showGame(cfg)
+      if ('source' in partial) loadGameWindows()
+    } catch (_) {}
+  }
+  // I provider con la chiave (e Ollama), e i loro modelli che vedono le immagini.
+  async function showGameModel() {
+    const cfg = gameCfg
+    if (!cfg) return
+    const sel = $('game-provider')
+    const providers = Object.keys(cfg.keyConfigured || {}).filter(p => cfg.keyConfigured[p]).concat('ollama').filter((p, i, a) => a.indexOf(p) === i)
+    const want = game.vision ? game.vision.provider : ''
+    sel.replaceChildren(new Option('Come la chat', ''), ...providers.map(p => new Option(p === 'openrouter' ? 'OpenRouter' : p === 'claude' ? 'Claude' : p === 'openai' ? 'OpenAI' : 'Ollama', p)))
+    sel.value = want
+    $('game-model-row').classList.toggle('hidden', !want)
+    const note = $('game-model-note')
+    if (!want) {
+      let sees = null
+      try { const m = (await api.listModels(cfg.provider)).models.find(x => x.id === cfg.model); sees = m && m.caps ? !!m.caps.vision : null } catch (_) {}
+      note.textContent = 'Usa il modello della chat (' + cfg.model + ')' + (sees === true ? ', che vede le immagini.' : sees === false ? ', ma non vede le immagini: scegline uno qui (su OpenRouter ce ne sono di gratuiti).' : '. Con "Prova" vedi se vede le immagini.')
+      return
+    }
+    note.textContent = 'Solo per guardare il gioco; la chat resta con il suo modello.'
+    const models = $('game-model')
+    models.replaceChildren(new Option('Carico i modelli…', ''))
+    let list = []
+    try { list = (await api.listModels(want)).models.filter(m => m.caps && m.caps.vision) } catch (_) {}
+    models.replaceChildren(...list.map(m => new Option(m.label || m.id, m.id)))
+    if (!list.length) models.replaceChildren(new Option('Nessun modello che vede le immagini', ''))
+    if (game.vision && list.some(m => m.id === game.vision.model)) models.value = game.vision.model
+    else if (list[0]) saveGame({ vision: { provider: want, model: list[0].id } })
+  }
+  $('game-provider').addEventListener('change', () => {
+    const p = $('game-provider').value
+    saveGame({ vision: p ? { provider: p, model: (game.vision && game.vision.provider === p && game.vision.model) || '-' } : null })
+  })
+  $('game-model').addEventListener('change', () => { if ($('game-model').value) saveGame({ vision: { provider: $('game-provider').value, model: $('game-model').value } }) })
+  $('game-refresh').addEventListener('click', loadGameWindows)
+  $('game-test').addEventListener('click', async () => {
+    const note = $('game-test-note')
+    const vision = game && game.vision ? game.vision : gameCfg ? { provider: gameCfg.provider, model: gameCfg.model } : null
+    if (!vision) return
+    note.textContent = 'Gli mostro un quadrato rosso…'
+    $('game-test').disabled = true
+    try {
+      const r = await api.gameTestVision(vision)
+      note.textContent = !r.ok ? 'Non riuscita: ' + r.error : r.sees ? 'Vede le immagini: ha detto "' + r.said + '" (' + (r.ms / 1000).toFixed(1).replace('.', ',') + ' s).' : 'Non sembra vedere le immagini: ha detto "' + r.said + '".'
+    } catch (e) { note.textContent = 'Non riuscita: ' + e.message }
+    $('game-test').disabled = false
+  })
+  document.addEventListener('settings-page-shown', (e) => { if (e.detail === 'visione') loadGameWindows() })
+  if (!$('page-visione').classList.contains('hidden')) loadGameWindows()
+
   // ─── Streaming (Blocco 11c) ────────────────────────────────────────────────
   // Le impostazioni della live (config.stream), "In diretta" e il registro.
   const STREAM_STATES = { off: 'Spenta.', connecting: 'Mi collego…', connected: 'In diretta: leggo la chat di #', retry: 'Collegamento perso: riprovo fra ' }
@@ -867,6 +971,7 @@
     $('weather-status').textContent = cfg.weather && cfg.weatherStatus ? '→ ' + cfg.weatherStatus : ''
     showKeys(cfg)
     showStreamConfig(cfg.stream)
+    showGame(cfg)
   }
   async function saveGeneral(partial) {
     try { showGeneral(await api.setConfig(partial)) } catch (_) {}

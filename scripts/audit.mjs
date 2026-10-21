@@ -111,7 +111,15 @@ const fake = http.createServer((req, res) => {
     }
     const payload = JSON.parse(body)
     requests.push(payload)
-    const last = [...payload.messages].reverse().find(m => m.role === 'user')?.content || ''
+    const lastContent = [...payload.messages].reverse().find(m => m.role === 'user')?.content || ''
+    // Con un'immagine il messaggio e' una lista di parti (testo e immagine).
+    const last = typeof lastContent === 'string' ? lastContent : Array.isArray(lastContent) ? (lastContent.find(p => p.type === 'text') || {}).text || '' : ''
+    const withImage = Array.isArray(lastContent) && lastContent.some(p => p.type === 'image_url' && /^data:image\//.test(p.image_url && p.image_url.url))
+    // La prova del modello che guarda (Blocco 12a): vede il quadrato solo se l'immagine c'e'.
+    if (/Di che colore è il quadrato/.test(last)) {
+      res.end(JSON.stringify({ choices: [{ message: { content: withImage ? 'Rosso.' : 'Non vedo nessuna immagine.' } }] }))
+      return
+    }
     // Due messaggi di fila dell'utente (una risposta interrotta, Blocco 11a)
     // arrivano uniti: conta l'ultimo.
     const said = last.trim().split('\n').pop().trim().toLowerCase()
@@ -914,6 +922,52 @@ try {
         liveEntry = (await comp.evaluate(`window.companion.personasDiary('${persona}')`)).find(e => e.kind === 'live') || null
       }
       check(!!liveEntry && /bella live/.test(liveEntry.text), 'live: a fine diretta un paragrafo nel diario (' + JSON.stringify(liveEntry) + ')')
+    }
+
+    // La finestra del gioco (Blocco 12a): un "gioco" finto (un altro processo,
+    // scripts/fixtures/fake-game), scelto dalle miniature della pagina Visione;
+    // lo scatto prende solo lui, lo ritrova se il titolo cambia, e dice quando
+    // e' ridotto a icona o chiuso. Il modello che guarda: la prova con il
+    // quadrato rosso.
+    {
+      const GAME_PORT = 9352
+      const fakeGame = spawn(require('electron'), [path.join(ROOT, 'scripts', 'fixtures', 'fake-game', 'main.js'), '--port=' + GAME_PORT], { stdio: 'ignore' })
+      const gameCmd = (cmd) => fetch('http://127.0.0.1:' + GAME_PORT + '/' + cmd).catch(() => null)
+      try {
+        let up = false
+        for (let i = 0; i < 40 && !up; i++) { await sleep(250); up = !!(await gameCmd('scene/0')) }
+        await sleep(800)
+        await chat.evaluate(`window.companion.openSettings('visione'); true`)
+        let cards = []
+        for (let i = 0; i < 30 && !cards.includes('Gioco di prova'); i++) {
+          await sleep(300)
+          cards = await st.evaluate(`[...document.querySelectorAll('#game-windows .game-win .t')].map(t => t.textContent)`)
+        }
+        await st.evaluate(`[...document.querySelectorAll('#game-windows .game-win')].find(b => b.querySelector('.t').textContent === 'Gioco di prova').click(); true`)
+        let chosen = ''
+        for (let i = 0; i < 20 && !/Gioco di prova/.test(chosen); i++) { await sleep(200); chosen = await st.evaluate(`document.getElementById('game-choice').textContent`) }
+        await st.evaluate(`document.querySelector('main').scrollTop = 99999; true`)
+        await sleep(300)
+        await stShot('12a-visione')
+        const shot1 = await chat.evaluate('window.companion.testGameCapture()')
+        await gameCmd('title/Gioco di prova - 144 FPS')
+        await sleep(600)
+        const renamed = await chat.evaluate('window.companion.testGameCapture()')
+        await gameCmd('minimize')
+        await sleep(800)
+        const small = await chat.evaluate('window.companion.testGameCapture()')
+        await gameCmd('quit')
+        await sleep(1500)
+        const gone = await chat.evaluate('window.companion.testGameCapture()')
+        check(cards.includes('Gioco di prova') && cards.includes('Tutto lo schermo') && /Gioco di prova/.test(chosen)
+          && shot1.ok && shot1.size && shot1.size.width === 1024 && renamed.ok && /144 FPS/.test(renamed.title) && small.state === 'minimized' && gone.state === 'missing',
+          'gioco: la finestra si sceglie dalle miniature, lo scatto prende solo lei, la ritrova e sa quando e\' ridotta o chiusa (' + JSON.stringify({ chosen, shot: shot1.size, renamed: renamed.title, small: small.state, gone: gone.state }) + ')')
+        const sees = await chat.evaluate(`window.companion.gameTestVision({ provider: 'openrouter', model: 'audit/json:free' })`)
+        const visionReq = requests.find(r => r.messages && r.messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')))
+        check(sees.ok && sees.sees && sees.said === 'Rosso.' && !!visionReq, 'gioco: la prova del modello che guarda manda un\'immagine e capisce se la vede (' + JSON.stringify(sees) + ')')
+      } finally {
+        try { fakeGame.kill() } catch (_) {}
+      }
     }
     await st.evaluate(`document.querySelector('nav .item[data-page="personaggi"]').click(); true`)
     let gal = null

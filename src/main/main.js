@@ -35,6 +35,7 @@ const Objects = require('./objects')
 const { createDesktopObjects } = require('./desktop-objects')
 const { createLiveSession } = require('./live-session')
 const { streamConfig, liveLine, LIVE_PROMPT } = require('./live-chat')
+const GameMode = require('./game-mode')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
 const ActiveApp = require('./active-app')
@@ -235,6 +236,7 @@ function publicConfig(cfg) {
     // Scorciatoie dell'app (Blocco 9c): quelle registrate davvero, e le scelte.
     shortcutsActive: { ...appShortcuts },
     stream: streamConfig(cfg),
+    game: GameMode.gameConfig(cfg, Object.keys(PROVIDERS)),
     appShortcuts: Object.entries(APP_SHORTCUTS).map(([id, label]) => ({ id, label })),
   }
 }
@@ -1784,24 +1786,125 @@ handle('ollama:open-page', (_e, which) => {
 // finestre dell'app trasparenti per un istante. Va alla chat come anteprima:
 // al modello arriva solo se l'utente la invia.
 const VISION_LONG_SIDE = 1568
-handle('vision:capture', async () => {
-  const anchor = dialogParent() || currentChat()
+const GAME_LONG_SIDE = 1024   // per i commenti della modalita' gioco: costa meno
+
+/**
+ * Lo schermo su cui sta anchor, con il lato lungo di longSide px. hideApp:
+ * le finestre dell'app spariscono per un istante (il pulsante "Guarda lo
+ * schermo"); la modalita' gioco no, se no lampeggerebbero a ogni sguardo.
+ */
+async function captureScreen(anchor, longSide, { hideApp = true } = {}) {
   if (!anchor || anchor.isDestroyed()) return { ok: false, error: 'Nessuna finestra' }
   const display = screen.getDisplayMatching(anchor.getBounds())
-  const wins = [...companions.map(c => c.win), ...allChats(), settingsWindow].filter(w => w && !w.isDestroyed() && w.isVisible())
-  const scale = VISION_LONG_SIDE / Math.max(display.size.width, display.size.height)
+  const wins = hideApp ? [...companions.map(c => c.win), ...allChats(), settingsWindow].filter(w => w && !w.isDestroyed() && w.isVisible()) : []
+  const scale = longSide / Math.max(display.size.width, display.size.height)
   try {
     for (const w of wins) w.setOpacity(0)
-    await new Promise(r => setTimeout(r, 250))
+    if (wins.length) await new Promise(r => setTimeout(r, 250))
     const sources = await desktopCapturer.getSources({ types: ['screen'],
       thumbnailSize: { width: Math.round(display.size.width * scale), height: Math.round(display.size.height * scale) } })
     const source = sources.find(s => s.display_id === String(display.id)) || sources[0]
     if (!source) return { ok: false, error: 'Schermo non trovato' }
-    return { ok: true, image: 'data:image/jpeg;base64,' + source.thumbnail.toJPEG(80).toString('base64') }
+    return { ok: true, image: 'data:image/jpeg;base64,' + source.thumbnail.toJPEG(80).toString('base64'), picture: source.thumbnail, title: 'schermo' }
   } catch (e) {
     return { ok: false, error: e.message }
   } finally {
     for (const w of wins) if (!w.isDestroyed()) w.setOpacity(1)
+  }
+}
+
+handle('vision:capture', async () => {
+  const r = await captureScreen(dialogParent() || currentChat(), VISION_LONG_SIDE)
+  return r.ok ? { ok: true, image: r.image } : { ok: false, error: r.error }
+})
+
+// ─── Modalita' gioco: la finestra e il modello (Blocco 12a) ─────────────────
+// Le finestre aperte degli altri programmi (non le nostre, non quelle
+// dell'elenco da ignorare), con titolo, programma e miniatura. Gli id di
+// desktopCapturer ("window:<HWND>:0") contengono l'handle di Windows, da cui
+// win-windows.js legge processo, stato e misure.
+async function gameWindows(thumbnailSize = { width: 160, height: 100 }) {
+  const ignore = (loadConfig().activeAppIgnore || []).map(w => w.toLowerCase())
+  const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize, fetchWindowIcons: false })
+  const out = []
+  for (const s of sources) {
+    const hwnd = Number(String(s.id).split(':')[1]) || 0
+    const title = String(s.name || '').replace(/\s+/g, ' ').trim()
+    if (!title || ignore.some(w => title.toLowerCase().includes(w))) continue
+    const info = winWindows.windowInfo(hwnd)
+    if (info && info.pid === process.pid) continue
+    const st = winWindows.windowState(hwnd)
+    out.push({
+      id: s.id, hwnd, title,
+      app: info ? winWindows.exeOf(info.pid) : '',
+      area: st && st.bounds ? st.bounds.width * st.bounds.height : 0,
+      minimized: !!(st && st.minimized),
+      picture: s.thumbnail,
+    })
+  }
+  return out
+}
+
+/**
+ * Lo scatto per la modalita' gioco: la finestra scelta (solo lei, i
+ * companion non spariscono) o lo schermo del companion. state dice perche'
+ * non c'e': 'none' (niente scelto), 'missing' (finestra chiusa),
+ * 'minimized' (ridotta a icona), 'empty' (nessuna immagine).
+ */
+async function captureGame(longSide = GAME_LONG_SIDE) {
+  const g = GameMode.gameConfig(loadConfig(), Object.keys(PROVIDERS))
+  if (!g.source) return { ok: false, state: 'none' }
+  if (g.source.kind === 'screen') {
+    const c = chatTarget()
+    const r = await captureScreen(c && c.alive() ? c.win : currentChat(), longSide, { hideApp: false })
+    return r.ok ? { ...r, state: 'ok' } : { ok: false, state: 'empty', error: r.error }
+  }
+  const w = GameMode.findSource(await gameWindows({ width: longSide, height: longSide }), g.source)
+  if (!w) {
+    // Le finestre ridotte a icona non sono fra quelle da catturare: si
+    // cercano fra quelle di Windows, per dire "ridotta" invece di "chiusa".
+    const all = winWindows.listWindows().filter(x => x.title && x.pid !== process.pid).map(x => ({ id: String(x.hwnd), title: x.title, app: winWindows.exeOf(x.pid), minimized: x.minimized }))
+    const hidden = GameMode.findSource(all, g.source)
+    return hidden && hidden.minimized ? { ok: false, state: 'minimized', title: hidden.title } : { ok: false, state: 'missing' }
+  }
+  if (w.minimized) return { ok: false, state: 'minimized', title: w.title }
+  if (!w.picture || w.picture.isEmpty()) return { ok: false, state: 'empty', title: w.title }
+  return { ok: true, state: 'ok', image: 'data:image/jpeg;base64,' + w.picture.toJPEG(80).toString('base64'), picture: w.picture, title: w.title, app: w.app, hwnd: w.hwnd }
+}
+
+handle('vision:sources', async () => {
+  try {
+    return (await gameWindows()).map(w => ({ id: w.id, title: w.title, app: w.app, minimized: w.minimized,
+      thumb: w.picture && !w.picture.isEmpty() ? w.picture.toDataURL() : '' }))
+  } catch (e) {
+    console.error('[gioco] finestre non lette:', e.message)
+    return []
+  }
+})
+
+// La prova del modello che guarda: un quadrato rosso su bianco, e la domanda
+// di che colore e'. Solo chi lo vede davvero risponde giusto.
+function testPicture() {
+  const size = 96
+  const buf = Buffer.alloc(size * size * 4, 255)
+  for (let y = 24; y < 72; y++) for (let x = 24; x < 72; x++) { const i = (y * size + x) * 4; buf[i] = 30; buf[i + 1] = 30; buf[i + 2] = 220 }
+  return 'data:image/png;base64,' + nativeImage.createFromBitmap(buf, { width: size, height: size }).toPNG().toString('base64')
+}
+handle('game:test-vision', async (_e, input) => {
+  const provider = input && typeof input.provider === 'string' ? input.provider : ''
+  const model = input && typeof input.model === 'string' ? input.model.slice(0, 200) : ''
+  if (!PROVIDERS[provider] || !model) return { ok: false, error: 'Scegli un provider e un modello.' }
+  const apiKey = loadConfig().keys?.[provider] || ''
+  const started = Date.now()
+  try {
+    const result = await route({
+      provider, model, apiKey, fallback: false, retries: 0, jsonMode: false, maxTokens: 400,
+      history: [{ role: 'user', content: 'Di che colore è il quadrato al centro dell\'immagine? Rispondi con una parola sola.', image: testPicture() }],
+    })
+    const said = String(result.reply || '').trim().slice(0, 80)
+    return { ok: true, sees: /ross|red/i.test(said), said, ms: Date.now() - started }
+  } catch (err) {
+    return { ok: false, error: describeError(err, provider) }
   }
 })
 
@@ -3134,6 +3237,11 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     if (companions.length < 2) return false
     await peerExchange(companions[0], companions[1])
     return true
+  })
+  // Lo scatto della modalita' gioco (Blocco 12a), senza l'immagine.
+  handle('test:game-capture', async () => {
+    const r = await captureGame()
+    return { ok: r.ok, state: r.state, title: r.title || '', app: r.app || '', size: r.picture ? r.picture.getSize() : null, jpeg: r.image ? r.image.length : 0 }
   })
   // La finestra di chat che chiede: mostrata o nascosta davvero (Blocco 11b,
   // sottotitoli senza voce); la pagina non lo sa con certezza.
