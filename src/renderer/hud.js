@@ -76,6 +76,17 @@
       b.classList.toggle('on', !!s.paused)
       b.title = s.paused ? 'In pausa: clic per riprendere' : 'Pausa: zitto e fermo'
     }
+    if (s.game) {
+      // La modalita' gioco (Blocco 12b): accesa, in pausa, e gli sguardi dell'ultima ora.
+      const b = document.getElementById('b-game')
+      b.classList.toggle('on', !!s.game.on)
+      b.classList.toggle('paused', !!s.game.paused)
+      b.setAttribute('aria-pressed', String(!!s.game.on))
+      b.title = s.game.title
+      const n = document.getElementById('game-count')
+      n.hidden = !s.game.on || !!s.game.paused
+      n.textContent = String(s.game.looks || 0)
+    }
     if ('group' in s) document.getElementById('b-group').hidden = !s.group
     if ('unread' in s || 'group' in s) {
       if ('unread' in s) unread = s.unread

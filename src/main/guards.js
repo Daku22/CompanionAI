@@ -183,13 +183,15 @@ const APP_SHORTCUTS = {
   'Ctrl+Alt+H': 'Ctrl + Alt + H',
   'Ctrl+Alt+J': 'Ctrl + Alt + J',
   'Ctrl+Alt+K': 'Ctrl + Alt + K',
+  'Ctrl+Alt+G': 'Ctrl + Alt + G',
   'F7': 'F7',
   'F8': 'F8',
   'off': 'Nessuna',
 }
 // handsfree (Blocco 11b): accende e spegne il microfono a mani libere; live
 // (Blocco 11c): "In diretta" su Twitch, spenta di base.
-const SHORTCUT_DEFAULTS = { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H', handsfree: 'Ctrl+Alt+J', live: 'off' }
+// game (Blocco 12b): la modalita' gioco, spenta di base.
+const SHORTCUT_DEFAULTS = { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H', handsfree: 'Ctrl+Alt+J', live: 'off', game: 'off' }
 const isShortcut = (v) => typeof v === 'string' && Object.prototype.hasOwnProperty.call(APP_SHORTCUTS, v)
 
 /** Le scorciatoie della config, con i predefiniti al posto di quelle mancanti. */

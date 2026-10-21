@@ -104,6 +104,14 @@ contextBridge.exposeInMainWorld('companion', {
   visionSources:    ()       => ipcRenderer.invoke('vision:sources'),
   gameTestVision:   (input)  => ipcRenderer.invoke('game:test-vision', input && typeof input === 'object' ? { provider: String(input.provider || ''), model: String(input.model || '') } : null),
   testGameCapture:  ()       => ipcRenderer.invoke('test:game-capture'),
+  // Il ciclo della modalita' gioco (Blocco 12b): lo stato, e quando cambia.
+  gameState:        ()       => ipcRenderer.invoke('game:state'),
+  onGameState: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('game-state', handler)
+    return () => ipcRenderer.removeListener('game-state', handler)
+  },
+  testGame:         (cmd)    => ipcRenderer.invoke('test:game', cmd && typeof cmd === 'object' ? { off: cmd.off === true } : null),
   streamLive:       (on)     => ipcRenderer.invoke('stream:live', on === true),
   onStreamState: (cb) => {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }

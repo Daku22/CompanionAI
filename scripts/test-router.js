@@ -361,6 +361,11 @@ test('le capacita-` si leggono dai supported_parameters di OpenRouter', () => {
   assert.equal(capsFromParams([], { input_modalities: ['text', 'image'] }).vision, true)
   const models = parseOpenRouterModels({ data: [{ id: 'poolside/laguna-s-2.1:free', name: 'Laguna', supported_parameters: LAGUNA_PARAMS }] })
   assert.equal(models[0].caps.tools, true)
+  assert.equal(models[0].caps.price, undefined, 'senza prezzi, niente prezzo')
+  // I prezzi, per il costo di uno sguardo della modalita' gioco (Blocco 12b).
+  const priced = parseOpenRouterModels({ data: [{ id: 'g/vede', name: 'Vede', pricing: { prompt: '0.0000001', completion: '0.0000004', image: '0.0001', request: '0' } }] })
+  assert.deepEqual(priced[0].caps.price, { prompt: 0.0000001, completion: 0.0000004, image: 0.0001 })
+  assert.deepEqual(capsFromParams([], null, { prompt: '-1', completion: 'boh' }).price, { prompt: 0, completion: 0, image: 0 })
 })
 
 test('la strategia di uscita segue cio-` che il modello sa fare', () => {

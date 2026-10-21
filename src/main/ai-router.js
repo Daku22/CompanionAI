@@ -484,10 +484,10 @@ let openRouterCapsAt = 0
  * @param {unknown} params
  * @returns {{ schema: boolean, json: boolean, tools: boolean, reasoning: boolean }}
  */
-function capsFromParams(params, architecture) {
+function capsFromParams(params, architecture, pricing = null) {
   const list = Array.isArray(params) ? params : []
   const inputs = architecture && Array.isArray(architecture.input_modalities) ? architecture.input_modalities : []
-  return {
+  const caps = {
     schema: list.includes('structured_outputs'),
     json: list.includes('response_format'),
     tools: list.includes('tools'),
@@ -495,6 +495,13 @@ function capsFromParams(params, architecture) {
     // Vede le immagini (Blocco 7b): lo dice l'elenco dei modelli.
     vision: inputs.includes('image'),
   }
+  // I prezzi in dollari per token (e per immagine), per stimare quanto costa
+  // uno sguardo della modalita' gioco (Blocco 12b). Solo se OpenRouter li manda.
+  if (pricing && typeof pricing === 'object') {
+    const n = (v) => { const x = Number(v); return Number.isFinite(x) && x >= 0 ? x : 0 }
+    caps.price = { prompt: n(pricing.prompt), completion: n(pricing.completion), image: n(pricing.image) }
+  }
+  return caps
 }
 
 // Visione per i modelli diretti, dal nome: tutti i Claude attuali, e i GPT e o
@@ -553,7 +560,7 @@ function parseOpenRouterModels(body) {
     .map(m => {
       const free = m.id.endsWith(':free')
       const name = String(m.name || m.id).replace(/\s*\(free\)\s*$/i, '')
-      return { id: m.id, label: free ? name + ' (free)' : name, free, group: free ? 'Gratuiti' : 'A pagamento (serve credito su OpenRouter)', caps: capsFromParams(m.supported_parameters, m.architecture) }
+      return { id: m.id, label: free ? name + ' (free)' : name, free, group: free ? 'Gratuiti' : 'A pagamento (serve credito su OpenRouter)', caps: capsFromParams(m.supported_parameters, m.architecture, m.pricing) }
     })
     // Prima i gratuiti, poi quelli a pagamento (Claude, GPT, Gemini...): servono credito.
     .sort((a, b) => (b.free - a.free) || a.label.localeCompare(b.label))
@@ -561,7 +568,7 @@ function parseOpenRouterModels(body) {
 
 function rememberOpenRouterCaps(body) {
   const data = body && Array.isArray(body.data) ? body.data : []
-  for (const m of data) if (m && typeof m.id === 'string') openRouterCaps.set(m.id, capsFromParams(m.supported_parameters, m.architecture))
+  for (const m of data) if (m && typeof m.id === 'string') openRouterCaps.set(m.id, capsFromParams(m.supported_parameters, m.architecture, m.pricing))
   if (data.length) openRouterCapsAt = Date.now()
 }
 

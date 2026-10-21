@@ -530,6 +530,16 @@
         <div class="row"><button type="button" id="game-test">Prova</button><span class="muted" id="game-test-note"></span></div>
       </div>
     </section>
+    <section>
+      <h2>Quanto spesso guarda</h2>
+      <div class="box">
+        <p class="muted">Ogni 5 secondi controlla se la scena è cambiata, senza chiamare nessun modello. Il modello guarda
+          solo quando la scena cambia, mai più spesso di così e mai oltre il tetto. Mentre parli o scrivi non guarda.</p>
+        <div class="row"><label class="name" for="game-interval">Al massimo</label><input type="range" id="game-interval" min="30" max="300" step="15"><output class="wide" id="game-interval-out"></output></div>
+        <div class="row"><label class="name" for="game-per-hour">Tetto</label><input type="range" id="game-per-hour" min="5" max="30" step="1"><output class="wide" id="game-per-hour-out"></output></div>
+        <div class="state" id="game-status" role="status"></div>
+      </div>
+    </section>
    </div>
 
    <div class="page hidden" id="page-voce">
@@ -803,6 +813,10 @@
         <div class="key-row">
           <span class="what"><b>In diretta</b><span id="key-live-note">Accende e spegne la live su Twitch (pagina Streaming).</span></span>
           <select id="key-live" aria-label="Scorciatoia della live"></select>
+        </div>
+        <div class="key-row">
+          <span class="what"><b>Modalità gioco</b><span id="key-game-note">Guarda la partita con il companion della chat (pagina Visione).</span></span>
+          <select id="key-game" aria-label="Scorciatoia della modalità gioco"></select>
         </div>
         <div class="key-row">
           <span class="what"><b>Parla con il microfono</b><span id="shortcut-note"></span></span>

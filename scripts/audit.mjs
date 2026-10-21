@@ -544,6 +544,12 @@ const size = () => comp.evaluate('[window.innerWidth, window.innerHeight]')
     check(onEdge && s.peek.side === 'right' && s.peek.armed && posed(state),
       label + ': oltre il bordo destro sbircia, il bordo sul taglio (finestra a ' + s.bounds.x + ', taglio ' + (s.peek && s.peek.cut) + ', misura ' + (g && g.cut) + ', ' + JSON.stringify(state) + ')')
     await shot('5-sbircia-' + label.toLowerCase())
+    // Non sbircia (per esempio un secondo schermo a destra: li' il bordo non
+    // c'e'): si rimette dentro e l'audit va avanti invece di fermarsi.
+    if (!s.peek) {
+      await comp.evaluate(`window.companion.testPeek({ place: { x: ${s0.bounds.x}, y: ${s0.bounds.y} }, cursor: null })`)
+      return
+    }
     if (exit === 'cursor') {
       await comp.evaluate(`window.companion.testPeek({ cursor: { x: ${s.bounds.x + s.peek.head.x - 30}, y: ${s.bounds.y + s.peek.head.y + 10} } })`)
     } else await comp.evaluate('window.CompanionPeek.out(); true')
@@ -953,9 +959,57 @@ try {
         await gameCmd('title/Gioco di prova - 144 FPS')
         await sleep(600)
         const renamed = await chat.evaluate('window.companion.testGameCapture()')
+        // Il ciclo (Blocco 12b): il pulsante "gioco" della barra lo accende e il
+        // primo sguardo e' subito; una scena nuova prima dei 30 s aspetta.
+        await chat.evaluate(`window.companion.setConfig({ game: { vision: { provider: 'openrouter', model: 'audit/json:free' }, intervalS: 30, perHour: 20 } })`)
+        const cr = await comp.evaluate('({ x: window.screenX, y: window.screenY, width: window.outerWidth, height: window.outerHeight })')
+        await comp.evaluate(`window.companion.testPeek({ cursor: { x: ${cr.x + cr.width / 2}, y: ${cr.y + cr.height / 2} } })`)
+        const hud = await connect((await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find(t => t.url.includes('hud.html')))
+        for (let i = 0; i < 30 && !(await hud.evaluate(`document.body.classList.contains('shown')`)); i++) await sleep(200)
+        await hud.evaluate(`document.getElementById('b-game').click(); true`)
+        let game = null
+        for (let i = 0; i < 40 && !(game && game.last && game.last.ok); i++) { await sleep(250); game = await chat.evaluate('window.companion.testGame()') }
+        let button = null
+        for (let i = 0; i < 20 && !(button && button.on && button.count === '1'); i++) {
+          await sleep(200)
+          button = await hud.evaluate(`({ on: document.getElementById('b-game').classList.contains('on'), count: document.getElementById('game-count').textContent,
+            hidden: document.getElementById('game-count').hidden, title: document.getElementById('b-game').title })`)
+        }
+        await hud.evaluate(`document.documentElement.style.background = 'radial-gradient(120% 90% at 30% 10%, #4a3a2c, #1e1915 60%, #121012)'; true`)
+        await sleep(300)
+        const gameHudShot = await hud.send('Page.captureScreenshot', { format: 'png' })
+        fs.writeFileSync(path.join(OUT, '12b-hud-gioco.png'), Buffer.from(gameHudShot.result.data, 'base64'))
+        await hud.evaluate(`document.documentElement.style.background = ''; true`)
+        const statusLine = await st.evaluate(`document.getElementById('game-status').textContent`)
+        await st.evaluate(`document.querySelector('main').scrollTop = 99999; true`)
+        await stShot('12b-visione')
+        await gameCmd('scene/1')
+        let later = null
+        for (let i = 0; i < 40 && !(later && later.status.reason === 'troppo presto'); i++) { await sleep(250); later = await chat.evaluate('window.companion.testGame()') }
+        check(game && game.status.on && game.last.ok && game.last.size.width === 1024 && game.status.total === 1 && button.on && button.count === '1' && !button.hidden
+          && /guarda Gioco di prova/.test(statusLine) && later.status.reason === 'troppo presto' && later.status.total === 1,
+          'gioco: il pulsante della barra accende il ciclo, il primo sguardo subito, una scena nuova aspetta l\'intervallo (' + JSON.stringify({ status: game && game.status, last: game && game.last, button, statusLine, later: later && later.status.reason }) + ')')
         await gameCmd('minimize')
         await sleep(800)
         const small = await chat.evaluate('window.companion.testGameCapture()')
+        // Ridotto a icona: in pausa da solo, e riparte quando torna. Un altro clic lo spegne.
+        let paused = null
+        for (let i = 0; i < 40 && !(paused && paused.status.paused === 'minimized'); i++) { await sleep(250); paused = await chat.evaluate('window.companion.testGame()') }
+        let pausedButton = null
+        for (let i = 0; i < 20 && !(pausedButton && pausedButton.paused); i++) {
+          await sleep(200)
+          pausedButton = await hud.evaluate(`({ paused: document.getElementById('b-game').classList.contains('paused'), hidden: document.getElementById('game-count').hidden })`)
+        }
+        await gameCmd('restore')
+        let back = null
+        for (let i = 0; i < 40 && !(back && back.status.on && !back.status.paused); i++) { await sleep(250); back = await chat.evaluate('window.companion.testGame()') }
+        await hud.evaluate(`document.getElementById('b-game').click(); true`)
+        let off = null
+        for (let i = 0; i < 20 && !(off && !off.status.on); i++) { await sleep(200); off = await chat.evaluate('window.companion.testGame()') }
+        await comp.evaluate('window.companion.testPeek({ cursor: null })')
+        check(paused.status.paused === 'minimized' && /ridotto a icona/.test(paused.status.text) && pausedButton.paused && pausedButton.hidden
+          && back.status.on && !back.status.paused && !off.status.on,
+          'gioco: ridotto a icona va in pausa da solo e riparte quando torna; un altro clic lo spegne (' + JSON.stringify({ paused: paused.status.text, pausedButton, back: back.status.paused, off: off.status.on }) + ')')
         await gameCmd('quit')
         await sleep(1500)
         const gone = await chat.evaluate('window.companion.testGameCapture()')
@@ -966,6 +1020,7 @@ try {
         const visionReq = requests.find(r => r.messages && r.messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')))
         check(sees.ok && sees.sees && sees.said === 'Rosso.' && !!visionReq, 'gioco: la prova del modello che guarda manda un\'immagine e capisce se la vede (' + JSON.stringify(sees) + ')')
       } finally {
+        try { await chat.evaluate('window.companion.testGame({ off: true })') } catch (_) {}
         try { fakeGame.kill() } catch (_) {}
       }
     }

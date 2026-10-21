@@ -394,7 +394,7 @@ test('chibi: solo avatar 3D con scheletro umano, e il motivo per gli altri', () 
 })
 
 test('scorciatoie: predefinite, ammesse, mai due azioni sullo stesso tasto', () => {
-  const J = { handsfree: 'Ctrl+Alt+J', live: 'off' }
+  const J = { handsfree: 'Ctrl+Alt+J', live: 'off', game: 'off' }
   assert.deepEqual(shortcutsConfig({}), { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H', ...J })
   assert.deepEqual(shortcutsConfig({ shortcuts: { chat: 'F8', hide: 'Alt+F4' } }), { chat: 'F8', hide: 'Ctrl+Alt+H', ...J })
   assert.deepEqual(mergeShortcuts(undefined, { chat: 'F7' }), { chat: 'F7', hide: 'Ctrl+Alt+H', ...J })

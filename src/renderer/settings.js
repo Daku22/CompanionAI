@@ -736,8 +736,8 @@
   // ─── Tasti rapidi (Blocco 9c) ──────────────────────────────────────────────
   // La chat e i companion: scorciatoie dell'app (shortcuts nella config). Il
   // microfono sta con la voce (voice.micShortcut): la sua riga e' piu' sotto.
-  const KEY_NOTES = { chat: 'L\'ultima chat che hai usato.', hide: 'Tutti insieme, con i loro comandi.', handsfree: 'Accende e spegne l\'ascolto continuo del microfono.', live: 'Accende e spegne la live su Twitch (pagina Streaming).' }
-  const KEYS = ['chat', 'hide', 'handsfree', 'live']
+  const KEY_NOTES = { chat: 'L\'ultima chat che hai usato.', hide: 'Tutti insieme, con i loro comandi.', handsfree: 'Accende e spegne l\'ascolto continuo del microfono.', live: 'Accende e spegne la live su Twitch (pagina Streaming).', game: 'Guarda la partita con il companion della chat (pagina Visione).' }
+  const KEYS = ['chat', 'hide', 'handsfree', 'live', 'game']
   function showKeys(cfg) {
     const choices = cfg.appShortcuts || []
     const want = cfg.shortcuts || {}
@@ -805,8 +805,29 @@
       : s.kind === 'screen' ? 'Guarda: tutto lo schermo del companion.'
         : 'Guarda: ' + (s.title || s.app) + (s.app && s.title ? ' (' + s.app + ')' : '')
     for (const b of document.querySelectorAll('#game-windows .game-win')) b.setAttribute('aria-checked', 'false')
+    $('game-interval').value = String(game.intervalS)
+    $('game-per-hour').value = String(game.perHour)
+    showGameOutputs()
     showGameModel().catch(() => {})
   }
+  // Quanto spesso guarda (Blocco 12b): l'intervallo minimo e il tetto all'ora.
+  function showGameOutputs() {
+    const s = Number($('game-interval').value)
+    $('game-interval-out').textContent = 'ogni ' + (s < 60 ? s + ' s' : s % 60 ? Math.floor(s / 60) + ' min ' + (s % 60) + ' s' : s / 60 + ' min')
+    $('game-per-hour-out').textContent = $('game-per-hour').value + ' sguardi all\'ora'
+  }
+  for (const [id, key] of [['game-interval', 'intervalS'], ['game-per-hour', 'perHour']]) {
+    $(id).addEventListener('input', showGameOutputs)
+    $(id).addEventListener('change', () => saveGame({ [key]: Number($(id).value) }))
+  }
+  function showGameState(st) {
+    if (!st) return
+    const line = $('game-status')
+    line.className = 'state' + (st.on && !st.paused ? ' ok' : '')
+    line.textContent = st.on ? st.text : 'Spenta: si accende con il pulsante "gioco" nella barra del companion o con il suo tasto rapido.'
+  }
+  if (api.onGameState) api.onGameState(showGameState)
+  if (api.gameState) api.gameState().then(showGameState, () => {})
   async function saveGame(partial) {
     try {
       const cfg = await api.setConfig({ game: partial })
@@ -836,6 +857,9 @@
     models.replaceChildren(new Option('Carico i modelli…', ''))
     let list = []
     try { list = (await api.listModels(want)).models.filter(m => m.caps && m.caps.vision) } catch (_) {}
+    // Quello salvato resta scelto anche se l'elenco non lo da' fra quelli che vedono.
+    const saved = game.vision && game.vision.provider === want && game.vision.model !== '-' ? game.vision.model : ''
+    if (saved && !list.some(m => m.id === saved)) list.unshift({ id: saved, label: saved + ' (da provare)' })
     models.replaceChildren(...list.map(m => new Option(m.label || m.id, m.id)))
     if (!list.length) models.replaceChildren(new Option('Nessun modello che vede le immagini', ''))
     if (game.vision && list.some(m => m.id === game.vision.model)) models.value = game.vision.model

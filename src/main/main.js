@@ -36,6 +36,7 @@ const { createDesktopObjects } = require('./desktop-objects')
 const { createLiveSession } = require('./live-session')
 const { streamConfig, liveLine, LIVE_PROMPT } = require('./live-chat')
 const GameMode = require('./game-mode')
+const { createGameLoop } = require('./game-loop')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
 const ActiveApp = require('./active-app')
@@ -678,6 +679,7 @@ function hudState(c) {
     paused, unread,
     // Il tasto della chat di gruppo c'e' solo con piu' companion sul desktop.
     group: companions.length > 1,
+    game: gameHud(c),
   }
 }
 
@@ -759,6 +761,8 @@ on('hud:action', async (_e, cmd) => {
     case 'objects': openItemsPanel(c, 'objects'); break
     case 'hide': c.win.hide(); hideHud(); break
     case 'drag': hudDragging = true; c.startDrag(); break
+    // La modalita' gioco (Blocco 12b): guarda questo companion.
+    case 'game': toggleGame(c); break
   }
 })
 
@@ -1246,6 +1250,7 @@ const SHORTCUT_ACTIONS = {
   hide: () => toggleCompanionsShown(),
   handsfree: () => toggleHandsFree(hudFor || chatTarget()),
   live: () => toggleLive(),
+  game: () => { if (gameLoop.state().on) endGame(); else toggleGame(chatTarget()) },
 }
 function syncAppShortcuts(cfg) {
   const want = shortcutsConfig(cfg)
@@ -1859,13 +1864,19 @@ async function captureGame(longSide = GAME_LONG_SIDE) {
     const r = await captureScreen(c && c.alive() ? c.win : currentChat(), longSide, { hideApp: false })
     return r.ok ? { ...r, state: 'ok' } : { ok: false, state: 'empty', error: r.error }
   }
-  const w = GameMode.findSource(await gameWindows({ width: longSide, height: longSide }), g.source)
+  const sources = await gameWindows({ width: longSide, height: longSide })
+  let w = GameMode.findSource(sources, g.source, { exact: true })
   if (!w) {
     // Le finestre ridotte a icona non sono fra quelle da catturare: si
     // cercano fra quelle di Windows, per dire "ridotta" invece di "chiusa".
+    // Prima quella con il titolo giusto, poi (titolo cambiato) dal programma:
+    // cosi' un gioco ridotto non diventa il suo launcher.
     const all = winWindows.listWindows().filter(x => x.title && x.pid !== process.pid).map(x => ({ id: String(x.hwnd), title: x.title, app: winWindows.exeOf(x.pid), minimized: x.minimized }))
-    const hidden = GameMode.findSource(all, g.source)
-    return hidden && hidden.minimized ? { ok: false, state: 'minimized', title: hidden.title } : { ok: false, state: 'missing' }
+    const minimized = (x) => x && x.minimized ? { ok: false, state: 'minimized', title: x.title } : null
+    const hidden = minimized(GameMode.findSource(all, g.source, { exact: true }))
+    if (hidden) return hidden
+    w = GameMode.findSource(sources, g.source)
+    if (!w) return minimized(GameMode.findSource(all, g.source)) || { ok: false, state: 'missing' }
   }
   if (w.minimized) return { ok: false, state: 'minimized', title: w.title }
   if (!w.picture || w.picture.isEmpty()) return { ok: false, state: 'empty', title: w.title }
@@ -1907,6 +1918,124 @@ handle('game:test-vision', async (_e, input) => {
     return { ok: false, error: describeError(err, provider) }
   }
 })
+
+// ─── Modalita' gioco: il ciclo (Blocco 12b) ─────────────────────────────────
+// Il pulsante "gioco" della pillola (o il suo tasto rapido) accende il ciclo
+// (game-loop.js) per quel companion: ogni 5 s l'impronta minuscola della
+// finestra, lo sguardo vero (lo scatto a 1024 px) solo quando la scena cambia,
+// e' passato l'intervallo e il tetto all'ora lo permette. Il modello che
+// guarda e il commento arrivano nel 12c. In pausa da sola se la finestra si
+// chiude o si riduce a icona, o se va in primo piano un'app da ignorare.
+const GAME_SIG_SIDE = 64
+let gameModel = null   // { provider, model, cost }: il modello che guarda e quanto costa uno sguardo
+let gameLast = null    // l'ultimo sguardo (il 12c ne fa il contesto della chat)
+
+/** Perche' adesso non si guarda: parli, scrivi o il companion sta parlando; null se si puo'. */
+function gameBusy() {
+  if (micBusy || (handsFree && handsFree.hearing)) return 'stai parlando'
+  if (allChats().some(w => w.isFocused())) return 'stai scrivendo'
+  if (Date.now() < speechEndsAt) return 'sta parlando'
+  return null
+}
+
+/** L'impronta della finestra del gioco, o perche' non c'e'. */
+async function gameSignature() {
+  const st = gameLoop.state()
+  if (!companions.some(c => c.alive() && c.personaId === st.watcher)) { endGame(); return { ok: false, state: 'none' } }
+  const fg = winWindows.windowInfo(winWindows.foregroundWindow())
+  const ignore = (loadConfig().activeAppIgnore || []).map(w => w.toLowerCase())
+  if (fg && fg.title && fg.pid !== process.pid && ignore.some(w => fg.title.toLowerCase().includes(w))) return { ok: false, state: 'private' }
+  const r = await captureGame(GAME_SIG_SIDE)
+  if (!r.ok) return { ok: false, state: r.state }
+  const sig = GameMode.signature(r.picture.resize({ width: GameMode.SIG_W, height: GameMode.SIG_H }).toBitmap())
+  return sig ? { ok: true, sig, title: r.title } : { ok: false, state: 'empty' }
+}
+
+/** Lo sguardo: per ora lo scatto; il modello e il commento nel 12c. */
+async function gameLook() {
+  const r = await captureGame()
+  if (!r.ok) return { ok: false, error: r.state }
+  console.log('[gioco] sguardo su "' + r.title + '"')
+  return { ok: true, title: r.title, size: r.picture.getSize() }
+}
+
+const gameLoop = createGameLoop({
+  config: () => GameMode.gameConfig(loadConfig(), Object.keys(PROVIDERS)),
+  sigCapture: () => gameSignature(),
+  busy: () => gameBusy(),
+  look: () => gameLook(),
+  onResult: (r, info) => { gameLast = { ...r, stale: info.stale, at: info.at } },
+  onState: () => {
+    sendSettings('game-state', gameStatus())
+    if (hudShown && hudFor) sendHud({ game: gameHud(hudFor) })
+  },
+})
+
+/** Lo stato per la pagina Visione. */
+function gameStatus() {
+  const st = gameLoop.state()
+  const c = companions.find(x => x.personaId === st.watcher)
+  return { ...st, text: GameMode.statusText(st, { name: c ? nameOf(c) : '', cost: gameModel ? gameModel.cost : null }) }
+}
+
+/** Il pulsante della pillola per il companion c: acceso se guarda lui. */
+function gameHud(c) {
+  const st = gameLoop.state()
+  const mine = st.on && st.watcher === c.personaId
+  const watcher = st.on && !mine ? companions.find(x => x.personaId === st.watcher) : null
+  return {
+    on: mine, paused: mine && !!st.paused, looks: mine ? st.looks : 0,
+    title: mine ? 'Modalità gioco: ' + gameStatus().text + '. Clic per spegnere'
+      : watcher ? 'Modalità gioco: guarda ' + nameOf(watcher) + '. Clic per farla guardare a ' + nameOf(c)
+        : 'Modalità gioco: guarda la partita e la commenta',
+  }
+}
+
+/** Accende la modalita' gioco per c (o la spegne, se guarda gia' lui). */
+async function toggleGame(c) {
+  c = c && c.alive() ? c : chatTarget()
+  const st = gameLoop.state()
+  if (st.on) {
+    const same = !c || st.watcher === c.personaId
+    endGame()
+    if (same) return gameLoop.state()
+  }
+  if (!c) return gameLoop.state()
+  const cfg = loadConfig()
+  const g = GameMode.gameConfig(cfg, Object.keys(PROVIDERS))
+  if (!g.source) {
+    openSettings('visione')
+    c.send('companion-bubble', { text: 'Scegli prima quale finestra guardare', ms: 3500 })
+    return gameLoop.state()
+  }
+  const chatCaps = g.vision ? null : await modelCapsOf(cfg.provider, cfg.model).catch(() => null)
+  const vision = GameMode.visionModel(g, { provider: cfg.provider, model: cfg.model }, !!(chatCaps && chatCaps.vision))
+  if (!vision) {
+    openSettings('visione')
+    c.send('companion-bubble', { text: 'Mi serve un modello che vede le immagini', ms: 3500 })
+    return gameLoop.state()
+  }
+  // Il costo di uno sguardo: Ollama e' gratis, OpenRouter dice i prezzi, gli altri non si sa.
+  const caps = vision.provider === 'openrouter' ? await modelCapsOf('openrouter', vision.model).catch(() => null) : null
+  gameModel = { ...vision, cost: vision.provider === 'ollama' ? 0 : GameMode.lookCost(caps && caps.price) }
+  gameLast = null
+  gameLoop.start(c.personaId)
+  c.send('companion-bubble', { text: '🎮 Guardo la partita', ms: 2500 })
+  console.log('[gioco] acceso per ' + c.personaId + ' (' + vision.provider + ' ' + vision.model + ')')
+  return gameLoop.state()
+}
+
+/** Spegne la modalita' gioco. */
+function endGame() {
+  const summary = gameLoop.stop()
+  if (!summary) return
+  gameModel = null
+  const c = companions.find(x => x.personaId === summary.watcher && x.alive())
+  if (c) c.send('companion-bubble', { text: 'Fine della partita', ms: 2500 })
+  console.log('[gioco] spento: ' + summary.looks + ' sguardi')
+}
+
+handle('game:state', () => gameStatus())
 
 // Movimenti generati con Kimodo (Blocco 7d): elenco, nome, prova, eliminazione.
 handle('motions:list', () => (kimodo ? kimodo.list() : []))
@@ -2527,6 +2656,8 @@ on('mic:state', (_e, state) => {
   const fromHands = handsFree && liveWin(handsFree.win) && _e.sender === handsFree.win.webContents
   if (fromHands) {
     const c = handsFree.c
+    // Mentre parli la modalita' gioco non guarda (Blocco 12b).
+    handsFree.hearing = state === 'hearing' || state === 'transcribing'
     if (state === 'hearing') {
       // Parli tu: il companion tace (succede solo con le cuffie, o se ha appena finito).
       if (voiceService) voiceService.stop()
@@ -3242,6 +3373,11 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
   handle('test:game-capture', async () => {
     const r = await captureGame()
     return { ok: r.ok, state: r.state, title: r.title || '', app: r.app || '', size: r.picture ? r.picture.getSize() : null, jpeg: r.image ? r.image.length : 0 }
+  })
+  // La modalita' gioco (Blocco 12b): lo stato, l'ultimo sguardo e il pulsante.
+  handle('test:game', (_e, cmd) => {
+    if (cmd && cmd.off === true) endGame()
+    return { status: gameStatus(), last: gameLast, model: gameModel, hud: hudFor ? gameHud(hudFor) : null }
   })
   // La finestra di chat che chiede: mostrata o nascosta davvero (Blocco 11b,
   // sottotitoli senza voce); la pagina non lo sa con certezza.
