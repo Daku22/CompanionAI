@@ -188,3 +188,17 @@ Regole di sempre:
   reggere qualunque taglio, e alla fine conta la risposta intera.
 - **Twitch:** l'IRC anonimo legge solo; se Twitch cambia il servizio (lo ha già fatto per i
   bot con account), il collegamento lo dice nello stato invece di fallire in silenzio.
+
+## Com'è andata (chiusura, 21 ottobre)
+- **11a:** come da piano. Scrivere mentre risponde la interrompe: resta il pezzo
+  arrivato con " …", fuori dalla cronologia.
+- **11b:** come da piano. Il fumetto dei sottotitoli va su tre righe e divide le
+  frasi lunghe; senza voce e con la chat chiusa mostra la risposta mentre arriva.
+  Il tasto delle mani libere e' Ctrl+Alt+J.
+- **11c:** come da piano, con il tasto rapido "In diretta" spento di base.
+- **11d:** come da piano; la seconda battuta circa 3 volte su 10. Dopo la prova
+  dell'utente i commenti spontanei vanno da 1 minuto (prima da 2).
+- **Non fatto:** la cancellazione d'eco vera (si e' scelto il microfono sordo
+  mentre parla, o le cuffie); YouTube.
+- **Verifica:** `npm test`, smoke e audit verdi; l'ascolto continuo con un
+  microfono vero e una live vera su Twitch restano da provare a mano.

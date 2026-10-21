@@ -10,6 +10,8 @@ everything the app sends out and everything it stores.
 | The AI provider you chose | Every message you send, and when memory is summarized | Your message, the recent conversation, the memory summary and the app's instructions for the model. Your API key authenticates the request |
 | The AI provider you chose | Once a day per persona for the diary (only after a day you talked), and up to 6 times a day per companion when it writes first ("Scrive per primo", on by default) | For the diary: that day's conversation (at most the last 6000 characters) and the persona's personality. For a message it writes first: the same as a normal reply, with a line saying why it writes (greeting, welcome back, long silence) instead of your message |
 | The AI provider you chose | Only with more than one companion on the desktop: up to 2 replies per message in the group chat, and up to 12 messages a day per companion between companions (greetings, comments and answers) | The same as a normal reply of that companion, plus the names of the others and what they just said |
+| The AI provider you chose | Only while "In diretta" is on (Settings → Streaming) | For each chat message, event or comment a companion answers: that message as a quote (the viewer's name and text), the last 20 messages of the live and the persona's usual context. When you end the live, for each companion that spoke: a summary of the live (length, events, viewers' names and its own replies, never the viewers' messages) to write its diary paragraph |
+| `irc-ws.chat.twitch.tv` (Twitch) | Only while "In diretta" is on | An anonymous, read-only connection to your channel's chat (`justinfan` plus a random number): no account, no token, and the app never writes in the chat. Twitch sees a connection from your IP address |
 | The AI provider you chose | Only when you press 👁 (or the model asks to look) **and you send it** | A screenshot of the companion's monitor, at most 1568 px, with your next message. It is never saved: the memory keeps only "[immagine dello schermo]" |
 | The AI provider you chose | Only with "Sa quale app stai usando" on (off by default) | The title of the window you were last using, as part of the message. Windows matching the ignore list (password managers, private browsing) are never read |
 | `openrouter.ai`, `api.anthropic.com`, `api.openai.com` | When the model list of that provider is shown, or with "Prova il modello" | A request for the list of models (with your key for Claude and OpenAI), or a tiny test message. No conversation |
@@ -26,7 +28,10 @@ everything the app sends out and everything it stores.
 The voice (Kokoro or XTTS, off by default) is generated on your computer: the
 replies it reads aloud, and the sample of your voice, are never sent anywhere.
 The microphone (off by default) is opened only while you hold the shortcut or
-the 🎙 button, or after a tap until the next one. The recording is transcribed
+the 🎙 button, or after a tap until the next one, or while the hands-free mode
+is on (the microphone in the bar, or its hotkey). In hands-free mode only the
+last fraction of a second is kept while nobody talks; each turn you speak is
+transcribed and the audio discarded. The recording is transcribed
 on your computer and then discarded: it is never saved or sent anywhere. Only
 the text it becomes is sent, as a message, to the AI provider you chose, like
 a message you type. The log records how long a recording was, never what you
@@ -62,6 +67,7 @@ personal data.
 | Personas | `%USERPROFILE%\.desktop-companion\memory\personas.json` (names, personalities, avatar and voice of each), and for every persona its mood, relationship (`rapport.json`), diary (`diary.jsonl`), spontaneous-message counters (`initiative.json`) and hunger, thirst and volleyball record (`needs.json`). The first persona keeps them in `memory\`, the others in `memory\personas\<id>\`. With several companions on the desktop, each one's memory also keeps what you wrote to the group and what the others said |
 | Companions on the desktop | `config.json`: which personas are on the desktop (`openPersonas`) and where (`companionSpots`) |
 | Hotkeys and the bar | `config.json`: the chosen shortcuts (`shortcuts`) and whether the bar stays visible (`hudPinned`) |
+| Live settings | `config.json` (`stream`): your Twitch channel's name, the command, the caps and the bots to ignore. The live's log and its messages are kept only in memory while the app runs; the diary paragraph after a live goes in the persona's `diary.jsonl` |
 | Imported avatars | `%APPDATA%\CompanionAI\avatars\` |
 | Imported objects | `%APPDATA%\CompanionAI\objects\`: the models you import from the bag, their type, name and size (`library.json`) and their card pictures (`thumbs\`). Deleting an object deletes its folder and picture. Objects on the desktop are not saved: they go back to the bag when the app closes |
 | Avatar face photos | `%APPDATA%\CompanionAI\avatars\thumbs\`: a 256 px PNG per avatar, taken by the companion the first time it wears it and shown only in the settings and the chat. Deleting an imported avatar deletes its photo |

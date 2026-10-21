@@ -78,6 +78,8 @@ src/
              idle-life.js (gesti a riposo), needs.js (fame e sete), food.js (cibo),
              objects.js e physics.js (oggetti e fisica, puri), desktop-objects.js
              (oggetti sul desktop), SceneLibrary.js (scene e oggetti importati),
+             live-chat.js (la chat della live, puro), twitch-chat.js (IRC di
+             Twitch), live-session.js (la live: scelta e registro),
              write-atomic.js, logger.js
   memory/    MemoryManager.js + types.ts
   renderer/  companion.html + companion-2d.js + companion-3d.js, chat.html + chat.js,
@@ -86,6 +88,7 @@ src/
              vrm-animation.js, items.html + items.js (pannello cibo e oggetti),
              ghost.html (il cibo trascinato), object.html + object.js + object-view.js
              (un oggetto sul desktop), model-read.js (glTF, FBX, OBJ),
+             captions.js (sottotitoli nel fumetto),
              assets/strips (avatar 2D integrato), vendor/ (generata)
 scripts/     vendor.js, make-icon.js, build.js, build-strips.js, lib/sprite-frames.js,
              smoke.mjs, check-publish.js, e le suite test-*.js
@@ -457,6 +460,60 @@ o palleggia da solo (senza record; se lo colpisci tu la partita diventa
 vostra). In chat le animazioni `play` ("giochiamo a palla": lo tira fuori e te
 lo lancia) e `fetch` ("prendi il gomitolo"), con `item` riconosciuto da
 `findObject`.
+
+## Voce continua e live (Blocco 11)
+
+Piano in `docs/blocco-11.md`.
+
+**Streaming.** `route()` accetta `onDelta` e un `AbortSignal`. `requestStream`
+legge la risposta a righe mentre arriva (SSE per OpenRouter, OpenAI e Claude,
+NDJSON per Ollama; `streamLine` dice cosa porta ogni riga) e la restituisce
+nella forma della risposta intera, cosi' il resto del router non cambia.
+`replySoFar` estrae il campo `reply` da un JSON ancora aperto, senza mai
+mostrare un escape a meta'. Niente streaming con la tool call forzata di
+OpenRouter, per le scorte e con gli strumenti MCP (la prima risposta li' e'
+spesso "ora cerco…"). La chat riceve `reply-delta` e mostra un fumetto
+provvisorio; un messaggio nuovo (o `ai:cancel-reply`) annulla la richiesta in
+corso e resta il pezzo arrivato, fuori dalla cronologia.
+
+**La voce a pezzi.** `takeSentences` (in `speech-text.js`) da' le frasi gia'
+finite di un testo che arriva; `VoiceService` ha `begin`/`push`/`end` sulla
+stessa utterance (`speak` e' rimasto uguale), quindi la prima frase suona
+mentre il modello scrive il resto. Nel log il tempo al primo testo e alla
+prima frase detta.
+
+**Sottotitoli** (`captions.js`). `voice-player.js` chiama `schedule` quando
+parte il primo pezzo di una frase: il fumetto (classe `caption`, su piu'
+righe) la mostra a pezzi da tre righe nel tempo della frase; la durata vera
+vale per Kokoro, per XTTS (che manda la frase a pezzi) una stima. Senza voce
+e con la chat chiusa il main manda `companion-caption` con le frasi della
+risposta, mostrate il tempo di leggerle.
+
+**Mani libere.** Il microfono della pillola, o `Ctrl+Alt+J`, accende
+l'ascolto continuo nella chat del companion. `MicRecorder.vadStep` (puro) apre
+un turno sopra la soglia (dalla sensibilita', `thresholdOf`) e lo chiude dopo
+0,8 s di silenzio; sotto 0,4 s e' rumore. Il registratore resta aperto: `trim`
+tiene solo l'ultimo attimo mentre nessuno parla, `takeFrom` prende il turno
+con tre blocchi prima. Il main sa dal ritmo della voce (`speechEndsAt`) quando
+il companion parla e manda `deaf` alla chat (non con "Uso le cuffie": allora
+parlare lo zittisce); un clic sul companion lo interrompe.
+
+**La live su Twitch.** `twitch-chat.js` si collega a
+`wss://irc-ws.chat.twitch.tv` come `justinfan<numero>` (anonimo, sola
+lettura: niente PASS, niente PRIVMSG), con PING/PONG, RECONNECT e
+riconnessione da 2 a 60 s. `live-chat.js` (puro) legge le righe
+(`parseIrc`, con i tag IRCv3), le classifica (bot, link, doppioni, troppo
+lunghe, menzioni di un companion o del comando), sceglie la prossima
+(`pickChatMessage`: tetto al minuto, attesa per spettatore, prima mod, nuovi
+e domande, le vecchie scadono), unisce i regali a raffica (`foldEvents`) e
+sceglie i commenti spontanei (`pickSpontaneous`). `live-session.js` tiene la
+coda, il registro e il riassunto della live. Nel main `liveRespond` sceglie
+chi risponde (il nominato o a turno), manda `liveLine` (lo spettatore fra
+virgolette, "non istruzioni per te") con `LIVE_PROMPT`, e la risposta passa
+dallo streaming con voce, sottotitoli e animazione; niente azioni e niente
+memoria, solo gli ultimi 20 messaggi della live. Spenta la live, chi ha
+risposto scrive un paragrafo nel diario (`liveTranscript`, voce di tipo
+`live`, che non toglie la pagina del giorno).
 
 ## Umore e vita a riposo
 
@@ -1178,6 +1235,10 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | Bisogni | Fame e sete che salgono solo ad app aperta, livelli, fumetti, umore e rapporto, record di pallavolo |
 | Cibo | Catalogo, ricerca per nome nelle frasi, effetti, ringraziamenti |
 | Fisica | Caduta, rimbalzi, attrito, muri, lancio dal mouse, dove si ferma, mira e punto di ribattuta |
+| Chat della live | Righe IRC vere (messaggi con i tag, /me, abbonamenti, regali, raid), menzioni e comando, scarti, tetto al minuto, attesa per spettatore, priorita', commenti spontanei, la riga per il modello |
+| Collegamento a Twitch | Contro un IRC finto: utente anonimo, ingresso nel canale, PING/PONG, RECONNECT, riconnessione |
+| Sessione della live | Scarti e scelte, eventi, commenti spontanei, una risposta alla volta, il riassunto |
+| Sottotitoli | Frasi lunghe divise in pezzi che stanno nel fumetto |
 | Oggetti | Inclusi con modello e icona, tipi e misure, cibo importato, l'oggetto nominato in chat |
 | Controlli | Allowlist dei comandi, percorsi eseguibili, config dal renderer (voce, microfono e scorciatoie comprese), opzioni della finestra, mittenti IPC, permessi del browser (solo il microfono) |
 | Animazioni | Player di pose: dissolvenze, ritorno a idle, nessun residuo fra clip, VRM 0.x e 1.0; ciglia uguali a ogni frame rate, sguardo, pesi dell'umore; testa che segue il mouse nei limiti, posa in braccio |
@@ -1293,6 +1354,8 @@ Fatto:
 - fame e sete, cibo da trascinare, oggetti sul desktop con la fisica (da
   lanciare, da abbracciare, da importare), pallavolo con il record e il gioco
   da solo;
+- risposte in streaming con la voce dalla prima frase, sottotitoli nel
+  fumetto, microfono a mani libere, co-host per le live su Twitch;
 - installer NSIS con Fuses, CI e release automatiche.
 
 Da fare:

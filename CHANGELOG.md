@@ -202,6 +202,29 @@
   - when bored it plays alone with a ball on the desktop (kicks it around or
     juggles it), and "giochiamo a palla" or "prendi il gomitolo" in chat
     start a game.
+- Replies stream in as they are written (OpenRouter, Claude, OpenAI and
+  Ollama), and the voice starts at the first finished sentence. Typing a new
+  message while it answers interrupts it; the part that arrived stays on
+  screen. With MCP connectors and forced tool calls the whole reply arrives
+  at the end, as before.
+- Captions in the speech bubble: the sentence being spoken, in sync with the
+  voice, on up to three lines; without voice and with the chat closed, the
+  reply's sentences as they arrive.
+- Hands-free microphone: the microphone in the bar (or Ctrl + Alt + J) keeps
+  it listening, and what you say is sent when you stop talking. While the
+  companion speaks it does not listen, so it never answers itself through the
+  speakers; with "Uso le cuffie" you can interrupt it by talking, and a
+  click on the companion always silences it. Sensitivity in Settings →
+  Microfono.
+- Co-host for your Twitch live (Settings → Streaming, "In diretta"): the
+  companions read your channel's chat anonymously and read-only, answer
+  whoever names them or uses the command (!chiedi by default), thank subs,
+  gifts and raids, and now and then comment on the chat. They take turns,
+  with caps per minute and per viewer; bots, links and duplicates are
+  skipped, and a log shows what was answered and what was dropped and why.
+  Viewers' messages are always treated as text to read, never as
+  instructions, and never go into memory; after the live each companion
+  that spoke writes a short paragraph in its diary.
 - 32 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions,
   eating, drinking, picking up, hugging, volleyball), in the repository and

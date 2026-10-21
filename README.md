@@ -20,6 +20,9 @@ conversations from one day to the next.
 - **Needs and play:** it gets hungry and thirsty, eats what you drag onto it,
   and plays with a ball, a yarn ball or a teddy bear on your desktop
   (volleyball included).
+- **Voice and live:** replies appear as they are written and the voice starts
+  at the first sentence, with captions in its speech bubble; a hands-free
+  microphone; and a co-host for your Twitch live.
 - **Restricted system actions:** checked before you are asked to approve them.
 - **Private by design:** no telemetry, no account, everything runs inside the app.
 
@@ -240,6 +243,34 @@ use in the same tab (Windows' default one unless you choose). The audio is
 transcribed on your graphics card in the same local service as XTTS (about
 2.5 GB of video memory while the microphone is on) and never leaves your
 computer.
+
+Replies appear in the chat as they are written, and with the voice on it
+starts speaking at the first finished sentence. Write a new message while it
+answers and the reply in progress stops. While it speaks, its speech bubble
+shows the sentence it is saying; with the voice off and the chat closed, the
+bubble shows the reply as it arrives.
+
+**Hands-free.** The microphone button in the bar around the companion (or
+Ctrl + Alt + J) keeps the microphone listening: speak whenever you like, and
+your words are sent when you stop for a moment. While the companion speaks
+it does not listen, so it never answers its own voice from the speakers;
+click it to interrupt it. With "Uso le cuffie" on, you can interrupt it by
+just talking. Settings → Microfono → "Mani libere" has the sensitivity.
+
+**Co-host for your Twitch live.** In Settings → Streaming write your channel
+and turn on "In diretta" (or give it a hotkey). The companions read your
+chat without an account, read-only (they never write in it), and answer
+whoever writes a companion's name or starts with the command (`!chiedi` by
+default). They thank subscriptions, gifts and raids, and every few minutes
+(1 to 15, or never) comment on something in the chat. With more companions
+on the desktop they take turns, and sometimes a second one adds a line.
+Answers come with the voice, the animation and captions in the speech
+bubble; in OBS capture the screen and they show above your windows. Caps
+per minute and per viewer keep it calm, bots, links and duplicates are
+skipped, and a log shows what was answered and what was dropped, and why.
+Viewers' messages are always treated as text to read, never as instructions,
+and they never go into the persona's memory; when you end the live, each
+companion that spoke writes a short paragraph about it in its diary.
 
 **Senses.** The 👁 button in the chat (or "guarda il mio schermo") takes a
 screenshot of the companion's monitor and shows it as a preview: it is sent

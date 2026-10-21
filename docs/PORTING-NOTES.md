@@ -1145,6 +1145,41 @@ sbirciata, ballo) restano del companion di casa; gli ospiti non le usano.
 (`\\'`, `\n` dentro stringhe JS): per le sostituzioni lunghe si usa un JSON
 scritto con lo strumento di scrittura e un piccolo `rep.py` che lo applica.
 
+## Blocco 11: voce continua, streaming e co-host su Twitch (2026-10-21)
+
+**Riferimenti.** Le idee che costano poco dal piano di CompanionOS (una
+richiesta alla volta, chat e schermo trattati come dati); la documentazione
+pubblica dell'IRC di Twitch (utente anonimo `justinfan`, tag IRCv3,
+`USERNOTICE`). Nessun codice copiato, nessuna dipendenza nuova: il server
+WebSocket delle prove e' scritto a mano (`scripts/lib/fake-ws-server.js`).
+
+**Scelte dell'utente.** Streaming sempre; mani libere con l'interruttore della
+pillola; interromperlo a voce solo con le cuffie; sottotitoli nel fumetto;
+Twitch in sola lettura, niente YouTube; i companion si alternano; risposte a
+menzioni e comando, commenti spontanei (da 1 a 15 minuti: il minimo di 2 l'ha
+fatto togliere l'utente) ed eventi; OBS con la cattura dello schermo; un
+paragrafo nel diario a fine live.
+
+**Trappole.**
+- SSE e UTF-8: le righe si leggono con `StringDecoder`, o una lettera
+  accentata a cavallo di due pezzi si rompe.
+- Il testo della risposta arriva dentro un JSON ancora aperto: `replySoFar`
+  toglie gli escape a meta' (`\` da solo, `\u00`), e il test lo taglia in
+  ogni punto.
+- XTTS manda una frase a pezzi: la durata del primo pezzo non e' quella della
+  frase, quindi i sottotitoli usano una stima dalla lunghezza (Kokoro manda la
+  frase intera, e li' vale la durata vera).
+- Una risposta interrotta non entra nella cronologia: il messaggio dopo
+  arriva al modello unito al precedente (il router unisce due messaggi di
+  fila dell'utente). Il modello finto dell'audit legge l'ultima riga.
+- `document.visibilityState` di una finestra mai mostrata dice "visible":
+  l'audit chiede al main com'e' davvero (`test:chat-shown`).
+- I controlli del ballo con la musica leggono anche il mixer vero di Windows:
+  con musica vera sul PC (Opera, nell'audit dell'11c) a volte falliscono.
+  Non e' un errore del codice.
+- In una live il diario a fine giornata trovava gia' una voce di quel giorno
+  e saltava la pagina: le voci della live hanno `kind: 'live'` e non contano.
+
 ## Blocco 10: bisogni, cibo e oggetti (2026-10-16/20)
 
 **Riferimenti.** AikoMate (bisogni, cibo, oggetti), solo come idee: nessun
