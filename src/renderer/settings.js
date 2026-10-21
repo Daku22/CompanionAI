@@ -734,24 +734,25 @@
   // ─── Tasti rapidi (Blocco 9c) ──────────────────────────────────────────────
   // La chat e i companion: scorciatoie dell'app (shortcuts nella config). Il
   // microfono sta con la voce (voice.micShortcut): la sua riga e' piu' sotto.
-  const KEY_NOTES = { chat: 'L\'ultima chat che hai usato.', hide: 'Tutti insieme, con i loro comandi.' }
+  const KEY_NOTES = { chat: 'L\'ultima chat che hai usato.', hide: 'Tutti insieme, con i loro comandi.', handsfree: 'Accende e spegne l\'ascolto continuo del microfono.' }
+  const KEYS = ['chat', 'hide', 'handsfree']
   function showKeys(cfg) {
     const choices = cfg.appShortcuts || []
     const want = cfg.shortcuts || {}
-    for (const key of ['chat', 'hide']) {
+    for (const key of KEYS) {
       const sel = $('key-' + key)
       if (sel.options.length !== choices.length) sel.replaceChildren(...choices.map(s => new Option(s.label, s.id)))
       sel.value = want[key] || 'off'
-      // Quella dell'altra azione non si sceglie: due azioni sullo stesso tasto no.
-      const other = want[key === 'chat' ? 'hide' : 'chat']
-      for (const o of sel.options) o.disabled = o.value !== 'off' && o.value === other
+      // Quelle delle altre azioni non si scelgono: due azioni sullo stesso tasto no.
+      const others = KEYS.filter(k => k !== key).map(k => want[k])
+      for (const o of sel.options) o.disabled = o.value !== 'off' && others.includes(o.value)
       const busy = sel.value !== 'off' && (cfg.shortcutsActive || {})[key] !== sel.value
       const note = $('key-' + key + '-note')
       note.classList.toggle('warn', busy)
       note.textContent = busy ? 'La usa già un altro programma: scegline un\'altra.' : KEY_NOTES[key]
     }
   }
-  for (const key of ['chat', 'hide']) {
+  for (const key of KEYS) {
     $('key-' + key).addEventListener('change', async (e) => {
       try { showKeys(await api.setConfig({ shortcuts: { [key]: e.target.value } })) } catch (_) {}
     })
@@ -881,6 +882,9 @@
     $('sample-note').textContent = voice.xttsSample ? 'Campione pronto.' : 'Nessun campione: 10-30 secondi di una sola voce, senza musica.'
     micEnabled.checked = !!voice.micEnabled
     shortcutSel.value = voice.micShortcut
+    $('mic-sensitivity').value = String(voice.micSensitivity == null ? 0.5 : voice.micSensitivity)
+    $('mic-sensitivity-out').textContent = Math.round(Number($('mic-sensitivity').value) * 100) + '%'
+    $('mic-headphones').checked = !!voice.headphones
   }
 
   function showStt(s, x) {
@@ -1077,6 +1081,10 @@
 
   // ─── Microfono ─────────────────────────────────────────────────────────────
   micEnabled.addEventListener('change', async () => { await save({ micEnabled: micEnabled.checked }); loadDevices() })
+  // Mani libere (Blocco 11b): la soglia del rilevatore e le cuffie.
+  $('mic-sensitivity').addEventListener('input', () => { $('mic-sensitivity-out').textContent = Math.round(Number($('mic-sensitivity').value) * 100) + '%' })
+  $('mic-sensitivity').addEventListener('change', () => save({ micSensitivity: Number($('mic-sensitivity').value) }))
+  $('mic-headphones').addEventListener('change', () => save({ headphones: $('mic-headphones').checked }))
   shortcutSel.addEventListener('change', () => save({ micShortcut: shortcutSel.value }))
 
   // I microfoni di Windows. I nomi li da' Chromium solo con il permesso, cioe'

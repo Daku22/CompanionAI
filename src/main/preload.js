@@ -97,6 +97,7 @@ contextBridge.exposeInMainWorld('companion', {
   testNeeds:        (values) => ipcRenderer.invoke('test:needs', values),
   testDrop:         (msg)    => ipcRenderer.invoke('test:drop', msg),
   testObjects:      (msg)    => ipcRenderer.invoke('test:objects', msg),
+  testChatShown:    (show)   => ipcRenderer.invoke('test:chat-shown', show),
   // Il pannello del cibo e degli oggetti (Blocchi 10b e 10c): le card, il
   // trascinamento (kind: 'food' o 'object'), la chiusura.
   itemsList:        ()       => ipcRenderer.invoke('items:list'),
@@ -285,6 +286,12 @@ contextBridge.exposeInMainWorld('companion', {
     return () => ipcRenderer.removeListener('companion-bubble', handler)
   },
   // Microfono: 'start' | 'stop' dalla scorciatoia globale (la registrazione la fa la chat)
+  // Sottotitoli senza voce (Blocco 11b): { text } da mettere in coda, o { clear: true }.
+  onCompanionCaption: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('companion-caption', handler)
+    return () => ipcRenderer.removeListener('companion-caption', handler)
+  },
   onMicCommand: (cb) => {
     const handler = (_e, data) => { try { cb(data) } catch (_) {} }
     ipcRenderer.on('mic-command', handler)

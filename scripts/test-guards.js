@@ -219,6 +219,16 @@ test('microfono: interruttore e scorciatoia solo fra quelle previste', () => {
   for (const [key, s] of Object.entries(MIC_SHORTCUTS)) assert.ok(key === 'off' ? s.vk === 0 : s.vk > 0, key)
 })
 
+test('mani libere (Blocco 11b): sensibilita\' fra 0 e 1, cuffie si o no', () => {
+  const base = { provider: 'openrouter', model: 'm', keys: {} }
+  assert.deepEqual([voiceConfig(base).micSensitivity, voiceConfig(base).headphones], [0.5, false])
+  const on = mergeConfig(base, { voice: { micSensitivity: 0.734, headphones: true } })
+  assert.deepEqual([on.voice.micSensitivity, on.voice.headphones], [0.73, true])
+  assert.equal(mergeConfig(on, { voice: { micSensitivity: 7 } }).voice.micSensitivity, 1)
+  const bad = mergeConfig(on, { voice: { micSensitivity: 'tanta', headphones: 'si' } })
+  assert.deepEqual([bad.voice.micSensitivity, bad.voice.headphones], [0.73, true])
+})
+
 test('microfono scelto: id di Chromium e nome ripulito; vuoto torna al predefinito', () => {
   const base = { provider: 'openrouter', model: 'm', keys: {} }
   const id = 'a3f09c1be2d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e'
@@ -384,16 +394,20 @@ test('chibi: solo avatar 3D con scheletro umano, e il motivo per gli altri', () 
 })
 
 test('scorciatoie: predefinite, ammesse, mai due azioni sullo stesso tasto', () => {
-  assert.deepEqual(shortcutsConfig({}), { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H' })
-  assert.deepEqual(shortcutsConfig({ shortcuts: { chat: 'F8', hide: 'Alt+F4' } }), { chat: 'F8', hide: 'Ctrl+Alt+H' })
-  assert.deepEqual(mergeShortcuts(undefined, { chat: 'F7' }), { chat: 'F7', hide: 'Ctrl+Alt+H' })
-  assert.deepEqual(mergeShortcuts({ chat: 'F7' }, { hide: 'F7' }), { chat: 'F7', hide: 'Ctrl+Alt+H' }, "F7 e' gia' della chat")
-  assert.deepEqual(mergeShortcuts({ chat: 'off' }, { hide: 'off' }), { chat: 'off', hide: 'off' }, "spente tutte e due si puo'")
-  assert.deepEqual(mergeShortcuts({}, { chat: 'Ctrl+Alt+Delete', hide: 'toString' }), { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H' })
+  const J = { handsfree: 'Ctrl+Alt+J' }
+  assert.deepEqual(shortcutsConfig({}), { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H', ...J })
+  assert.deepEqual(shortcutsConfig({ shortcuts: { chat: 'F8', hide: 'Alt+F4' } }), { chat: 'F8', hide: 'Ctrl+Alt+H', ...J })
+  assert.deepEqual(mergeShortcuts(undefined, { chat: 'F7' }), { chat: 'F7', hide: 'Ctrl+Alt+H', ...J })
+  assert.deepEqual(mergeShortcuts({ chat: 'F7' }, { hide: 'F7' }), { chat: 'F7', hide: 'Ctrl+Alt+H', ...J }, "F7 e' gia' della chat")
+  assert.deepEqual(mergeShortcuts({ chat: 'off' }, { hide: 'off' }), { chat: 'off', hide: 'off', ...J }, "spente tutte e due si puo'")
+  assert.deepEqual(mergeShortcuts({}, { chat: 'Ctrl+Alt+Delete', hide: 'toString' }), { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H', ...J })
+  // Mani libere (Blocco 11b): come le altre, mai sul tasto di un'altra azione.
+  assert.deepEqual(mergeShortcuts({}, { handsfree: 'Ctrl+Alt+C' }).handsfree, 'Ctrl+Alt+J', "Ctrl+Alt+C e' della chat")
+  assert.deepEqual(mergeShortcuts({}, { handsfree: 'F8' }).handsfree, 'F8')
   // Mai un tasto del microfono: le due liste non si toccano.
   for (const key of Object.keys(APP_SHORTCUTS)) if (key !== 'off') assert.ok(!(key in MIC_SHORTCUTS), key)
   const base = { provider: 'openrouter', model: 'm', keys: {} }
-  assert.deepEqual(mergeConfig(base, { shortcuts: { chat: 'F8' } }).shortcuts, { chat: 'F8', hide: 'Ctrl+Alt+H' })
+  assert.deepEqual(mergeConfig(base, { shortcuts: { chat: 'F8' } }).shortcuts, { chat: 'F8', hide: 'Ctrl+Alt+H', ...J })
   assert.equal(mergeConfig(base, { shortcuts: 'F8' }).shortcuts, undefined)
 })
 

@@ -86,6 +86,19 @@
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
+    /* Sottotitoli (Blocco 11b, captions.js): la frase che sta dicendo, su piu'
+       righe, larga quanto la finestra. */
+    #bubble.caption {
+      white-space: normal;
+      width: max-content;
+      max-width: calc(100vw - 16px);
+      text-align: center;
+      text-wrap: balance;
+      font-weight: 500;
+      font-size: 11px;
+      line-height: 1.32;
+      padding: 5px 10px 6px;
+    }
     /* Strato che riceve il mouse sopra l'avatar (companion-input.js). Il
        trascinamento lo fa il main: niente -webkit-app-region, che lasciava
        spostare la finestra a Windows senza velocita' e apriva il menu di
@@ -331,6 +344,7 @@
 <script src="touch.js"></script>
 <script src="beat.js"></script>
 <script src="companion-input.js"></script>
+<script src="captions.js"></script>
 <script src="voice-player.js"></script>
 <script src="companion-dance.js"></script>
 <script src="companion-peek.js"></script>

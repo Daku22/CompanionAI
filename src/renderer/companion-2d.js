@@ -26,6 +26,8 @@ function packBubbles(manifest) {
 }
 
 function showBubble(text, ms = 2800) {
+  // Un fumetto normale, su una riga: niente piu' sottotitolo (captions.js).
+  bubbleEl.classList.remove('caption');
   bubbleEl.textContent = text;
   bubbleEl.classList.add('show');
   clearTimeout(bubbleTimer);

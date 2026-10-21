@@ -68,7 +68,8 @@
     if (s.mic) {
       const b = document.getElementById('b-mic')
       b.classList.toggle('listening', !!s.mic.listening)
-      b.title = !s.mic.enabled ? 'Microfono spento: accendilo nelle Impostazioni' : s.mic.listening ? 'Ti ascolto: clic per smettere' : 'Parla con il microfono'
+      b.title = !s.mic.enabled ? 'Microfono spento: accendilo nelle Impostazioni' : s.mic.handsFree ? 'Mani libere: ti ascolto. Clic per spegnere' : 'Mani libere: parla senza premere niente'
+      b.setAttribute('aria-pressed', String(!!s.mic.handsFree))
     }
     if ('paused' in s) {
       const b = document.getElementById('b-pause')

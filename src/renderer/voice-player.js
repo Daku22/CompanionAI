@@ -23,6 +23,7 @@
   let nextAt = 0
   let sources = []
   let mouth = 0
+  let captionSeq = -1         // la frase gia' passata ai sottotitoli
 
   function ensure() {
     if (ctx) return
@@ -39,6 +40,8 @@
     for (const s of sources) { try { s.stop() } catch (_) { /* gia' finita */ } }
     sources = []
     nextAt = 0
+    captionSeq = -1
+    if (window.CompanionCaption) window.CompanionCaption.clear()
   }
 
   function chunk(msg) {
@@ -57,6 +60,12 @@
     src.connect(analyser)
     const at = Math.max(ctx.currentTime + START_DELAY_S, nextAt)
     src.start(at)
+    // Sottotitoli (Blocco 11b): la frase nel fumetto quando parte il suo
+    // primo pezzo. Non per gli ospiti della stanza: il fumetto e' di chi ospita.
+    if (window.CompanionCaption && !msg.speaker && typeof msg.text === 'string' && msg.seq !== captionSeq) {
+      captionSeq = msg.seq
+      window.CompanionCaption.schedule(msg.text, at - ctx.currentTime, buffer.duration)
+    }
     nextAt = at + buffer.duration
     sources.push(src)
     src.onended = () => { sources = sources.filter(s => s !== src) }

@@ -9,6 +9,11 @@
 //
 // Il microfono si sceglie nelle Impostazioni (voice.micDevice e il suo nome,
 // micDeviceLabel); vuoto e' il predefinito di Windows.
+//
+// A mani libere (Blocco 11b) il microfono resta aperto: vadStep, a ogni
+// blocco, dice quando un turno comincia e finisce; trim tiene solo l'ultimo
+// pezzo mentre nessuno parla, takeFrom prende il turno (con un attimo prima,
+// per non tagliare la prima sillaba).
 
 (function () {
   const RATE = 16000
@@ -47,6 +52,43 @@
     const byLabel = pref.label ? devices.find(d => d.label && d.label === pref.label) : null
     if (byLabel) return { id: byLabel.id, missing: false }
     return { id: null, missing: true }
+  }
+
+  /**
+   * Un passo del rilevatore di voce (Blocco 11b), a ogni blocco del microfono
+   * (circa 128 ms). Il turno si apre sopra la soglia e si chiude dopo hangMs
+   * di silenzio (sotto il 60% della soglia); un turno piu' corto di minMs e'
+   * rumore (un colpo, un clic) e si scarta. deaf: mentre il companion parla
+   * non si ascolta, e un turno a meta' si scarta. Pura, con test.
+   * @param {{ phase: 'idle'|'speech', startAt: number, lastVoiceAt: number } | null} state
+   * @param {number} level volume 0..1 (onLevel)
+   * @param {number} now ms
+   * @param {{ threshold: number, hangMs?: number, minMs?: number, maxMs?: number, deaf?: boolean }} o
+   * @returns {{ state: { phase: 'idle'|'speech', startAt: number, lastVoiceAt: number }, event: null | 'start' | 'end' | 'discard' }}
+   */
+  function vadStep(state, level, now, o) {
+    const hang = o.hangMs == null ? 800 : o.hangMs
+    const min = o.minMs == null ? 400 : o.minMs
+    const max = o.maxMs == null ? 30000 : o.maxMs
+    const idle = { phase: 'idle', startAt: 0, lastVoiceAt: 0 }
+    const s = state || idle
+    if (o.deaf) return { state: idle, event: s.phase === 'speech' ? 'discard' : null }
+    if (s.phase !== 'speech') {
+      return level >= o.threshold ? { state: { phase: 'speech', startAt: now, lastVoiceAt: now }, event: 'start' } : { state: idle, event: null }
+    }
+    const lastVoiceAt = level >= o.threshold * 0.6 ? now : s.lastVoiceAt
+    if (now - lastVoiceAt < hang && now - s.startAt < max) return { state: { ...s, lastVoiceAt }, event: null }
+    return { state: idle, event: lastVoiceAt - s.startAt >= min ? 'end' : 'discard' }
+  }
+
+  /**
+   * La soglia del rilevatore dalla sensibilita' delle Impostazioni (0..1):
+   * piu' sensibile, soglia piu' bassa. 0,5 sta sopra il rumore di una stanza
+   * e sotto una voce normale a mezzo metro.
+   */
+  function thresholdOf(sensitivity) {
+    const s = typeof sensitivity === 'number' && Number.isFinite(sensitivity) ? Math.max(0, Math.min(1, sensitivity)) : 0.5
+    return Math.round((0.32 - 0.26 * s) * 1000) / 1000
   }
 
   class MicRecorder {
@@ -142,6 +184,27 @@
       return out
     }
 
+    /** Quanti blocchi ci sono da quando si e' cominciato (o dall'ultimo takeFrom). */
+    get blockCount() { return this.chunks.length }
+
+    /** A mani libere, mentre nessuno parla: tiene solo gli ultimi keep blocchi. */
+    trim(keep) {
+      if (this.chunks.length <= keep) return
+      const drop = this.chunks.splice(0, this.chunks.length - keep)
+      for (const c of drop) this.length -= c.length
+    }
+
+    /** Il turno dal blocco from in poi; il microfono resta aperto e si riparte da vuoto. */
+    takeFrom(from) {
+      const parts = this.chunks.slice(Math.max(0, from))
+      const out = new Float32Array(parts.reduce((n, c) => n + c.length, 0))
+      let at = 0
+      for (const c of parts) { out.set(c, at); at += c.length }
+      this.chunks = []
+      this.length = 0
+      return out
+    }
+
     /** Chiude senza tenere niente. */
     cancel() {
       this._close()
@@ -162,5 +225,7 @@
   MicRecorder.MAX_SECONDS = MAX_SECONDS
   MicRecorder.listInputs = listInputs
   MicRecorder.pickInput = pickInput
+  MicRecorder.vadStep = vadStep
+  MicRecorder.thresholdOf = thresholdOf
   window.MicRecorder = MicRecorder
 })()

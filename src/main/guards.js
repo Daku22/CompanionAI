@@ -155,6 +155,9 @@ const VOICE_DEFAULTS = {
   enabled: false, engine: 'kokoro', kokoroVoice: 'if_sara', speed: 1, volume: 0.9,
   xttsSpeaker: 'sample', xttsSample: null, cpmlAccepted: false,
   micEnabled: false, micShortcut: 'Ctrl+Alt+M', micDevice: '', micDeviceLabel: '',
+  // Mani libere (Blocco 11b): quanto e' sensibile il rilevatore della voce
+  // (0..1), e se si usano le cuffie (allora si puo' interromperlo parlando).
+  micSensitivity: 0.5, headphones: false,
 }
 // Il microfono scelto: l'id che Chromium da' al dispositivo (vuoto: il
 // predefinito di Windows) e il suo nome, per ritrovarlo se l'id cambia.
@@ -184,7 +187,8 @@ const APP_SHORTCUTS = {
   'F8': 'F8',
   'off': 'Nessuna',
 }
-const SHORTCUT_DEFAULTS = { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H' }
+// handsfree (Blocco 11b): accende e spegne il microfono a mani libere.
+const SHORTCUT_DEFAULTS = { chat: 'Ctrl+Alt+C', hide: 'Ctrl+Alt+H', handsfree: 'Ctrl+Alt+J' }
 const isShortcut = (v) => typeof v === 'string' && Object.prototype.hasOwnProperty.call(APP_SHORTCUTS, v)
 
 /** Le scorciatoie della config, con i predefiniti al posto di quelle mancanti. */
@@ -250,6 +254,8 @@ function mergeVoice(current, incoming) {
   if (typeof incoming.xttsSpeaker === 'string' && XTTS_SPEAKER_RE.test(incoming.xttsSpeaker)) next.xttsSpeaker = incoming.xttsSpeaker
   if (typeof incoming.cpmlAccepted === 'boolean') next.cpmlAccepted = incoming.cpmlAccepted
   if (typeof incoming.micEnabled === 'boolean') next.micEnabled = incoming.micEnabled
+  if (typeof incoming.micSensitivity === 'number' && Number.isFinite(incoming.micSensitivity)) next.micSensitivity = Math.round(Math.max(0, Math.min(1, incoming.micSensitivity)) * 100) / 100
+  if (typeof incoming.headphones === 'boolean') next.headphones = incoming.headphones
   if (typeof incoming.micShortcut === 'string' && Object.prototype.hasOwnProperty.call(MIC_SHORTCUTS, incoming.micShortcut)) next.micShortcut = incoming.micShortcut
   if (typeof incoming.micDevice === 'string' && MIC_DEVICE_RE.test(incoming.micDevice)) {
     next.micDevice = incoming.micDevice

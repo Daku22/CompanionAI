@@ -642,6 +642,37 @@ try {
     await waitIdle(4000)
   }
 
+  // 3a'. Sottotitoli (Blocco 11b): la frase detta nel fumetto, su piu' righe
+  // e a pezzi; senza voce e con la chat chiusa, le frasi della risposta
+  // mentre arrivano.
+  {
+    const bubbleState = () => comp.evaluate(`(() => { const b = document.getElementById('bubble'); return { text: b.textContent, caption: b.classList.contains('caption'), show: b.classList.contains('show'), lines: Math.round(b.getBoundingClientRect().height / 14) } })()`)
+    await comp.evaluate(`window.CompanionCaption.schedule('Oggi ho pensato tanto a quella storia della barca, sai, quella che voleva vedere il mare aperto e partire verso isole lontane.', 0, 6); true`)
+    await sleep(300)
+    const first = await bubbleState()
+    await shot('11b-sottotitolo')
+    await sleep(3200)
+    const later = await bubbleState()
+    await comp.evaluate('window.CompanionCaption.clear(); true')
+    check(first.caption && first.show && first.lines >= 2 && first.text.length < 120 && later.text !== first.text && /barca|mare|isole/.test(first.text + later.text),
+      'sottotitoli: la frase nel fumetto, su piu\' righe e a pezzi (' + JSON.stringify({ first, later: later.text }) + ')')
+    const chatWasShown = await chat.evaluate('window.companion.testChatShown()')
+    await chat.evaluate('window.companion.testChatShown(false)')
+    await sleep(400)
+    await chat.evaluate(`document.getElementById('input').value = 'raccontami una storia'; document.getElementById('send-btn').click(); true`)
+    let seenCaption = null
+    for (let i = 0; i < 60 && !seenCaption; i++) {
+      await sleep(150)
+      const b = await bubbleState()
+      if (b.caption && b.show && /C'era una volta/.test(b.text)) seenCaption = b
+    }
+    for (let i = 0; i < 40 && await chat.evaluate('document.querySelectorAll(".msg.streaming").length'); i++) await sleep(250)
+    await chat.evaluate(`window.companion.testChatShown(${chatWasShown})`)
+    await sleep(400)
+    check(!!seenCaption, 'sottotitoli: senza voce e con la chat chiusa, la risposta nel fumetto mentre arriva (' + JSON.stringify(seenCaption) + ')')
+    await comp.evaluate('window.CompanionCaption.clear(); true')
+  }
+
   // 3. Immagine importata: nessun "Nya" di Yanineko.
   await pickAvatar(imported.name)
   await sleep(2500)

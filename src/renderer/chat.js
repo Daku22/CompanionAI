@@ -682,7 +682,7 @@ function micReset() {
 }
 
 async function micStart(mode) {
-  if (!micUsable() || micBusy || micMode) return
+  if (!micUsable() || micBusy || micMode || hands) return
   mic = mic || new MicRecorder({ onLevel: micLevel, onLimit: () => micStop() })
   micMode = mode
   micBtn.classList.add('listening')
@@ -732,6 +732,8 @@ async function micStop() {
 micBtn.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return
   e.preventDefault()
+  // A mani libere il microfono e' gia' aperto: il pulsante le spegne.
+  if (hands) { handsFreeOff(); api.micState('idle'); return }
   if (micMode === 'toggle' || micMode === 'shortcut') { micStop(); return }
   try { micBtn.setPointerCapture(e.pointerId) } catch (_) {}
   micDownAt = Date.now()
@@ -750,11 +752,85 @@ micBtn.addEventListener('pointerup', micRelease)
 micBtn.addEventListener('pointercancel', micRelease)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && micMode && !micBusy) micCancel() })
 
+// ── Mani libere (Blocco 11b) ────────────────────────────────────────────────
+// Il microfono resta aperto e il rilevatore (MicRecorder.vadStep) sente
+// quando inizi e smetti di parlare: ogni turno si trascrive e parte come
+// messaggio, e se il companion stava rispondendo lo interrompe (Blocco 11a).
+// Il main la rende sorda mentre il companion parla (deaf), tranne con le
+// cuffie. Qualche blocco prima dell'inizio resta, per non tagliare la prima
+// sillaba.
+const PREROLL_BLOCKS = 3
+let hands = null   // { rec, vad, deaf, busy, from }
+
+async function handsFreeOn() {
+  if (hands) return
+  if (!micUsable()) { api.micState('idle'); return }
+  if (micMode) micCancel()
+  const h = { rec: null, vad: null, deaf: false, busy: false, from: 0 }
+  hands = h
+  h.rec = new MicRecorder({ onLevel: (level) => handsLevel(h, level), onLimit: () => {} })
+  micBtn.classList.add('listening')
+  try {
+    const voice = config.voice || {}
+    await h.rec.start({ deviceId: voice.micDevice, deviceLabel: voice.micDeviceLabel })
+  } catch (e) {
+    if (hands === h) hands = null
+    micBtn.classList.remove('listening')
+    api.micState('idle')
+    addMessage('error', 'Microfono non disponibile: ' + (e && (e.message || e.name) || 'errore sconosciuto'))
+    return
+  }
+  if (hands !== h) { h.rec.cancel(); return }
+  api.micState('handsfree')
+}
+
+function handsFreeOff() {
+  const h = hands
+  hands = null
+  micBtn.classList.remove('listening')
+  micLevel(0)
+  if (h && h.rec) h.rec.cancel()
+}
+
+function handsLevel(h, level) {
+  if (hands !== h) return
+  micLevel(h.deaf ? 0 : level)
+  const threshold = MicRecorder.thresholdOf((config.voice || {}).micSensitivity)
+  const { state, event } = MicRecorder.vadStep(h.vad, level, Date.now(), { threshold, deaf: h.deaf || h.busy })
+  h.vad = state
+  if (event === 'start') {
+    h.from = Math.max(0, h.rec.blockCount - 1 - PREROLL_BLOCKS)
+    api.micState('hearing')
+  } else if (event === 'end') {
+    handsTurn(h, h.rec.takeFrom(h.from))
+  } else if (event === 'discard') {
+    api.micState('handsfree')
+  }
+  // Mentre nessuno parla resta solo l'ultimo attimo, per il turno dopo.
+  if (state.phase === 'idle' && event !== 'end') h.rec.trim(PREROLL_BLOCKS + 1)
+}
+
+async function handsTurn(h, pcm) {
+  h.busy = true
+  api.micState('transcribing')
+  let res
+  try { res = await api.micTranscribe(pcm) } catch (e) { res = { ok: false, error: e.message } }
+  h.busy = false
+  if (hands !== h) return
+  api.micState('handsfree')
+  if (res && res.ok && res.text) sendMessage(res.text)
+  else if (res && !res.ok) addMessage('error', 'Microfono: ' + (res.error || 'errore sconosciuto'))
+}
+
 // La scorciatoia globale: il main sa quando il tasto si preme e si lascia.
+// Le mani libere le accende e spegne il main (pillola o tasto rapido).
 if (api && api.onMicCommand) api.onMicCommand((m) => {
   if (!m) return
-  if (m.cmd === 'start') micStart('shortcut')
+  if (m.cmd === 'start' && !hands) micStart('shortcut')
   else if (m.cmd === 'stop' && micMode) micStop()
+  else if (m.cmd === 'handsfree-on') handsFreeOn()
+  else if (m.cmd === 'handsfree-off') handsFreeOff()
+  else if (m.cmd === 'deaf' && hands) hands.deaf = m.deaf === true
 })
 
 // Microfono acceso, spento, installato o tolto dalle Impostazioni.
@@ -764,6 +840,8 @@ if (api && api.onConfigChanged) api.onConfigChanged((cfg) => {
   config.voice = cfg.voice
   config.micInstalled = cfg.micInstalled
   showMicButton()
+  // Microfono spento o tolto nelle Impostazioni: le mani libere si spengono.
+  if (hands && !micUsable()) { handsFreeOff(); api.micState('idle') }
 })
 
 // ── Focus ────────────────────────────────────────────────────────────────────

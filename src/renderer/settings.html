@@ -606,6 +606,17 @@
         </p>
       </div>
     </section>
+    <section class="mic-ready">
+      <h2>Mani libere</h2>
+      <div class="box">
+        <p class="muted">Il microfono nella barra del companion (o il suo tasto rapido) lo lascia in ascolto: parli quando vuoi,
+          e quando smetti il messaggio parte da solo. Mentre il companion parla non ti sente, così non risponde a se stesso
+          dalle casse: per interromperlo cliccalo.</p>
+        <div class="row"><label class="name" for="mic-sensitivity">Sensibilità</label><input type="range" id="mic-sensitivity" min="0" max="1" step="0.05"><output id="mic-sensitivity-out"></output></div>
+        <p class="muted">Più alta se non ti sente quando parli piano, più bassa se parte da solo con i rumori della stanza.</p>
+        <label class="switch"><input type="checkbox" id="mic-headphones"> Uso le cuffie: posso interromperlo parlando</label>
+      </div>
+    </section>
    </div>
 
    <div class="page hidden" id="page-movimenti">
@@ -703,6 +714,10 @@
         <div class="key-row">
           <span class="what"><b>Mostra e nascondi i companion</b><span id="key-hide-note">Tutti insieme, con i loro comandi.</span></span>
           <select id="key-hide" aria-label="Scorciatoia per mostrare e nascondere i companion"></select>
+        </div>
+        <div class="key-row">
+          <span class="what"><b>Mani libere</b><span id="key-handsfree-note">Accende e spegne l'ascolto continuo del microfono.</span></span>
+          <select id="key-handsfree" aria-label="Scorciatoia delle mani libere"></select>
         </div>
         <div class="key-row">
           <span class="what"><b>Parla con il microfono</b><span id="shortcut-note"></span></span>

@@ -669,7 +669,7 @@ function hudState(c) {
   return {
     name: (c.persona() || {}).name || c.personaId,
     mood: c.publicMood(),
-    mic: { enabled: !!voice.micEnabled && !!voiceService && voiceService.sttInstalled(), listening: micBusy },
+    mic: { enabled: !!voice.micEnabled && !!voiceService && voiceService.sttInstalled(), listening: micBusy || !!handsFree, handsFree: !!handsFree },
     paused, unread,
     // Il tasto della chat di gruppo c'e' solo con piu' companion sul desktop.
     group: companions.length > 1,
@@ -735,20 +735,8 @@ on('hud:action', async (_e, cmd) => {
   switch (cmd) {
     case 'chat': await openChatWith(c); break          // la chat singola con lui
     case 'group-chat': openGroupChat(); break           // la chat di gruppo
-    case 'mic': {
-      const v = voiceConfig(loadConfig())
-      if (!v.micEnabled || !voiceService || !voiceService.sttInstalled()) { openSettings('microfono'); break }
-      // Come un tocco breve della scorciatoia: apre, e il clic dopo chiude.
-      if (micHold) endMicHold('stop')
-      else {
-        const w = chatOf(c)
-        if (!v.enabled && w && !w.isVisible()) showChat(w, c)
-        if (w) lastChat = w
-        micHold = { started: Date.now(), toggle: true, poll: null }
-        sendMicCommand('start')
-      }
-      break
-    }
+    // Il microfono della pillola accende e spegne le mani libere (Blocco 11b).
+    case 'mic': toggleHandsFree(c); break
     case 'pause':
       paused = !paused
       prefs.paused = paused
@@ -1190,6 +1178,7 @@ function initVoice() {
       const secs = msg.type === 'chunk' && msg.pcm && msg.rate ? msg.pcm.length / msg.rate : msg.type === 'gap' ? Number(msg.seconds) || 0 : 0
       if (msg.type === 'stop') speechEndsAt = 0
       else if (secs > 0) speechEndsAt = Math.max(Date.now(), speechEndsAt) + secs * 1000
+      syncDeaf()
       const c = speakingCompanion && speakingCompanion.alive() ? speakingCompanion : chatTarget()
       // Un ospite della stanza parla dalla finestra della stanza, con la sua bocca.
       const host = c && guestHost(c)
@@ -1250,6 +1239,7 @@ const appShortcutsWanted = { chat: null, hide: null }  // scelte nella config
 const SHORTCUT_ACTIONS = {
   chat: () => toggleChat(),
   hide: () => toggleCompanionsShown(),
+  handsfree: () => toggleHandsFree(hudFor || chatTarget()),
 }
 function syncAppShortcuts(cfg) {
   const want = shortcutsConfig(cfg)
@@ -1271,6 +1261,66 @@ function toggleCompanionsShown() {
   else for (const c of live) c.win.show()
 }
 
+// ─── Mani libere (Blocco 11b) ────────────────────────────────────────────────
+// Il microfono della pillola (o il tasto rapido) accende l'ascolto continuo
+// nella chat del companion: la pagina sente quando inizi e finisci di parlare
+// (mic-recorder.js, vadStep) e manda il messaggio da sola. Mentre il companion
+// parla il microfono e' sordo, se no con le casse sentirebbe se stesso; con
+// "Uso le cuffie" no, e parlare lo interrompe. Un clic sul companion lo
+// interrompe sempre.
+let handsFree = null   // { win, c, deaf, headphones, deafTimer, bubble }
+
+function toggleHandsFree(c) {
+  if (handsFree) { stopHandsFree(); return }
+  const v = voiceConfig(loadConfig())
+  if (!v.micEnabled || !voiceService || !voiceService.sttInstalled()) { openSettings('microfono'); return }
+  c = c && c.alive() ? c : chatTarget()
+  if (!c) return
+  const w = ensureChatFor(c)
+  if (!liveWin(w)) return
+  handsFree = { win: w, c, deaf: false, headphones: !!v.headphones, deafTimer: null, bubble: true }
+  try { w.webContents.send('mic-command', { cmd: 'handsfree-on' }) } catch (_) {}
+  c.send('companion-bubble', { text: '🎙 Ti ascolto: parla quando vuoi', ms: 2600 })
+  console.log('[mani libere] acceso per ' + c.personaId)
+  syncDeaf()
+  if (hudShown && hudFor) sendHud(hudState(hudFor))
+}
+
+function stopHandsFree() {
+  const h = handsFree
+  handsFree = null
+  if (!h) return
+  clearTimeout(h.deafTimer)
+  if (liveWin(h.win)) try { h.win.webContents.send('mic-command', { cmd: 'handsfree-off' }) } catch (_) {}
+  if (h.bubble && h.c.alive()) h.c.send('companion-bubble', { text: '' })
+  console.log('[mani libere] spento')
+  if (hudShown && hudFor) sendHud(hudState(hudFor))
+}
+
+/** Sordo mentre il companion parla (con le casse); di nuovo in ascolto quando ha finito. */
+function syncDeaf() {
+  const h = handsFree
+  if (!h) return
+  if (!liveWin(h.win)) { handsFree = null; return }
+  const deaf = !h.headphones && speechEndsAt > Date.now()
+  clearTimeout(h.deafTimer)
+  if (deaf) h.deafTimer = setTimeout(syncDeaf, speechEndsAt - Date.now() + 250)
+  if (deaf === h.deaf) return
+  h.deaf = deaf
+  try { h.win.webContents.send('mic-command', { cmd: 'deaf', deaf }) } catch (_) {}
+}
+
+/** Zitto subito: la voce e la risposta che stava arrivando (un clic sul companion, Blocco 11b). */
+function interruptSpeech() {
+  if (voiceService) voiceService.stop()
+  speechEndsAt = 0
+  if (handsFree && liveWin(handsFree.win)) {
+    const ctrl = replyAborts.get(handsFree.win.webContents.id)
+    if (ctrl) ctrl.abort()
+  }
+  syncDeaf()
+}
+
 function sendMicCommand(cmd) {
   // Il microfono registra nella chat usata per ultima.
   const w = currentChat()
@@ -1278,6 +1328,8 @@ function sendMicCommand(cmd) {
 }
 
 function onMicShortcut(vk) {
+  // A mani libere il microfono e' gia' aperto: il tasto lo zittisce.
+  if (handsFree) { interruptSpeech(); return }
   if (micHold) {
     // Il tasto tenuto giu' si ripete: si ignora. Dopo un tocco breve, il
     // tocco successivo chiude.
@@ -1357,15 +1409,28 @@ function speechSession(c) {
   speakingCompanion = c
   voiceService.begin(speakOptions(voice))
   const started = Date.now()
+  let spoke = false
+  return sentenceFeed((sentences, final) => {
+    if (sentences.length) {
+      if (!spoke) { spoke = true; console.log('[voce] prima frase dopo ' + (Date.now() - started) + ' ms') }
+      voiceService.push(sentences.join(' '))
+    }
+    if (final) voiceService.end().catch(e => console.error('[voce] ' + e.message))
+  })
+}
+
+/**
+ * Le frasi finite di una risposta che arriva a pezzi (takeSentences), una
+ * volta sola ciascuna: push riceve il testo finora, end quello finale; emit
+ * riceve le frasi nuove (e final alla fine).
+ */
+function sentenceFeed(emit) {
   let seen = ''
   let buffer = ''
-  let spoke = false
   const feed = (final) => {
     const { sentences, rest } = takeSentences(buffer, final)
     buffer = rest
-    if (!sentences.length) return
-    if (!spoke) { spoke = true; console.log('[voce] prima frase dopo ' + (Date.now() - started) + ' ms') }
-    voiceService.push(sentences.join(' '))
+    emit(sentences, final)
   }
   return {
     push(text) {
@@ -1379,9 +1444,19 @@ function speechSession(c) {
     end(text) {
       if (typeof text === 'string' && text.startsWith(seen)) { buffer += text.slice(seen.length); seen = text }
       feed(true)
-      voiceService.end().catch(e => console.error('[voce] ' + e.message))
     },
   }
+}
+
+/**
+ * Sottotitoli senza voce (Blocco 11b): con la voce spenta e la chat chiusa, le
+ * frasi della risposta nel fumetto del companion mentre arrivano. null se la
+ * chat si vede (si legge li') o se parla la voce (i sottotitoli seguono lei).
+ */
+function captionSession(c, chatWin) {
+  if (chatWin && !chatWin.isDestroyed() && chatWin.isVisible()) return null
+  c.send('companion-caption', { clear: true })
+  return sentenceFeed((sentences) => { for (const text of sentences) c.send('companion-caption', { text }) })
 }
 
 // ─── Tray Icon ───────────────────────────────────────────────────────────────
@@ -2078,7 +2153,7 @@ async function sendMessage(sender, signal, { history, image, to, mode }) {
   // Streaming (Blocco 11a): la chat scrive mentre arriva, la voce parte alla
   // prima frase. Senza streaming (strumenti MCP, tool call forzata, una
   // scorta) arriva tutto alla fine, e la voce dice tutto come prima.
-  const speech = speechSession(first)
+  const speech = speechSession(first) || captionSession(first, BrowserWindow.fromWebContents(sender))
   const started = Date.now()
   let firstText = 0
   const onDelta = (text) => {
@@ -2190,6 +2265,29 @@ handle('mic:transcribe', async (_e, pcm) => {
 })
 // Mentre ascolta il companion tace e lo dice con un fumetto.
 on('mic:state', (_e, state) => {
+  // Mani libere (Blocco 11b): 'handsfree' in ascolto, 'hearing' mentre parli,
+  // 'transcribing' mentre trascrive; 'idle' dalla sua chat vuol dire spento.
+  const fromHands = handsFree && liveWin(handsFree.win) && _e.sender === handsFree.win.webContents
+  if (fromHands) {
+    const c = handsFree.c
+    if (state === 'hearing') {
+      // Parli tu: il companion tace (succede solo con le cuffie, o se ha appena finito).
+      if (voiceService) voiceService.stop()
+      c.markActivity()
+      c.send('companion-bubble', { text: '🎙 …', ms: 31000 })
+      handsFree.bubble = true
+    } else if (state === 'transcribing') {
+      c.send('companion-bubble', { text: '…', ms: 30000 })
+      handsFree.bubble = true
+    } else if (state === 'handsfree') {
+      if (handsFree.bubble) { c.send('companion-bubble', { text: '' }); handsFree.bubble = false }
+    } else if (state === 'idle') {
+      handsFree.bubble = false
+      stopHandsFree()
+    }
+    if (hudShown && hudFor) sendHud(hudState(hudFor))
+    return
+  }
   micBusy = state === 'listening' || state === 'transcribing'
   if (hudShown && hudFor) sendHud(hudState(hudFor))
   if (state === 'listening') {
@@ -2883,6 +2981,15 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     await peerExchange(companions[0], companions[1])
     return true
   })
+  // La finestra di chat che chiede: mostrata o nascosta davvero (Blocco 11b,
+  // sottotitoli senza voce); la pagina non lo sa con certezza.
+  handle('test:chat-shown', (e, show) => {
+    const w = BrowserWindow.fromWebContents(e.sender)
+    if (!w) return null
+    if (show === true) w.show()
+    else if (show === false) w.hide()
+    return w.isVisible()
+  })
   // Un cibo lasciato in un punto dello schermo (Blocco 10b), come dal pannello.
   handle('test:drop', (_e, msg) => {
     if (!msg || !startItemDrag(String(msg.id || ''))) return null
@@ -3071,6 +3178,7 @@ function applyWindowOptions(cfg) {
 
 /** Manda la config a chat e Impostazioni: intestazione, pulsante del microfono, interruttori. */
 function sendChatConfig(cfg) {
+  if (handsFree) { handsFree.headphones = !!voiceConfig(cfg).headphones; syncDeaf() }
   const pub = publicConfig(cfg)
   sendAllChats('config-changed', pub)
   sendSettings('config-changed', pub)
@@ -3189,6 +3297,8 @@ handle('companion:touch', (e, input) => {
   const guest = input && typeof input.guest === 'string' && guestIds.has(input.guest) ? companions.find(x => x.personaId === input.guest) : null
   const c = guest || companionOf(e)
   if (c && !guest && desktopObjects.touched(c)) return null
+  // A mani libere un clic mentre parla lo zittisce (Blocco 11b), senza reazione.
+  if (handsFree && input && input.kind === 'poke' && speechEndsAt > Date.now()) { interruptSpeech(); return null }
   return c ? c.onTouch(input) : null
 })
 handle('companion:highfive', (e, input) => { const c = companionOf(e); return c ? c.onHighFive(input) : null })
