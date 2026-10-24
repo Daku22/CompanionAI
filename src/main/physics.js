@@ -3,8 +3,11 @@
 //
 // Un corpo e' un cerchio in pixel dello schermo (centro, raggio, velocita');
 // il mondo e' l'area di lavoro: il pavimento e' il suo bordo basso (sopra la
-// taskbar), i muri i lati. Un corpo che rimbalza poco e striscia piano si
-// ferma (resting) e non costa piu' nulla. Funzioni pure, con test.
+// taskbar), i muri i lati. Con piu' monitor ogni schermo e' un mondo a se':
+// anche il bordo fra due monitor e' un muro, perche' il companion cammina
+// solo sul suo schermo e non potrebbe andarlo a prendere di la'. Un corpo
+// che rimbalza poco e striscia piano si ferma (resting) e non costa piu'
+// nulla. Funzioni pure, con test.
 
 const PHYS = {
   GRAVITY: 2200,          // px/s²
@@ -129,6 +132,25 @@ function landing(b, w, { firstTouch = false, maxS = 8, dt = 1 / 30 } = {}) {
 }
 
 /**
+ * Il companion che lo insegue e' arrivato (Blocco 10c): cosa fa. 'pickup' se
+ * il corpo e' li' a terra e quasi fermo; 'wait' se e' ancora in aria o rotola
+ * ma gli passa accanto o si fermera' li'; 'chase' se si fermera' altrove;
+ * 'retry' se e' fermo altrove (un tentativo a vuoto). Prima un pallone che
+ * gli rotolava incontro, rimbalzato dal muro, consumava un tentativo a ogni
+ * giro e il companion rinunciava prima che si fermasse.
+ * @param {Body} b
+ * @param {World} w
+ * @param {number} cx centro del companion
+ * @param {number} reach fin dove arriva, dal centro (senza il raggio del corpo)
+ */
+function fetchAction(b, w, cx, reach) {
+  const near = (x) => Math.abs(x - cx) <= reach + b.r
+  if (near(b.x) && b.y + b.r >= w.floor - 2 && (b.resting || Math.abs(b.vx) < 200)) return 'pickup'
+  if (b.resting) return 'retry'
+  return near(b.x) || near(landing(b, w).x) ? 'wait' : 'chase'
+}
+
+/**
  * La velocita' per arrivare da from a to in T secondi (la pallavolo, Blocco
  * 10d): in orizzontale con la resistenza dell'aria, in verticale con la
  * gravita'. Limitata a MAX_SPEED. dt e' il passo della simulazione (quello
@@ -165,4 +187,4 @@ function crossing(b, w, y, { maxS = 6, dt = 1 / 30 } = {}) {
   return null
 }
 
-module.exports = { PHYS, createBody, worldOf, step, push, throwVelocity, landing, aim, crossing }
+module.exports = { PHYS, createBody, worldOf, step, push, throwVelocity, landing, fetchAction, aim, crossing }

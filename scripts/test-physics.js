@@ -75,6 +75,23 @@ test('dove arriva: il primo tocco a terra e dove si ferma', () => {
   assert.ok(Math.abs(sim.x - rest.x) < 40, 'la previsione coincide con la simulazione: ' + sim.x + ' / ' + rest.x)
 })
 
+test('il riporto: lo raccoglie fermo accanto, aspetta se rotola verso di lui, se no lo rincorre', () => {
+  const cx = 800
+  const reach = 180 * 0.45
+  const floor = W.floor - 30
+  assert.equal(P.fetchAction({ ...P.createBody({ x: 830, y: floor, r: 30 }), resting: true }, W, cx, reach), 'pickup')
+  assert.equal(P.fetchAction(P.push(P.createBody({ x: 830, y: floor, r: 30 }), -150, 0), W, cx, reach), 'pickup', 'quasi fermo')
+  // Come nell'audit con due monitor: rimbalzato sul bordo, gli rotola accanto a 280 px/s.
+  assert.equal(P.fetchAction(P.push(P.createBody({ x: 830, y: floor, r: 30 }), -283, 0), W, cx, reach), 'wait')
+  // Ancora lontano, ma si fermera' accanto a lui: aspetta, non e' un tentativo a vuoto.
+  const coming = P.push(P.createBody({ x: 1000, y: floor, r: 30 }), -450, 0)
+  assert.ok(Math.abs(P.landing(coming, W).x - cx) < reach, 'si ferma vicino: ' + P.landing(coming, W).x)
+  assert.equal(P.fetchAction(coming, W, cx, reach), 'wait')
+  assert.equal(P.fetchAction(P.createBody({ x: 800, y: 300, r: 30 }), W, cx, reach), 'wait', 'in aria sopra di lui')
+  assert.equal(P.fetchAction(P.push(P.createBody({ x: 950, y: floor, r: 30 }), 900, 0), W, cx, reach), 'chase', 'rotola via')
+  assert.equal(P.fetchAction({ ...P.createBody({ x: 1500, y: floor, r: 30 }), resting: true }, W, cx, reach), 'retry', 'fermo altrove')
+})
+
 test('pallavolo: la mira arriva dove deve, e si sa dove ribatterla', () => {
   const from = { x: 400, y: 800 }
   const to = { x: 1300, y: 700 }

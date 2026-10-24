@@ -540,28 +540,41 @@ const size = () => comp.evaluate('[window.innerWidth, window.innerHeight]')
     return { on, samples }
   }
 
-  // Sbircia dal bordo (Blocco 5d): la finestra oltre il bordo destro e il
+  // Sbircia dal bordo (Blocco 5d): la finestra oltre un bordo esterno e il
   // rilascio come dopo una presa (canale di prova del main); il bordo dello
   // schermo deve cadere sul taglio misurato dal renderer, con la posa giusta.
   // Poi esce con il cursore (finto) vicino alla testa o con il doppio clic,
-  // e torna tutto dentro lo schermo.
+  // e torna tutto dentro lo schermo. Il bordo e' il destro, o il sinistro se
+  // a destra c'e' un altro monitor (li' giustamente non sbircia).
   async function peekCheck(label, read, posed, exit) {
     const s0 = await comp.evaluate('window.companion.testPeek({})')
-    const x = s0.workArea.x + s0.workArea.width - Math.round(s0.bounds.width * 0.35)
+    const a = s0.workArea
+    const cy = s0.bounds.y + s0.bounds.height / 2
+    const outer = (ex) => !s0.displays.some(d => ex >= d.x && ex < d.x + d.width && cy >= d.y && cy < d.y + d.height)
+    const side = outer(a.x + a.width) ? 'right' : 'left'
+    const name = side === 'right' ? 'destro' : 'sinistro'
+    const x = side === 'right' ? a.x + a.width - Math.round(s0.bounds.width * 0.35) : a.x - Math.round(s0.bounds.width * 0.65)
     await comp.evaluate(`window.companion.testPeek({ place: { x: ${x}, y: ${s0.bounds.y} }, release: true, cursor: { x: 0, y: 0 } })`)
     let s = null
     for (let i = 0; i < 30 && !(s && s.peek && s.peek.placed); i++) { await sleep(150); s = await comp.evaluate('window.companion.testPeek({})') }
     await sleep(700)
     s = await comp.evaluate('window.companion.testPeek({})')
+    // Un'app a schermo intero su quel monitor (un gioco aperto): giustamente
+    // non sbircia e torna dentro. Si controlla questo, e il resto no.
+    if (s0.fullscreen) {
+      check(!s.peek && s.bounds.x >= a.x && s.bounds.x + s.bounds.width <= a.x + a.width,
+        label + ': con un\'app a schermo intero sul monitor non sbircia, torna dentro (finestra a ' + s.bounds.x + ')')
+      await comp.evaluate(`window.companion.testPeek({ place: { x: ${s0.bounds.x}, y: ${s0.bounds.y} }, cursor: null })`)
+      return
+    }
     // Il taglio usato dal main e' quello misurato dalla pagina (non il ripiego).
     const g = (await comp.evaluate('window.CompanionPeek.debug()')).geometry
     const state = await comp.evaluate(read)
     const onEdge = !!(s.peek && g && s.bounds.x + s.peek.cut === s.peek.edgeX && Math.abs(s.peek.cut - g.cut) <= 0.1 * s.bounds.width)
-    check(onEdge && s.peek.side === 'right' && s.peek.armed && posed(state),
-      label + ': oltre il bordo destro sbircia, il bordo sul taglio (finestra a ' + s.bounds.x + ', taglio ' + (s.peek && s.peek.cut) + ', misura ' + (g && g.cut) + ', ' + JSON.stringify(state) + ')')
+    check(onEdge && s.peek.side === side && s.peek.armed && posed(state, side),
+      label + ': oltre il bordo ' + name + ' sbircia, il bordo sul taglio (finestra a ' + s.bounds.x + ', taglio ' + (s.peek && s.peek.cut) + ', misura ' + (g && g.cut) + ', ' + JSON.stringify(state) + ')')
     await shot('5-sbircia-' + label.toLowerCase())
-    // Non sbircia (per esempio un secondo schermo a destra: li' il bordo non
-    // c'e'): si rimette dentro e l'audit va avanti invece di fermarsi.
+    // Non sbircia: si rimette dentro e l'audit va avanti invece di fermarsi.
     if (!s.peek) {
       await comp.evaluate(`window.companion.testPeek({ place: { x: ${s0.bounds.x}, y: ${s0.bounds.y} }, cursor: null })`)
       return
@@ -647,7 +660,7 @@ try {
     await sleep(400)
     check((await comp.evaluate('window.__companion2DTest.state()')).name === 'idle', '2D: finita la musica torna a riposo')
   }
-  await peekCheck('2D', 'window.__companion2DTest.state()', (st) => st.name === 'idle' && st.dir === -1, 'dblclick')
+  await peekCheck('2D', 'window.__companion2DTest.state()', (st, side) => st.name === 'idle' && st.dir === (side === 'right' ? -1 : 1), 'dblclick')
   const sizes = []
   for (const scale of ['l', 'm']) {
     await chat.evaluate(`window.companion.setConfig({ scale: '${scale}' })`)
@@ -775,7 +788,7 @@ try {
       const ys = samples.map(s => s.y)
       check(on && samples.every(s => s.dancing) && Math.max(...ys) - Math.min(...ys) > 2,
         'live2d: balla a tempo (saltello ' + (Math.max(...ys) - Math.min(...ys)).toFixed(1) + ' px)')
-      await peekCheck('Live2D', '(({ peek, motion }) => ({ peek, motion }))(window.__live2dTest())', (st) => st.peek === 'right', 'cursor')
+      await peekCheck('Live2D', '(({ peek, motion }) => ({ peek, motion }))(window.__live2dTest())', (st, side) => st.peek === side, 'cursor')
     }
     const wanted = l2.motions.happy
     await say('salutami')
@@ -1080,19 +1093,6 @@ try {
           && /finestra senza bordi/.test(exclusiveBubble) && windowed.status.on && !windowed.status.paused,
           'gioco: sopra il gioco a tutto schermo il companion torna davanti; lo schermo intero esclusivo (nero) mette in pausa e lo dice (' + JSON.stringify({ coveredBefore, zorder, paused: exclusive.status.text, exclusiveBubble, back: windowed.status.paused }) + ')')
         await comp.evaluate('window.companion.testPeek({ cursor: null })')
-        check(paused.status.paused === 'minimized' && /ridotto a icona/.test(paused.status.text) && pausedButton.paused && pausedButton.hidden
-          && back.status.on && !back.status.paused && !off.status.on,
-          'gioco: ridotto a icona va in pausa da solo e riparte quando torna; un altro clic lo spegne (' + JSON.stringify({ paused: paused.status.text, pausedButton, back: back.status.paused, off: off.status.on }) + ')')
-        await gameCmd('quit')
-        await sleep(1500)
-        const gone = await chat.evaluate('window.companion.testGameCapture()')
-        check(cards.includes('Gioco di prova') && cards.includes('Tutto lo schermo') && /Gioco di prova/.test(chosen)
-          && shot1.ok && shot1.size && shot1.size.width === 1024 && renamed.ok && /144 FPS/.test(renamed.title) && small.state === 'minimized' && gone.state === 'missing',
-          'gioco: la finestra si sceglie dalle miniature, lo scatto prende solo lei, la ritrova e sa quando e\' ridotta o chiusa (' + JSON.stringify({ chosen, shot: shot1.size, renamed: renamed.title, small: small.state, gone: gone.state }) + ')')
-        const sees = await chat.evaluate(`window.companion.gameTestVision({ provider: 'openrouter', model: 'audit/json:free' })`)
-        const visionReq = requests.find(r => r.messages && r.messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')))
-        check(sees.ok && sees.sees && sees.said === 'Rosso.' && !!visionReq, 'gioco: la prova del modello che guarda manda un\'immagine e capisce se la vede (' + JSON.stringify(sees) + ')')
-      } finally {
         // Quale schermo, con piu' monitor: le card nella pagina Visione (il
         // companion, ogni monitor e, se sono piu' d'uno, tutti), e "tutti"
         // fotografa i monitor affiancati.
@@ -1115,6 +1115,19 @@ try {
           check(screens[0] === 'companion' && screens.length === options.length && options.every(o => o.thumb) && chosen === pick && shotAll.ok && Math.abs(ratio - want.aspect) < 0.03,
             'schermi: nella pagina Visione si sceglie quale monitor guardare (anche tutti affiancati) e lo scatto segue la scelta (' + JSON.stringify({ screens, pick, size: shotAll.size, aspect: want && want.aspect }) + ')')
         }
+        check(paused.status.paused === 'minimized' && /ridotto a icona/.test(paused.status.text) && pausedButton.paused && pausedButton.hidden
+          && back.status.on && !back.status.paused && !off.status.on,
+          'gioco: ridotto a icona va in pausa da solo e riparte quando torna; un altro clic lo spegne (' + JSON.stringify({ paused: paused.status.text, pausedButton, back: back.status.paused, off: off.status.on }) + ')')
+        await gameCmd('quit')
+        await sleep(1500)
+        const gone = await chat.evaluate('window.companion.testGameCapture()')
+        check(cards.includes('Gioco di prova') && cards.includes('Tutto lo schermo') && /Gioco di prova/.test(chosen)
+          && shot1.ok && shot1.size && shot1.size.width === 1024 && renamed.ok && /144 FPS/.test(renamed.title) && small.state === 'minimized' && gone.state === 'missing',
+          'gioco: la finestra si sceglie dalle miniature, lo scatto prende solo lei, la ritrova e sa quando e\' ridotta o chiusa (' + JSON.stringify({ chosen, shot: shot1.size, renamed: renamed.title, small: small.state, gone: gone.state }) + ')')
+        const sees = await chat.evaluate(`window.companion.gameTestVision({ provider: 'openrouter', model: 'audit/json:free' })`)
+        const visionReq = requests.find(r => r.messages && r.messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')))
+        check(sees.ok && sees.sees && sees.said === 'Rosso.' && !!visionReq, 'gioco: la prova del modello che guarda manda un\'immagine e capisce se la vede (' + JSON.stringify(sees) + ')')
+      } finally {
         try { await chat.evaluate('window.companion.testGame({ off: true })') } catch (_) {}
         try { fakeGame.kill() } catch (_) {}
       }
@@ -1594,7 +1607,9 @@ try {
     const T = (m) => comp.evaluate('window.companion.testObjects(' + JSON.stringify(m) + ')')
     const b = await comp.evaluate('[window.screenX, window.screenY, window.innerWidth, window.innerHeight]')
     const area = (await comp.evaluate('window.companion.testPeek({})')).workArea
-    // Il mouse finto dall'altra parte dello schermo: lo riporta li'.
+    // Lanciato verso il lato con piu' spazio (con un monitor accanto puo'
+    // essere il bordo in comune, che fa da muro); il mouse finto dall'altra
+    // parte dello schermo: lo riporta li'.
     const toLeft = b[0] - area.x > area.x + area.width - (b[0] + b[2])
     await comp.evaluate(`window.companion.testPeek({ cursor: { x: ${toLeft ? area.x + area.width - 60 : area.x + 60}, y: ${area.y + area.height - 200} } })`)
     const uid = await T({ op: 'spawn', id: 'pallone', x: b[0] + (toLeft ? -150 : b[2] + 150), y: b[1] })
@@ -1604,10 +1619,13 @@ try {
     let held = null
     let carried = false
     let last = null
+    let away = null
     for (let i = 0; i < 160; i++) {
       await sleep(250)
       last = (await T({ op: 'state' })).find(o => o.uid === uid)
       if (!last) break
+      // Con un altro monitor accanto il bordo in comune e' un muro: resta su questo schermo.
+      if (last.x < area.x || last.x > area.x + area.width) away = last.x
       if (last.task) phases.add(last.task.phase)
       if (last.task && last.task.phase === 'carry' && !carried) {
         held = await comp.evaluate('window.__companion3DTest.prop()')
@@ -1617,8 +1635,8 @@ try {
       }
       if (!last.task && phases.size) break
     }
-    check(thrown === 'fetch' && ['chase', 'pickup', 'carry'].every(p => phases.has(p)) && held && /pallone\.glb$/.test(held.url) && held.at === 'arms' && last && !last.task && last.visible,
-      'oggetti: il pallone lanciato lo insegue, lo raccoglie e lo riporta, poi torna sul desktop (' + JSON.stringify({ thrown, phases: [...phases], held: held && { url: held.url, at: held.at, size: held.size }, end: last && { x: last.x, visible: last.visible } }) + ')')
+    check(thrown === 'fetch' && ['chase', 'pickup', 'carry'].every(p => phases.has(p)) && held && /pallone\.glb$/.test(held.url) && held.at === 'arms' && last && !last.task && last.visible && away === null,
+      'oggetti: il pallone lanciato lo insegue, lo raccoglie e lo riporta, poi torna sul desktop, senza uscire dal suo schermo (' + JSON.stringify({ thrown, toLeft, phases: [...phases], held: held && { url: held.url, at: held.at, size: held.size }, end: last && { x: last.x, visible: last.visible }, away }) + ')')
     const bear = await T({ op: 'spawn', id: 'orsetto', x: b[0] - 120, y: b[1] })
     await sleep(800)
     const hugged = await T({ op: 'drop-on', uid: bear })

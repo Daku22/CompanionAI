@@ -461,7 +461,7 @@ let testCursor = null
 const companionCtx = {
   MEMORY_PATH, MEMORY_CONTEXT_TOKENS, prefs,
   // Oggetti sul desktop (Blocco 10e): la vita a riposo ci gioca.
-  hasToy: () => desktopObjects.hasToy(),
+  hasToy: (c) => desktopObjects.hasToy(c),
   playAlone: (c) => desktopObjects.playAlone(c),
   loadConfig, saveConfig, sendSettings,
   memoryModel: () => memoryModelFrom(loadConfig()),
@@ -3590,7 +3590,7 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     if (cmd && cmd.place) c.moveTo(Number(cmd.place.x) || 0, Number(cmd.place.y) || 0)
     if (cmd && cmd.release && !c.tryPerch() && !c.tryPeek()) c.keepOnScreen()
     if (cmd && 'cursor' in cmd) testCursor = cmd.cursor && Number.isFinite(cmd.cursor.x) ? { x: cmd.cursor.x, y: cmd.cursor.y } : null
-    return { bounds: c.win.getBounds(), workArea: c.workArea(), peek: c.peekState() }
+    return { bounds: c.win.getBounds(), workArea: c.workArea(), peek: c.peekState(), displays: screen.getAllDisplays().map(d => d.workArea), fullscreen: c.fullscreenNow() }
   })
   // Un commento fra i primi due companion, subito (Blocco 8d).
   handle('test:peer', async () => {

@@ -648,7 +648,7 @@ function createCompanion(ctx, personaId, { slot = 0 } = {}) {
       hour: new Date(now).getHours(),
       bond: bond(),
       needy: (worstNeed() || {}).level || null,
-      toy: ctx.hasToy(),
+      toy: ctx.hasToy(c),
     })
     if (!decision) return
     // Gioca da solo con un oggetto (Blocco 10e): lo fa desktop-objects.js.

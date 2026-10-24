@@ -248,6 +248,11 @@
   one the companion looks at (👁 and the game mode's whole-screen option),
   from thumbnails: the companion's, a specific monitor, or all of them side
   by side.
+- With more than one monitor each screen keeps its own toys: the edge
+  between two monitors is a wall for a thrown ball, and only a companion on
+  that screen chases it or plays with it. Fetching no longer gives up when
+  the ball bounces back and rolls toward the companion: it waits and picks
+  it up.
 - 32 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions,
   eating, drinking, picking up, hugging, volleyball), in the repository and

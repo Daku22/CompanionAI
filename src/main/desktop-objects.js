@@ -82,7 +82,11 @@ function createDesktopObjects(ctx) {
 
   const alive = (e) => e.win && !e.win.isDestroyed()
   const sizePx = (obj) => Math.round(Math.max(MIN_PX, Math.min(MAX_PX, obj.size * ctx.windowHeight() * PX_PER_M)))
-  const worldAt = (b) => P.worldOf(screen.getDisplayNearestPoint({ x: Math.round(b.x), y: Math.round(b.y) }).workArea)
+  const displayAt = (b) => screen.getDisplayNearestPoint({ x: Math.round(b.x), y: Math.round(b.y) })
+  const worldAt = (b) => P.worldOf(displayAt(b).workArea)
+  // Ogni schermo ha i suoi muri (anche il bordo fra due monitor) e il companion
+  // cammina solo sul suo: con un oggetto gioca chi sta sullo stesso schermo.
+  const sameScreen = (c, b) => !!c.bounds && screen.getDisplayMatching(c.bounds).id === displayAt(b).id
 
   /** Dentro l'area di lavoro dello schermo su cui sta. */
   function clampBody(b) {
@@ -192,15 +196,16 @@ function createDesktopObjects(ctx) {
   }
 
   // ─── Inseguire, raccogliere, riportare ─────────────────────────────────────
-  /** Il companion libero piu' vicino a x, o null. */
-  function nearestFree(x) {
-    const free = ctx.companions().filter(c => c.canPlay())
+  /** Il companion libero piu' vicino a dove si fermera' il corpo b, sul suo schermo, o null. */
+  function nearestFree(b) {
+    const x = P.landing(b, worldAt(b)).x
+    const free = ctx.companions().filter(c => c.canPlay() && sameScreen(c, b))
     free.sort((a, b) => Math.abs(centerOf(a) - x) - Math.abs(centerOf(b) - x))
     return free[0] || null
   }
 
   function startFetch(e, who = null) {
-    const c = who && who.canPlay() ? who : who ? null : nearestFree(P.landing(e.body, worldAt(e.body)).x)
+    const c = who && who.canPlay() ? who : who ? null : nearestFree(e.body)
     if (!c) return false
     c.playing = e
     e.task = { c, phase: 'chase', tries: 0, at: Date.now(), started: Date.now(), picked: false }
@@ -218,16 +223,13 @@ function createDesktopObjects(ctx) {
     if (!t.c.goTo(target - side * t.c.bounds.width * 0.2, { run: true, speed: FETCH_SPEED, then: () => { if (e.task === t) t.phase = 'arrived' } })) abortTask(e)
   }
 
-  /** Arrivato: se il pallone e' li' e a terra lo raccoglie, se e' altrove riparte, se e' in aria aspetta. */
+  /** Arrivato: lo raccoglie, lo aspetta (in aria o gli rotola incontro) o lo rincorre (physics.fetchAction). */
   function arrived(e, now) {
     const t = e.task
-    const c = t.c
-    const w = worldAt(e.body)
-    const onFloor = e.body.y + e.body.r >= w.floor - 2
-    const near = Math.abs(e.body.x - centerOf(c)) <= c.bounds.width * 0.45 + e.body.r
-    if (near && onFloor && (e.body.resting || Math.abs(e.body.vx) < 200)) return pickup(e, now)
-    if (!onFloor && near) return // in aria sopra di lui: aspetta che scenda
-    if (++t.tries > 8) return abortTask(e)
+    const what = P.fetchAction(e.body, worldAt(e.body), centerOf(t.c), t.c.bounds.width * 0.45)
+    if (what === 'pickup') return pickup(e, now)
+    if (what === 'wait') return
+    if (what === 'retry' && ++t.tries > 8) return abortTask(e)
     chase(e)
   }
 
@@ -346,7 +348,7 @@ function createDesktopObjects(ctx) {
   const hitPoint = (c) => ({ x: centerOf(c), y: c.bounds.y + c.bounds.height * 0.1 })
   const inGame = (e, c) => !!e.game && e.game.players.has(c)
   /** Chi puo' giocare: libero, o gia' in questa partita. */
-  const canJoin = (e, c) => c.alive() && c.bounds && (c.canPlay() || (inGame(e, c) && !c.dragging && c.viewMode === 'desktop' && c.win.isVisible()))
+  const canJoin = (e, c) => c.alive() && c.bounds && sameScreen(c, e.body) && (c.canPlay() || (inGame(e, c) && !c.dragging && c.viewMode === 'desktop' && c.win.isVisible()))
 
   function sendPose(e, extra = {}) {
     // Fuori partita il conto non si tocca: il totale resta COUNT_MS, poi lo toglie endGame.
@@ -486,8 +488,8 @@ function createDesktopObjects(ctx) {
   // 'free' esclude gia' quelli nascosti in mano; appena creato, la finestra
   // non e' ancora visibile (aspetta la pagina) ma il giocattolo c'e' gia'.
   const freeToy = (e) => alive(e) && e.obj.type === 'throw' && e.state === 'free' && !e.task && !e.game
-  /** C'e' un oggetto Da lanciare libero sul desktop (la vita a riposo puo' giocarci). */
-  const hasToy = () => [...entries.values()].some(freeToy)
+  /** C'e' un oggetto Da lanciare libero sullo schermo di c (la vita a riposo puo' giocarci). */
+  const hasToy = (c) => [...entries.values()].some(e => freeToy(e) && sameScreen(c, e.body))
 
   /**
    * Il companion va al giocattolo piu' vicino (o a entry) e ci gioca: lo
@@ -496,7 +498,7 @@ function createDesktopObjects(ctx) {
    */
   function playAlone(c, { mode, entry } = {}) {
     if (!c.canPlay()) return null
-    const e = entry || [...entries.values()].filter(freeToy).sort((a, b) => Math.abs(a.body.x - centerOf(c)) - Math.abs(b.body.x - centerOf(c)))[0]
+    const e = entry || [...entries.values()].filter(x => freeToy(x) && sameScreen(c, x.body)).sort((a, b) => Math.abs(a.body.x - centerOf(c)) - Math.abs(b.body.x - centerOf(c)))[0]
     if (!e || !freeToy(e)) return null
     const m = mode || (Math.random() < 0.5 ? 'kick' : 'juggle')
     c.playing = e
@@ -559,7 +561,7 @@ function createDesktopObjects(ctx) {
   /** Dalla chat, "giochiamo a palla": lo tira fuori se non c'e' e te lo lancia. */
   function playWith(c, obj) {
     if (!c.canPlay() || !obj || obj.type !== 'throw') return false
-    let e = [...entries.values()].find(x => x.obj.id === obj.id && freeToy(x))
+    let e = [...entries.values()].find(x => x.obj.id === obj.id && freeToy(x) && sameScreen(c, x.body))
     if (!e) {
       const b = c.bounds
       e = spawn(obj, { x: centerOf(c) + c.facing * b.width * 0.3, y: b.y + b.height })
@@ -570,7 +572,7 @@ function createDesktopObjects(ctx) {
   /** Dalla chat, "prendi il gomitolo": se non c'e' lo fa rotolare lontano, poi lo insegue e te lo riporta. */
   function fetchFor(c, obj) {
     if (!c.canPlay() || !obj || obj.type !== 'throw') return false
-    let e = [...entries.values()].find(x => x.obj.id === obj.id && freeToy(x))
+    let e = [...entries.values()].find(x => x.obj.id === obj.id && freeToy(x) && sameScreen(c, x.body))
     if (!e) {
       const w = P.worldOf(c.workArea())
       const cx = centerOf(c)
