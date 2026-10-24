@@ -899,7 +899,9 @@ async function callOllama(model, history, opts) {
   const { system, messages } = prepare(history, opts.systemPrompt)
   const { host, port } = ollamaAddress()
   const body = { model, messages: [{ role: 'system', content: system }, ...messages.map(m => withImage(m, 'ollama'))], stream: false }
-  if (opts.jsonMode) body.format = 'json'
+  // Lo schema della risposta, non "un JSON qualsiasi": con 'json' i modelli
+  // piccoli a volte scrivono un oggetto a caso ({"score": 1}) senza reply.
+  if (opts.jsonMode) body.format = COMPANION_SCHEMA
 
   const timeoutMs = Math.max(OLLAMA_TIMEOUT_MS, opts.timeoutMs)
   const chat = () => opts.onText
@@ -917,6 +919,11 @@ async function callOllama(model, history, opts) {
   if (res.status === 404 && isCloudName(model)) {
     const pulled = await requestJSON('http://' + host + ':' + port + '/api/pull', {}, { model, stream: false }, 60000).catch(() => null)
     if (pulled && pulled.status === 200) res = await chat().catch(err => { throw ollamaFailure(err) })
+  }
+  // Un modello (o un Ollama vecchio) che non accetta lo schema: una volta con 'json'.
+  if (res.status !== 200 && res.status !== 404 && body.format && body.format !== 'json') {
+    body.format = 'json'
+    res = await chat().catch(err => { throw ollamaFailure(err) })
   }
   if (res.status !== 200) throw httpError('Ollama', res)
   return parseResponse(res.body.message?.content || '', opts.jsonMode)

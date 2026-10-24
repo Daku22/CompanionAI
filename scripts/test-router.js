@@ -641,6 +641,39 @@ async function main() {
     }
   })
 
+  await testAsync('Ollama riceve lo schema della risposta, e ripiega su "json" se non lo accetta', async () => {
+    // Con format 'json' un modello piccolo scriveva {"score": 1}: niente reply.
+    const seen = []
+    let refuse = false
+    const server = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', c => { body += c })
+      req.on('end', () => {
+        const b = JSON.parse(body)
+        seen.push(b.format)
+        if (refuse && typeof b.format === 'object') { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'invalid format' })); return }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ message: { content: JSON.stringify({ reply: 'Ciao!', emotion: 'joy' }) } }))
+      })
+    })
+    await new Promise(r => server.listen(0, '127.0.0.1', () => r(null)))
+    const previous = process.env.OLLAMA_PORT
+    process.env.OLLAMA_PORT = String(/** @type {import('net').AddressInfo} */ (server.address()).port)
+    try {
+      const ok = await route({ provider: 'ollama', model: 'gemma3:4b', history: [{ role: 'user', content: 'ciao come stai?' }] })
+      assert.equal(ok.reply, 'Ciao!')
+      assert.equal(seen[0].type, 'object')
+      assert.deepEqual(seen[0].required, ['reply'])
+      refuse = true
+      const again = await route({ provider: 'ollama', model: 'vecchio', history: [{ role: 'user', content: 'ciao' }] })
+      assert.equal(again.reply, 'Ciao!')
+      assert.deepEqual(seen.slice(1).map(f => typeof f === 'object' ? 'schema' : f), ['schema', 'json'])
+    } finally {
+      if (previous === undefined) delete process.env.OLLAMA_PORT; else process.env.OLLAMA_PORT = previous
+      server.close()
+    }
+  })
+
   test('Ollama lento non viene scambiato per Ollama spento', () => {
     // Al primo messaggio carica il modello: prima il timeout diceva "non raggiungibile".
     const slow = ollamaFailure(new Error('Timeout dopo 120000ms'))
