@@ -275,13 +275,15 @@ and they never go into the persona's memory; when you end the live, each
 companion that spoke writes a short paragraph about it in its diary.
 
 **Game mode.** In Settings → Visione pick the game's window from the
-thumbnails (or the whole screen) and a model that sees images (the chat's
-one, or another: there are free ones on OpenRouter; "Prova" shows it a red
-square to check). Then press the gamepad button in the bar around the
-companion, or give it a hotkey in Tasti rapidi. Every 5 seconds the app takes
-a tiny fingerprint of the window, without calling any model; the model looks
-only when the scene really changes, at most every 30 seconds and 20 times an
-hour (both adjustable in Settings → Visione). The bar shows how many looks it
+thumbnails (or the whole screen). It watches with the chat's model (Settings
+→ Modello), which must see images: the page tells you whether it does, and
+"Prova" shows it a red square to check. Then
+press the gamepad button in the bar around the companion, or give it a
+hotkey in Tasti rapidi. Every 5 seconds the app takes a tiny fingerprint of
+the window, without calling any model; the model looks only when the scene
+really changes, as often as "Quanto parla" says (Poco, Normale, Tanto): with
+the model on your PC every 30, 10 or 5 seconds, online every 2 minutes, 1
+minute or 30 seconds with an hourly cap. The bar shows how many looks it
 made in the last hour and, on OpenRouter, roughly what they cost. The
 companion comments out loud and in its speech bubble, not in the chat: as a
 fan, a commentator or with a tip (never spoilers), as its personality
@@ -339,6 +341,14 @@ chat. Anything that touches your system shows a confirmation dialog first.
 To remove imported avatars: Menu → "Elimina importati", tick the ones to delete
 and confirm. Built-in avatars cannot be deleted.
 
+**Optional components in the installer.** The installer's "Componenti
+facoltativi" page offers the realistic voice (XTTS, about 5 GB, NVIDIA cards
+only), the microphone (about 1.8 GB, it uses the XTTS Python) and Kimodo
+(about 5.5 GB). Ticking a box accepts that component's license; at the end of
+the installation a window shows each download's progress, and the setup waits
+for it. The same components can be added later from Settings (Voce, Microfono,
+Movimenti).
+
 **Live2D avatars.** Live2D models need the Cubism Core by Live2D Inc., which
 cannot ship with the app. The installer offers it on its own page: tick the box
 to accept its license and the setup downloads it from Live2D's website.
@@ -363,10 +373,14 @@ movement the avatar does not know ("do a bow", "hop on one foot") and it is
 generated on your own graphics card with [Kimodo](docs/kimodo-locale.md)
 (NVIDIA's text-to-motion model, run by kimodo.cpp), then played. It takes
 about 15–30 seconds the first time, and is instant the next time the same
-movement is asked for. Kimodo is installed separately (about 5.5 GB of
-weights, a Vulkan graphics card with about 3 GB of free video memory) and
-turned on from the right-click menu: "Movimenti nuovi con Kimodo". Nothing
-leaves your PC: the model runs locally and stops after five idle minutes.
+movement is asked for. Install it from the installer's "Componenti
+facoltativi" page or in Settings → Movimenti ("Accetto le licenze e installo
+Kimodo"): about 5.5 GB (a Windows build of kimodo.cpp from this project's
+release and the model weights from Hugging Face, under the NVIDIA Open Model
+License and the Meta Llama 3 Community License), and a Vulkan graphics card
+with about 3 GB of free video memory. It is then turned on there or in the
+right-click menu: "Movimenti nuovi con Kimodo". Nothing leaves your PC: the
+model runs locally and stops after five idle minutes.
 
 The companion has a mood that fades over time and colours its replies, and it
 lives a little when you are not chatting: it looks around, takes a few steps,

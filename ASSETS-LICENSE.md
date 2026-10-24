@@ -130,6 +130,22 @@ converted to `.vrma` by `scripts/kimodo-generate.mjs`.
 - License of the clips: [CC0](https://creativecommons.org/publicdomain/zero/1.0/).
   Use them as you like; credit to NVIDIA Kimodo is appreciated.
 
+## Kimodo, downloaded on request
+
+Not in the installer: when you choose Kimodo (installer or Settings →
+Movimenti) the app downloads these.
+
+- `kimodo-win-x64-vulkan.zip` from this project's GitHub release: an
+  unmodified Windows build of [kimodo.cpp](https://github.com/localai-org/kimodo.cpp)
+  (commit 5679ff19, Apache-2.0, with its LICENSE and NOTICE), the
+  [ggml](https://github.com/ggml-org/ggml) libraries (MIT) and the Microsoft
+  Visual C++ runtime (msvcp140, vcruntime140, vcruntime140_1), redistributed
+  unmodified as Distributable Code under the Visual Studio license.
+- From Hugging Face, at fixed revisions: `LocalAI-io/Kimodo-SOMA-RP-v1.1-GGML`
+  (NVIDIA Open Model License) and `LocalAI-io/Llama-3-Kimodo-GGML` (Meta Llama
+  3 Community License, with its license file and NOTICE). Built with Meta
+  Llama 3.
+
 ## Test motion data
 
 `scripts/fixtures/kimodo-soma77-sit.bvh` is an excerpt (13 frames) of a

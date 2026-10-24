@@ -114,4 +114,20 @@ async function pull(name, onProgress = () => {}) {
   })
 }
 
-module.exports = { NAME_RE, exePath, running, start, signin, pull }
+/** I modelli scaricati (anche quelli cloud gia' preparati), senza ":latest"; [] se Ollama non risponde. */
+async function installed() {
+  try {
+    const res = await request('GET', '/api/tags', null, 3000)
+    const text = await new Promise((resolve, reject) => {
+      let data = ''
+      res.setEncoding('utf8')
+      res.on('data', (c) => { data += c })
+      res.on('end', () => resolve(data))
+      res.on('error', reject)
+    })
+    const list = JSON.parse(text).models || []
+    return list.map(m => String((m && m.name) || '').replace(/:latest$/, '')).filter(Boolean)
+  } catch (_) { return [] }
+}
+
+module.exports = { NAME_RE, exePath, running, start, signin, pull, installed }

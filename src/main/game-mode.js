@@ -17,12 +17,12 @@
 
 const GAME_DEFAULTS = {
   source: null,      // { kind: 'window', title, app } | { kind: 'screen' } | null
-  vision: null,      // { provider, model } | null: quello della chat, se vede le immagini
-  intervalS: 30,     // almeno tanti secondi fra due sguardi al modello (12b)
-  perHour: 20,       // al massimo tanti sguardi all'ora (12b)
+  talk: 'normale',   // quanto parla: 'poco' | 'normale' | 'tanto', o 'custom' (i due valori qui sotto)
+  intervalS: 30,     // con talk 'custom': almeno tanti secondi fra due sguardi al modello (12b)
+  perHour: 20,       // con talk 'custom': al massimo tanti sguardi all'ora (12b)
 }
+const TALK = ['poco', 'normale', 'tanto', 'custom']
 const EXE_RE = /^[^\\/:*?"<>|\u0000-\u001f]{1,80}\.exe$/i
-const MODEL_RE = /^[^\u0000-\u001f]{1,200}$/
 
 const text = (v, max) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max) : '')
 const num = (v, min, max, def) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.max(min, Math.min(max, v))) : def)
@@ -42,26 +42,24 @@ function cleanSource(v) {
  * @param {any} cfg
  * @param {string[]} [providers] i provider ammessi (PROVIDERS del router)
  */
-function gameConfig(cfg, providers = null) {
+function gameConfig(cfg) {
   const g = cfg && cfg.game && typeof cfg.game === 'object' ? cfg.game : {}
-  const v = g.vision && typeof g.vision === 'object' ? g.vision : null
-  const vision = v && typeof v.provider === 'string' && (!providers || providers.includes(v.provider)) && typeof v.model === 'string' && MODEL_RE.test(v.model)
-    ? { provider: v.provider, model: v.model.trim() } : null
   return {
     source: cleanSource(g.source),
-    vision,
-    intervalS: num(g.intervalS, 30, 300, GAME_DEFAULTS.intervalS),
-    perHour: num(g.perHour, 5, 30, GAME_DEFAULTS.perHour),
+    talk: TALK.includes(g.talk) ? g.talk : GAME_DEFAULTS.talk,
+    // I limiti veri dipendono dal modello (gameTiming): sul PC si guarda piu' spesso.
+    intervalS: num(g.intervalS, 5, 300, GAME_DEFAULTS.intervalS),
+    perHour: num(g.perHour, 5, 720, GAME_DEFAULTS.perHour),
   }
 }
 
 /** Unisce le impostazioni nuove: passa solo cio' che e' valido; null toglie la scelta. */
-function mergeGame(current, incoming, providers = null) {
-  const base = gameConfig({ game: current }, providers)
+function mergeGame(current, incoming) {
+  const base = gameConfig({ game: current })
   if (!incoming || typeof incoming !== 'object') return base
   const merged = { ...base }
-  for (const k of ['source', 'vision', 'intervalS', 'perHour']) if (k in incoming) merged[k] = incoming[k]
-  return gameConfig({ game: merged }, providers)
+  for (const k of ['source', 'talk', 'intervalS', 'perHour']) if (k in incoming) merged[k] = incoming[k]
+  return gameConfig({ game: merged })
 }
 
 /**
@@ -94,18 +92,6 @@ function findSource(windows, choice, { exact = false } = {}) {
   const byApp = windows.filter(w => choice.app && same(w.app, choice.app) && similar(w.title))
   if (!byApp.length) return null
   return byApp.sort((a, b) => (b.area || 0) - (a.area || 0))[0]
-}
-
-/**
- * Il modello che guarda: quello scelto nella pagina Visione, o quello della
- * chat se vede le immagini; null se nessuno dei due.
- * @param {{ vision: { provider: string, model: string } | null }} game
- * @param {{ provider: string, model: string }} chat
- * @param {boolean} chatSees il modello della chat vede le immagini
- */
-function visionModel(game, chat, chatSees) {
-  if (game.vision) return game.vision
-  return chatSees && chat && chat.provider && chat.model ? { provider: chat.provider, model: chat.model } : null
 }
 
 /** Come si mostra la scelta: "Elden Ring (eldenring.exe)", "Tutto lo schermo". */
@@ -200,7 +186,8 @@ function statusText(st, { name = '', cost = null } = {}) {
   if (!st || !st.on) return 'Spenta'
   if (st.paused) return 'In pausa: ' + (PAUSE_TEXT[st.paused] || st.paused)
   const title = st.title && st.title.length > 40 ? st.title.slice(0, 40) + '…' : st.title
-  const parts = [(name || 'Il companion') + ' guarda ' + (title || 'la partita'), st.looks + (st.looks === 1 ? ' sguardo' : ' sguardi') + ' su ' + st.perHour + ' nell\'ultima ora']
+  const parts = [(name || 'Il companion') + ' guarda ' + (title || 'la partita'),
+    st.looks + (st.looks === 1 ? ' sguardo' : ' sguardi') + (st.perHour > 60 ? '' : ' su ' + st.perHour) + ' nell\'ultima ora']
   const c = costText(cost, st.looks)
   if (c) parts.push(c)
   return parts.join(' · ')
@@ -331,9 +318,43 @@ function coversDisplay(rect, display) {
     rect.x + rect.width >= display.x + display.width - T && rect.y + rect.height >= display.y + display.height - T
 }
 
+// ─── Quanto parla (dopo il Blocco 12) ───────────────────────────────────────
+// Guarda sempre con il modello della chat. "Quanto parla" (poco, normale,
+// tanto) da' i tempi giusti per il tipo di modello: sul PC (Ollama) si guarda
+// molto piu' spesso, online meno e con un tetto.
+
+/** Il modello che guarda gira sul PC (Ollama, non un modello cloud). */
+function isLocalVision(v) {
+  return !!v && v.provider === 'ollama' && !/(-|:)cloud$/.test(v.model)
+}
+
+// [secondi fra due sguardi, sguardi all'ora] per ogni scelta.
+const TALK_TIMES = {
+  local: { poco: [30, 120], normale: [10, 360], tanto: [5, 720] },
+  online: { poco: [120, 10], normale: [60, 20], tanto: [30, 30] },
+}
+
+/**
+ * I tempi veri: quelli della scelta "quanto parla" per il tipo di modello,
+ * o (talk 'custom') quelli a mano, dentro i limiti del tipo: sul PC fino a
+ * uno ogni 5 s e senza tetto vero, online almeno 30 s e 30 all'ora.
+ */
+function gameTiming(game, vision) {
+  const local = isLocalVision(vision)
+  if (game.talk !== 'custom') {
+    const [intervalS, perHour] = TALK_TIMES[local ? 'local' : 'online'][game.talk] || TALK_TIMES[local ? 'local' : 'online'].normale
+    return { intervalS, perHour, local }
+  }
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
+  return local
+    ? { intervalS: clamp(game.intervalS, 5, 300), perHour: 720, local }
+    : { intervalS: clamp(game.intervalS, 30, 300), perHour: clamp(game.perHour, 5, 30), local }
+}
+
 module.exports = {
+  isLocalVision, TALK_TIMES, gameTiming,
   BLANK_TICKS, blankSig, coversDisplay,
-  GAME_DEFAULTS, cleanSource, gameConfig, mergeGame, findSource, visionModel, describeSource,
+  GAME_DEFAULTS, cleanSource, gameConfig, mergeGame, findSource, describeSource,
   SIG_W, SIG_H, LOOK, signature, changed, nextStep, lookCost, PAUSE_TEXT, costText, statusText,
   LOOK_PROMPT, SCENE_TTL_MS, MAX_SCENES, lookRequest, parseGameLook, sceneLine, saidLine, canComment, memoryLine, sessionText, SUMMARY_PROMPT,
 }

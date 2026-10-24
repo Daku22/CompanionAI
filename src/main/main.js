@@ -20,6 +20,8 @@ const winAudio = require('./win-audio')
 const { VoiceService } = require('./voice')
 const { XttsEngine } = require('./xtts-engine')
 const xttsSetup = require('./xtts-setup')
+const kimodoSetup = require('./kimodo-setup')
+const SetupComponents = require('./setup-components')
 const live2dCore = require('./live2d-core')
 // La licenza del modello XTTS-v2, al commit scaricato.
 const XTTS_LICENSE_URL = 'https://huggingface.co/coqui/XTTS-v2/blob/6c2b0d75eae4b7047358e3b6bd9325f857d43f77/LICENSE.txt'
@@ -240,7 +242,13 @@ function publicConfig(cfg) {
     // Scorciatoie dell'app (Blocco 9c): quelle registrate davvero, e le scelte.
     shortcutsActive: { ...appShortcuts },
     stream: streamConfig(cfg),
-    game: GameMode.gameConfig(cfg, Object.keys(PROVIDERS)),
+    game: GameMode.gameConfig(cfg),
+    // "Quanto parla": i tempi di ogni scelta per il modello che guarda (sul PC o online).
+    gameTalk: (() => {
+      const g = GameMode.gameConfig(cfg)
+      const t = GameMode.gameTiming(g, { provider: cfg.provider, model: cfg.model })
+      return { local: t.local, times: GameMode.TALK_TIMES[t.local ? 'local' : 'online'], timing: t }
+    })(),
     appShortcuts: Object.entries(APP_SHORTCUTS).map(([id, label]) => ({ id, label })),
   }
 }
@@ -1166,7 +1174,7 @@ function sendLive2DStatus() {
 // servizio Python (xtts-engine.js), acceso finche' la voce XTTS o il
 // microfono (faster-whisper, nello stesso servizio) sono in uso.
 
-function initVoice() {
+function initVoice({ sync = true } = {}) {
   const dir = path.join(app.getPath('userData'), 'voice')
   // Solo per l'audit: i file da un server locale invece che da Internet.
   const fake = process.env.COMPANION_VOICE_ASSETS_URL
@@ -1202,7 +1210,7 @@ function initVoice() {
     },
     onStatus: (status) => sendSettings('voice-status', status),
   })
-  syncVoice(loadConfig())
+  if (sync) syncVoice(loadConfig())
 }
 
 /**
@@ -1282,8 +1290,8 @@ function toggleCompanionsShown() {
 // ─── Live su Twitch (Blocco 11c) ─────────────────────────────────────────────
 // "In diretta" (pagina Streaming o il suo tasto rapido) collega la chat del
 // canale in sola lettura (twitch-chat.js) e la sessione (live-session.js)
-// sceglie a cosa rispondere; il registro va alle Impostazioni. Le risposte
-// dei companion arrivano nel passo dopo (11d).
+// sceglie a cosa rispondere; il registro va alle Impostazioni. Chi risponde
+// e come: il co-host qui sotto (11d).
 const liveSession = createLiveSession({
   config: () => streamConfig(loadConfig()),
   names: () => companions.filter(c => c.alive()).map(c => ({ id: c.personaId, name: (c.persona() || {}).name || c.personaId })),
@@ -1785,7 +1793,7 @@ handle('config:set', async (e, newCfg) => {
 // Ollama dall'app (Blocco 7a): avviare il server, accedere per i modelli cloud,
 // scaricare un modello, aprire le pagine dei modelli. Comandi e indirizzi fissi.
 const ollamaTools = require('./ollama')
-const OLLAMA_PAGES = { models: 'https://ollama.com/search' }
+const OLLAMA_PAGES = { models: 'https://ollama.com/search', download: 'https://ollama.com/download' }
 handle('ollama:signin', async () => {
   const r = await ollamaTools.signin()
   if (r.url) shell.openExternal(r.url).catch(() => {})
@@ -1918,7 +1926,7 @@ async function gameWindows(thumbnailSize = { width: 160, height: 100 }) {
  * 'minimized' (ridotta a icona), 'empty' (nessuna immagine).
  */
 async function captureGame(longSide = GAME_LONG_SIDE) {
-  const g = GameMode.gameConfig(loadConfig(), Object.keys(PROVIDERS))
+  const g = GameMode.gameConfig(loadConfig())
   if (!g.source) return { ok: false, state: 'none' }
   if (g.source.kind === 'screen') {
     const c = chatTarget()
@@ -2097,7 +2105,7 @@ function gameResult(r, info) {
   if (!r || r.capture) return   // la finestra non c'era: al prossimo giro va in pausa
   if (!r.ok) {
     // Il limite giornaliero dei modelli gratuiti: inutile riprovare fino a domani.
-    if (r.daily) { endGame('Ho finito gli sguardi gratuiti di oggi: riprova domani, o scegli un altro modello qui sopra', 'Ho finito gli sguardi gratuiti di oggi'); return }
+    if (r.daily) { endGame('Ho finito gli sguardi gratuiti di oggi: riprova domani, o scegli un altro modello nella pagina Modello', 'Ho finito gli sguardi gratuiti di oggi'); return }
     if (++gameErrors >= GAME_MAX_ERRORS) endGame('Non riesco a vedere il gioco: ' + r.error, 'Non riesco a vedere il gioco')
     return
   }
@@ -2163,7 +2171,8 @@ async function rememberGame(c, summary, scenes) {
 }
 
 const gameLoop = createGameLoop({
-  config: () => GameMode.gameConfig(loadConfig(), Object.keys(PROVIDERS)),
+  // "Quanto parla" e il tipo di modello: sul PC si guarda molto piu' spesso.
+  config: () => GameMode.gameTiming(GameMode.gameConfig(loadConfig()), gameModel),
   sigCapture: () => gameSignature(),
   busy: () => gameBusy(),
   // Scena ancora uguale: resta valida come contesto oltre i 2 minuti.
@@ -2213,23 +2222,34 @@ async function toggleGame(c) {
   }
   if (!c) return gameLoop.state()
   const cfg = loadConfig()
-  const g = GameMode.gameConfig(cfg, Object.keys(PROVIDERS))
+  const g = GameMode.gameConfig(cfg)
   if (!g.source) {
     openSettings('visione')
     c.send('companion-bubble', { text: 'Scegli prima quale finestra guardare', ms: 3500 })
     return gameLoop.state()
   }
-  const chatCaps = g.vision ? null : await modelCapsOf(cfg.provider, cfg.model).catch(() => null)
-  const vision = GameMode.visionModel(g, { provider: cfg.provider, model: cfg.model }, !!(chatCaps && chatCaps.vision))
-  if (!vision) {
-    openSettings('visione')
-    c.send('companion-bubble', { text: 'Mi serve un modello che vede le immagini', ms: 3500 })
+  // Guarda con il modello della chat: deve vedere le immagini.
+  const chatCaps = await modelCapsOf(cfg.provider, cfg.model).catch(() => null)
+  if (!chatCaps || !chatCaps.vision) {
+    openSettings('modello')
+    c.send('companion-bubble', { text: 'Il modello della chat non vede le immagini', ms: 4000 })
     return gameLoop.state()
   }
+  const vision = { provider: cfg.provider, model: cfg.model }
   if (vision.provider !== 'ollama' && !cfg.keys?.[vision.provider]) {
     openSettings('modello')
-    c.send('companion-bubble', { text: 'Manca la chiave per il modello che guarda', ms: 3500 })
+    c.send('companion-bubble', { text: 'Manca la chiave del modello della chat', ms: 3500 })
     return gameLoop.state()
+  }
+  // Un modello di Ollama: Ollama acceso, e il modello (se e' sul PC) scaricato.
+  if (vision.provider === 'ollama') {
+    const up = await ollamaTools.start()
+    const missing = !up.ok ? (up.error || 'Ollama non risponde') : GameMode.isLocalVision(vision) && !(await ollamaTools.installed()).includes(vision.model) ? 'Scarica prima il modello della chat' : ''
+    if (missing) {
+      openSettings('modello')
+      c.send('companion-bubble', { text: missing.slice(0, 80), ms: 4000 })
+      return gameLoop.state()
+    }
   }
   // Il costo di uno sguardo: Ollama e' gratis, OpenRouter dice i prezzi, gli altri non si sa.
   const caps = vision.provider === 'openrouter' ? await modelCapsOf('openrouter', vision.model).catch(() => null) : null
@@ -2265,6 +2285,80 @@ function endGame(why = '', bubble = why) {
 }
 
 handle('game:state', () => gameStatus())
+
+// Il modello che guarda il gioco e' quello della chat: la pagina Visione dice
+// se vede le immagini.
+handle('game:chat-sees', async () => {
+  const cfg = loadConfig()
+  const caps = await modelCapsOf(cfg.provider, cfg.model).catch(() => null)
+  return { provider: cfg.provider, model: cfg.model, sees: caps ? !!caps.vision : null }
+})
+
+// ─── Kimodo installato dall'app ──────────────────────────────────────────────
+// La pagina Movimenti (e l'installer) lo scaricano in <userData>/kimodo
+// (kimodo-setup.js): lo zip della release e i pesi da Hugging Face. Se c'e'
+// anche quello compilato a mano in %USERPROFILE%\kimodo, vince quello
+// dell'app; kimodoDir scritto in config.json vince su tutti.
+const ownKimodoDir = () => path.join(app.getPath('userData'), 'kimodo')
+function kimodoDirFor(cfg) {
+  if (typeof cfg.kimodoDir === 'string' && path.isAbsolute(cfg.kimodoDir)) return cfg.kimodoDir
+  if (kimodoSetup.kimodoInstalled(ownKimodoDir())) return ownKimodoDir()
+  const dev = path.join(os.homedir(), 'kimodo')
+  return fs.existsSync(path.join(dev, 'build', 'release', 'kmd-generate.exe')) ? dev : ownKimodoDir()
+}
+let kimodoInstall = null     // { abort, progress } mentre si installa
+let kimodoError = null
+const kimodoStatus = () => ({
+  available: !!kimodo && kimodo.available(),
+  // Disinstallabile solo quello installato dall'app (non quello compilato a mano).
+  managed: !!kimodo && kimodo.dir === ownKimodoDir() && kimodoSetup.kimodoInstalled(ownKimodoDir()),
+  installing: kimodoInstall ? kimodoInstall.progress : null,
+  error: kimodoError,
+  totalBytes: kimodoSetup.TOTAL_BYTES,
+})
+handle('kimodo:status', () => kimodoStatus())
+handle('kimodo:install', async () => {
+  if (!kimodo || kimodoInstall) return kimodoStatus()
+  const abort = new AbortController()
+  kimodoInstall = { abort, progress: { step: 'program', index: 0, count: kimodoSetup.STEPS.length, label: kimodoSetup.STEPS[0].label, done: 0, total: kimodoSetup.TOTAL_BYTES } }
+  kimodoError = null
+  sendSettings('kimodo-status', kimodoStatus())
+  let last = 0
+  try {
+    await kimodoSetup.installKimodo(ownKimodoDir(), {
+      signal: abort.signal,
+      onProgress: (p) => {
+        kimodoInstall.progress = p
+        const now = Date.now()
+        if (now - last > 400) { last = now; sendSettings('kimodo-status', kimodoStatus()) }
+      },
+    })
+    kimodo.stop()
+    kimodo.dir = ownKimodoDir()
+    console.log('[kimodo] installato in ' + kimodo.dir)
+    setOption({ kimodo: true })
+  } catch (e) {
+    kimodoError = abort.signal.aborted ? 'installazione annullata' : e.message
+    console.warn('[kimodo] installazione non riuscita: ' + kimodoError)
+  } finally {
+    kimodoInstall = null
+    sendSettings('kimodo-status', kimodoStatus())
+  }
+  return kimodoStatus()
+})
+on('kimodo:cancel', () => { if (kimodoInstall) kimodoInstall.abort.abort() })
+handle('kimodo:remove', () => {
+  if (!kimodoStatus().managed) return kimodoStatus()
+  kimodo.stop()
+  kimodoSetup.uninstallKimodo(ownKimodoDir())
+  kimodo.dir = kimodoDirFor(loadConfig())
+  setOption({ kimodo: false })
+  return kimodoStatus()
+})
+on('kimodo:open-license', (_e, which) => {
+  const url = typeof which === 'string' && Object.prototype.hasOwnProperty.call(kimodoSetup.LICENSES, which) ? kimodoSetup.LICENSES[which] : null
+  if (url) shell.openExternal(url).catch(e => console.error('[app] openExternal:', e.message))
+})
 
 // Movimenti generati con Kimodo (Blocco 7d): elenco, nome, prova, eliminazione.
 handle('motions:list', () => (kimodo ? kimodo.list() : []))
@@ -4091,8 +4185,74 @@ if (SETUP_LIVE2D) {
     app.exit(code)
   })
 }
-const isPrimaryInstance = !SETUP_LIVE2D && app.requestSingleInstanceLock()
-if (SETUP_LIVE2D) {
+
+// Dall'installer, pagina "Componenti facoltativi": con le caselle spuntate il
+// setup lancia l'app con --install-components=xtts,stt,kimodo e aspetta. Si
+// apre una finestra con l'avanzamento (setup.html), si installa come dalle
+// Impostazioni (le licenze l'utente le ha accettate nel setup), poi l'app si
+// chiude: 0 se e' andato tutto, 1 se no (si rifa' dalle Impostazioni).
+const SETUP_COMPONENTS = SetupComponents.parseComponents(process.argv)
+if (SETUP_COMPONENTS.length) app.whenReady().then(() => runSetupComponents(SETUP_COMPONENTS))
+
+async function runSetupComponents(list) {
+  setupLogging(path.join(app.getPath('userData'), 'logs'))
+  const win = new BrowserWindow({
+    width: 560, height: 400, title: 'CompanionAI · componenti', resizable: false, maximizable: false,
+    autoHideMenuBar: true, backgroundColor: '#151416', show: false,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') },
+  })
+  win.once('ready-to-show', () => win.show())
+  await win.loadFile(path.join(__dirname, '../renderer/setup.html'))
+  const send = (data) => { if (!win.isDestroyed()) win.webContents.send('setup-progress', data) }
+  send({ list: list.map(id => ({ id, label: SetupComponents.LABELS[id] })) })
+  const results = {}
+  const done = (id, ok, text = '') => { results[id] = { ok, text }; send({ id, ok, text }) }
+  const gpu = list.some(id => id !== 'kimodo') ? await xttsSetup.nvidiaGpu().catch(() => null) : null
+  for (const id of list) {
+    send({ id, running: true })
+    try {
+      if (id === 'xtts' || id === 'stt') {
+        if (!gpu) { done(id, false, 'Serve una scheda video NVIDIA.'); continue }
+        if (id === 'stt' && results.xtts && !results.xtts.ok) { done(id, false, 'Serve prima la voce XTTS.'); continue }
+        if (!voiceService) initVoice({ sync: false })
+        const installed = () => (id === 'xtts' ? voiceService.status().xtts.installed : voiceService.status().stt.installed)
+        if (installed()) { done(id, true, 'Era già installato.'); continue }
+        if (id === 'xtts') saveConfig(mergeConfig(loadConfig(), { voice: { cpmlAccepted: true } }))
+        const timer = setInterval(() => {
+          const s = voiceService.status()
+          const p = id === 'xtts' ? s.xtts.installing : s.stt.installing
+          if (p) send({ id, progress: p })
+        }, 500)
+        let st
+        try { st = id === 'xtts' ? await voiceService.installXtts() : await voiceService.installStt() } finally { clearInterval(timer) }
+        if (!installed()) { done(id, false, (id === 'xtts' ? st.xtts.error : st.stt.error) || 'Non riuscito.'); continue }
+        // Il microfono si accende; la voce XTTS la sceglie l'utente (serve un campione o una voce).
+        if (id === 'stt') saveConfig(mergeConfig(loadConfig(), { voice: { micEnabled: true } }))
+        done(id, true, id === 'xtts' ? 'Scegli la voce in Impostazioni > Voce.' : 'Il microfono è acceso.')
+      } else if (id === 'kimodo') {
+        if (kimodoSetup.kimodoInstalled(ownKimodoDir())) { done(id, true, 'Era già installato.'); continue }
+        await kimodoSetup.installKimodo(ownKimodoDir(), { onProgress: (p) => send({ id, progress: p }) })
+        saveConfig(mergeConfig(loadConfig(), { kimodo: true }))
+        done(id, true, 'Chiedi in chat un movimento che non c\'è.')
+      }
+    } catch (e) {
+      done(id, false, e.message)
+    }
+  }
+  try { if (voiceService) { voiceService.stop(); if (voiceService.xtts) voiceService.xtts.stop() } } catch (_) {}
+  const allOk = list.every(id => results[id] && results[id].ok)
+  console.log('[setup] componenti dall\'installer: ' + JSON.stringify(results))
+  send({ finished: true, allOk })
+  // Tutto bene: si chiude da sola. Se no resta aperta finche' non si chiude (al massimo 15 minuti).
+  const close = () => app.exit(allOk ? 0 : 1)
+  if (allOk) setTimeout(close, 3000)
+  else { on('setup:close', close); setTimeout(close, 15 * 60 * 1000).unref() }
+  win.on('closed', close)
+}
+
+const SETUP_MODE = SETUP_LIVE2D || SETUP_COMPONENTS.length > 0
+const isPrimaryInstance = !SETUP_MODE && app.requestSingleInstanceLock()
+if (SETUP_MODE) {
   // Nessuna finestra e nessun blocco: solo lo scaricamento qui sopra.
 } else if (!isPrimaryInstance) {
   app.quit()
@@ -4147,7 +4307,7 @@ app.whenReady().then(() => {
   ])
   const startCfg = loadConfig()
   kimodo = new KimodoService({
-    dir: typeof startCfg.kimodoDir === 'string' && path.isAbsolute(startCfg.kimodoDir) ? startCfg.kimodoDir : path.join(os.homedir(), 'kimodo'),
+    dir: kimodoDirFor(startCfg),
     cacheDir: path.join(app.getPath('userData'), 'generated-motions'),
   })
   app.on('web-contents-created', (_event, contents) => {

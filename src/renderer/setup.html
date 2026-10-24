@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:">
+  <title>CompanionAI · componenti</title>
+  <link rel="stylesheet" href="ui.css">
+  <style>
+    /* I componenti scelti nell'installer (voce XTTS, microfono, Kimodo): si
+       scaricano mentre l'installer aspetta, uno dopo l'altro, con la barra. */
+    html, body { height: 100%; }
+    body { margin: 0; padding: 22px 24px; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+    h1 { font-size: 17px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+    .sub { color: var(--text-2); margin: 0 0 18px; line-height: 1.45; text-wrap: pretty; }
+    .item { padding: 12px 14px; margin-bottom: 8px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+    .item .head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+    .item .name { font-weight: 600; }
+    .item .state { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .item.ok .state { color: var(--accent); }
+    .item.err .state { color: var(--danger); }
+    .item .note { color: var(--text-2); font-size: 12px; margin-top: 6px; line-height: 1.4; overflow-wrap: anywhere; }
+    .bar { height: 4px; background: var(--surface-hi); border-radius: 2px; overflow: hidden; margin-top: 9px; }
+    .bar div { height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.3s var(--ease); }
+    .end { margin-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .end p { margin: 0; color: var(--text-2); line-height: 1.45; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Scarico i componenti scelti</h1>
+  <p class="sub">Si scaricano uno dopo l'altro e possono servire molti minuti, secondo la connessione. L'installazione finisce
+    quando hanno finito: puoi lasciare questa finestra aperta e fare altro.</p>
+  <div id="items"></div>
+  <div class="end hidden" id="end">
+    <p id="end-text"></p>
+    <button class="primary hidden" id="close">Chiudi</button>
+  </div>
+  <script src="setup.js"></script>
+</body>
+</html>

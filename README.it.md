@@ -82,6 +82,7 @@ src/
              Twitch), live-session.js (la live: scelta e registro),
              game-mode.js (la modalita' gioco, puro), game-loop.js (il ciclo),
              screens.js (quale monitor si fotografa, puro),
+             kimodo-setup.js (installa Kimodo), setup-components.js (i componenti dall'installer),
              write-atomic.js, logger.js
   memory/    MemoryManager.js + types.ts
   renderer/  companion.html + companion-2d.js + companion-3d.js, chat.html + chat.js,
@@ -91,6 +92,7 @@ src/
              ghost.html (il cibo trascinato), object.html + object.js + object-view.js
              (un oggetto sul desktop), model-read.js (glTF, FBX, OBJ),
              captions.js (sottotitoli nel fumetto),
+             setup.html + setup.js (i componenti scaricati dall'installer),
              assets/strips (avatar 2D integrato), vendor/ (generata)
 scripts/     vendor.js, make-icon.js, build.js, build-strips.js, lib/sprite-frames.js,
              smoke.mjs, check-publish.js, e le suite test-*.js
@@ -530,7 +532,16 @@ cambiato ma comincia allo stesso modo (gli FPS): cosi' un gioco chiuso in un
 browser non diventa un'altra scheda. Prima del ripiego si cercano le
 finestre ridotte a icona, che `desktopCapturer` non da'. Il modello che guarda
 e' quello della chat se vede le immagini, o uno scelto (`game.vision`);
-"Prova" gli mostra un quadrato rosso.
+"Prova" gli mostra un quadrato rosso. Guarda sempre con il modello della chat
+(`game:chat-sees` dice alla pagina Visione se vede le immagini; se no la
+modalita' non parte e apre la pagina Modello). Un modello a parte per il
+gioco e tre card "sul PC / online gratis / online piu' preciso" sono state
+provate e tolte: confondevano, e OpenRouter ha sia i gratuiti sia Claude e
+GPT. "Quanto parla" (`game.talk`: poco,
+normale, tanto o custom) da' i tempi con `gameTiming`: sul PC 30/10/5 s senza
+tetto, online 120/60/30 s con 10/20/30 sguardi all'ora (misure su una RTX
+3060: gemma3:4b circa 0,8 s a sguardo e 4 GB di memoria video, gemma3:12b
+circa 2,7 s e 9 GB, non abbastanza piu' preciso da valerne la pena).
 
 **Il ciclo** (`game-loop.js`, con le dipendenze da fuori). Ogni 5 s
 `signature`: la finestra a 64 px, ridotta a 32x18 grigi. `nextStep` guarda
@@ -686,10 +697,28 @@ sulla scheda video, poi lo riproduce una volta.
   La stessa frase, la volta dopo, parte subito.
 - Il campo `motion` si spiega al modello (`MOTION_PROMPT`) solo quando Kimodo
   è acceso, installato e l'avatar è 3D.
-- Si accende dal menu col tasto destro, "Movimenti nuovi con Kimodo". La
-  cartella di kimodo.cpp è `%USERPROFILE%\kimodo`, oppure `kimodoDir` scritto a
-  mano in `config.json`: dalla UI non si può cambiare, perché è un eseguibile
-  da avviare.
+- Si accende nella pagina Movimenti (o dal menu col tasto destro),
+  "Movimenti nuovi con Kimodo".
+- Si installa dalla pagina Movimenti o dall'installer (`kimodo-setup.js`):
+  kimodo.cpp non pubblica versioni compilate, quindi la release di questo
+  progetto ha `kimodo-win-x64-vulkan.zip` (kmd-generate, le librerie ggml, il
+  runtime di Visual C++ accanto all'eseguibile, licenze e README con il commit
+  di partenza). I pesi arrivano da Hugging Face a revisioni fisse, con SHA-256
+  e i loro file di licenza. Finisce in `<userData>\kimodo`, con la struttura
+  della cartella di kimodo.cpp, e un `installed.json`.
+- La cartella: `kimodoDir` scritto a mano in `config.json`, altrimenti quella
+  installata dall'app, altrimenti quella compilata in `%USERPROFILE%\kimodo`.
+  "Disinstalla" c'e' solo per quella dell'app.
+
+**Componenti dall'installer.** La pagina "Componenti facoltativi"
+(`build/installer.nsh`) offre XTTS, il microfono e Kimodo; con le caselle
+spuntate il setup lancia l'app con `--install-components=xtts,stt,kimodo`
+(`setup-components.js`, il microfono si porta dietro XTTS) e aspetta. L'app
+non prende il blocco dell'istanza unica, apre `setup.html` con una barra per
+componente, installa come dalle Impostazioni (licenze accettate nel setup;
+il microfono e Kimodo restano accesi, la voce XTTS la si sceglie dopo) e
+chiude con 0, o 1 se qualcosa non e' andato (resta aperta finche' non si
+legge).
 
 **2D.** Un avatar è un pacchetto di strip, una per animazione, con i riquadri
 dei fotogrammi in un manifest. `scripts/build-strips.js` le genera dalle
@@ -972,7 +1001,7 @@ finestra a 30 Hz, anche quando è fuori.
 **Menu col tasto destro** (`showCompanionMenu` in `main.js`):
 - chat, "Stanza" e avatar (con "Importa avatar…");
 - animazioni: importa, apri la cartella, prova;
-- nella stanza, "Scena": quale mostrare, "Importa scena 3D…", "Sistema la
+- nella stanza, "Scena": quale mostrare, "Importa scena 3D (glTF, FBX, OBJ)…", "Sistema la
   scena…" ed "Elimina scena";
 - "Rimetti la camera" (3D e stanza);
 - dimensione: piccola, media, grande, molto grande. Sostituisce il
@@ -1020,7 +1049,7 @@ viva dietro.
   giorno, elencate in `modelli-3d/scenes/scenes.json` e controllate dal main;
 - le **scene importate** (vedi sotto).
 
-**Scene importate.** Menu → "Scena" → "Importa scena 3D…": `.glb`/`.gltf`,
+**Scene importate.** Menu → "Scena" → "Importa scena 3D (glTF, FBX, OBJ)…": `.glb`/`.gltf`,
 `.fbx` e `.obj`. Le copia `SceneLibrary.js` in `<userData>/scenes`, con le
 stesse regole degli avatar (solo i file dichiarati, le immagini vicine per
 FBX e OBJ, i `.mtl` citati da `mtllib`), e il renderer le legge da

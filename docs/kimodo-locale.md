@@ -23,7 +23,19 @@ Tre clip generate e controllate su Fred con `npm run preview`: seduta a
 gambe incrociate, saluto con la mano destra e stiracchiata con le braccia in
 alto. Sono tutte corrette. Si trovano in `%USERPROFILE%\kimodo\clips`.
 
-## Installazione (come è stata fatta)
+## Installazione dall'app (24 ottobre)
+
+Chi non compila: pagina Movimenti, "Accetto le licenze e installo Kimodo", o la
+casella Kimodo nell'installer. L'app scarica `kimodo-win-x64-vulkan.zip` dalla
+release v1.1.0 di CompanionAI (la build qui sotto, commit 5679ff19, con
+accanto `msvcp140.dll`, `vcruntime140.dll` e `vcruntime140_1.dll` presi da
+`VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT`, cosi' non serve il
+Visual C++ Redistributable) e i tre pesi da Hugging Face a revisioni fisse, e
+mette tutto in `%APPDATA%\CompanionAI\kimodo` (`kimodo-setup.js`). La build
+e' stata provata da una cartella nuova: un saluto di 3 s in 24 s, caricamento
+compreso.
+
+## Installazione a mano (come è stata fatta)
 
 Tutto sta in `%USERPROFILE%\kimodo`, fuori dai repository:
 

@@ -21,12 +21,13 @@ const PROVIDERS = ['openrouter', 'claude', 'openai', 'ollama']
 
 test('12a: impostazioni controllate (finestra, schermo, modello, tempi)', () => {
   assert.deepEqual(G.gameConfig({}), { ...G.GAME_DEFAULTS })
-  const g = G.mergeGame({}, { source: { kind: 'window', title: '  Elden Ring\n', app: 'eldenring.exe' }, vision: { provider: 'openrouter', model: 'google/gemma-3-27b-it:free' }, intervalS: 5, perHour: 99 }, PROVIDERS)
-  assert.deepEqual(g, { source: { kind: 'window', title: 'Elden Ring', app: 'eldenring.exe' }, vision: { provider: 'openrouter', model: 'google/gemma-3-27b-it:free' }, intervalS: 30, perHour: 30 })
+  const g = G.mergeGame({}, { source: { kind: 'window', title: '  Elden Ring\n', app: 'eldenring.exe' }, vision: { provider: 'openrouter', model: 'x' }, intervalS: 2, perHour: 999 })
+  assert.deepEqual(g, { source: { kind: 'window', title: 'Elden Ring', app: 'eldenring.exe' }, talk: 'normale', intervalS: 5, perHour: 720 }, 'niente modello a parte: guarda con quello della chat')
+  assert.equal(G.mergeGame(g, { talk: 'tanto' }).talk, 'tanto')
+  assert.equal(G.mergeGame(g, { talk: 'sempre' }).talk, 'normale', 'una scelta che non esiste no')
   assert.deepEqual(G.mergeGame(g, { source: { kind: 'screen' } }).source, { kind: 'screen' })
   assert.equal(G.mergeGame(g, { source: null }).source, null, 'null toglie la scelta')
   assert.equal(G.mergeGame(g, { source: { kind: 'window', app: '..\\\\evil.bat' } }).source, null, 'un programma che non e\' un .exe no')
-  assert.equal(G.mergeGame(g, { vision: { provider: 'boh', model: 'x' } }, PROVIDERS).vision, null)
   assert.equal(G.mergeGame(g, { intervalS: 'tanto' }).intervalS, 30)
 })
 
@@ -47,11 +48,7 @@ test('12a: la finestra si ritrova dal titolo, o dal programma se il titolo cambi
   assert.equal(G.findSource(open, null), null)
 })
 
-test('12a: il modello che guarda: quello scelto, o quello della chat se vede', () => {
-  const chat = { provider: 'openrouter', model: 'x/testo:free' }
-  assert.equal(G.visionModel({ vision: null }, chat, false), null, 'la chat non vede e non ne hai scelto uno')
-  assert.deepEqual(G.visionModel({ vision: null }, chat, true), chat)
-  assert.deepEqual(G.visionModel({ vision: { provider: 'ollama', model: 'gemma3' } }, chat, true), { provider: 'ollama', model: 'gemma3' })
+test('12a: come si mostra la finestra scelta', () => {
   assert.equal(G.describeSource({ kind: 'window', title: 'Hollow Knight', app: 'hollow_knight.exe' }), 'Hollow Knight (hollow_knight.exe)')
   assert.equal(G.describeSource({ kind: 'screen' }), 'Tutto lo schermo del companion')
 })
@@ -138,6 +135,22 @@ test('12d: lo schermo intero esclusivo: nero, piatto e grande quanto lo schermo'
 })
 
 const sigOf = (v) => new Uint8Array(G.SIG_W * G.SIG_H).fill(v)
+
+test('quanto parla: i tempi per un modello sul PC e per uno online', () => {
+  const local = { provider: 'ollama', model: 'gemma3:4b' }
+  const cloud = { provider: 'ollama', model: 'gemma4:31b-cloud' }
+  const free = { provider: 'openrouter', model: 'x/y:free' }
+  assert.equal(G.isLocalVision(local), true)
+  assert.equal(G.isLocalVision(cloud), false, 'i modelli cloud di Ollama sono online')
+  assert.equal(G.isLocalVision(null), false)
+  assert.deepEqual(G.gameTiming({ talk: 'normale' }, local), { intervalS: 10, perHour: 360, local: true })
+  assert.deepEqual(G.gameTiming({ talk: 'tanto' }, local), { intervalS: 5, perHour: 720, local: true })
+  assert.deepEqual(G.gameTiming({ talk: 'tanto' }, free), { intervalS: 30, perHour: 30, local: false })
+  assert.deepEqual(G.gameTiming({ talk: 'poco' }, cloud), { intervalS: 120, perHour: 10, local: false })
+  assert.deepEqual(G.gameTiming({ talk: 'custom', intervalS: 5, perHour: 200 }, free), { intervalS: 30, perHour: 30, local: false }, 'a mano, online: almeno 30 s e 30 all\'ora')
+  assert.deepEqual(G.gameTiming({ talk: 'custom', intervalS: 5, perHour: 20 }, local), { intervalS: 5, perHour: 720, local: true }, 'a mano, sul PC: senza tetto')
+  assert.equal(G.statusText({ on: true, title: 'x', looks: 40, perHour: 720 }), 'Il companion guarda x · 40 sguardi nell\'ultima ora', 'senza tetto non si dice "su 720"')
+})
 
 test('12b: l\'impronta della scena e quanto e\' cambiata', () => {
   const bgra = new Uint8Array(G.SIG_W * G.SIG_H * 4)

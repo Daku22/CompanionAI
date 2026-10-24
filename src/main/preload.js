@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld('companion', {
   visionSources:    ()       => ipcRenderer.invoke('vision:sources'),
   // Con piu' monitor: quale guarda, con le miniature.
   visionScreens:    ()       => ipcRenderer.invoke('vision:screens'),
+  gameChatSees:     ()       => ipcRenderer.invoke('game:chat-sees'),
   gameTestVision:   (input)  => ipcRenderer.invoke('game:test-vision', input && typeof input === 'object' ? { provider: String(input.provider || ''), model: String(input.model || '') } : null),
   testGameCapture:  ()       => ipcRenderer.invoke('test:game-capture'),
   // Il ciclo della modalita' gioco (Blocco 12b): lo stato, e quando cambia.
@@ -160,6 +161,24 @@ contextBridge.exposeInMainWorld('companion', {
   voiceXttsSpeakers: ()      => ipcRenderer.invoke('voice:xtts-speakers'),
   voiceImportSample: ()      => ipcRenderer.invoke('voice:import-sample'),
   voiceOpenLicense: ()       => ipcRenderer.send('voice:open-license'),
+  // Kimodo installato dall'app (pagina Movimenti): stato, installa, annulla, disinstalla, licenze.
+  kimodoStatus:     ()       => ipcRenderer.invoke('kimodo:status'),
+  kimodoInstall:    ()       => ipcRenderer.invoke('kimodo:install'),
+  kimodoCancel:     ()       => ipcRenderer.send('kimodo:cancel'),
+  kimodoRemove:     ()       => ipcRenderer.invoke('kimodo:remove'),
+  kimodoOpenLicense: (which) => ipcRenderer.send('kimodo:open-license', String(which || '')),
+  onKimodoStatus: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('kimodo-status', handler)
+    return () => ipcRenderer.removeListener('kimodo-status', handler)
+  },
+  // La finestra dei componenti scaricati dall'installer (setup.html).
+  onSetupProgress: (cb) => {
+    const handler = (_e, data) => { try { cb(data) } catch (_) {} }
+    ipcRenderer.on('setup-progress', handler)
+    return () => ipcRenderer.removeListener('setup-progress', handler)
+  },
+  setupClose:       ()       => ipcRenderer.send('setup:close'),
   // Microfono (faster-whisper nel servizio di XTTS): installazione, e il
   // testo di una registrazione (Float32Array mono a 16 kHz).
   voiceSttInstall:  ()       => ipcRenderer.invoke('voice:stt-install'),

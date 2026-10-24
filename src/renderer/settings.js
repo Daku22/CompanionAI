@@ -583,6 +583,58 @@
   checkNode()
   for (const t of tabs) if (t.dataset.page === 'strumenti') t.addEventListener('click', checkNode)
 
+  // Kimodo: l'interruttore sta qui (prima solo nel menu del companion, e la
+  // pagina rimandava a un'opzione di Generale che non c'era). Senza Kimodo
+  // installato lo si dice, invece di un interruttore che non fa niente.
+  function showKimodo(cfg) {
+    const ready = !!cfg.kimodoAvailable
+    const on = ready && cfg.kimodo === true
+    $('kimodo-on').checked = on
+    $('kimodo-on').disabled = !ready
+    $('kimodo-note').textContent = !ready
+      ? 'Kimodo non è installato su questo PC: genera sulla scheda video i movimenti che il companion non sa fare. Si installa qui sotto.'
+      : 'Quando chiedi in chat un movimento che il companion non sa fare, Kimodo lo genera sul tuo PC (circa 15 secondi) e lo salva qui.'
+    $('motions-empty').textContent = 'Ancora nessun movimento generato.' + (on ? ' Chiedi in chat un movimento che non c\'è, per esempio "fai una ruota".' : ready ? ' Accendi Kimodo qui sopra, poi chiedi in chat un movimento che non c\'è.' : '')
+  }
+  $('kimodo-on').addEventListener('change', async (e) => {
+    try { showKimodo(await api.setConfig({ kimodo: e.target.checked })) } catch (_) {}
+  })
+  // Installarlo da qui: lo zip della release e i pesi da Hugging Face (kimodo-setup.js).
+  let kimodoSt = null
+  function showKimodoInstall() {
+    const st = kimodoSt
+    if (!st) return
+    const busy = !!st.installing
+    $('kimodo-get').classList.toggle('hidden', st.available && !busy)
+    $('kimodo-managed').classList.toggle('hidden', !st.managed || busy)
+    $('kimodo-bar').classList.toggle('hidden', !busy)
+    $('kimodo-install').classList.toggle('hidden', busy)
+    $('kimodo-cancel').classList.toggle('hidden', !busy)
+    if (busy) {
+      const p = st.installing
+      const part = p.total ? Math.min(1, p.done / p.total) : 0
+      $('kimodo-bar-fill').style.width = Math.round(part * 100) + '%'
+      $('kimodo-step').textContent = (p.label || '') + ' · ' + Math.round(part * 100) + '% di ' + (p.total / 1e9).toFixed(1).replace('.', ',') + ' GB'
+    } else {
+      $('kimodo-step').textContent = st.error ? 'Non riuscito: ' + st.error : ''
+    }
+  }
+  if (api.kimodoStatus) api.kimodoStatus().then((s) => { kimodoSt = s; showKimodoInstall() }, () => {})
+  if (api.onKimodoStatus) api.onKimodoStatus((s) => { kimodoSt = s; showKimodoInstall() })
+  $('kimodo-install').addEventListener('click', async () => {
+    try { kimodoSt = await api.kimodoInstall() } catch (_) {}
+    showKimodoInstall()
+  })
+  $('kimodo-cancel').addEventListener('click', () => api.kimodoCancel())
+  $('kimodo-remove').addEventListener('click', async () => {
+    if (!confirmClick($('kimodo-remove'), 'Si cancellano il programma e i modelli (circa 5,5 GB). I movimenti già generati restano.')) return
+    try { kimodoSt = await api.kimodoRemove() } catch (_) {}
+    showKimodoInstall()
+  })
+  for (const a of document.querySelectorAll('#kimodo-get [data-license]')) {
+    a.addEventListener('click', (e) => { e.preventDefault(); api.kimodoOpenLicense(a.dataset.license) })
+  }
+
   // Movimenti generati con Kimodo (Blocco 7d): nome, prova, eliminazione.
   async function showMotions() {
     const list = await api.motionsList().catch(() => [])
@@ -805,21 +857,42 @@
       : s.kind === 'screen' ? 'Guarda: tutto lo schermo del companion.'
         : 'Guarda: ' + (s.title || s.app) + (s.app && s.title ? ' (' + s.app + ')' : '')
     for (const b of document.querySelectorAll('#game-windows .game-win')) b.setAttribute('aria-checked', 'false')
-    $('game-interval').value = String(game.intervalS)
-    $('game-per-hour').value = String(game.perHour)
-    showGameOutputs()
+    showTalk(cfg)
     showGameModel().catch(() => {})
   }
-  // Quanto spesso guarda (Blocco 12b): l'intervallo minimo e il tetto all'ora.
+
+  // ─── Quanto parla: poco, normale, tanto (o i tempi a mano) ────────────────
+  // I secondi li sceglie l'app per il tipo di modello: sul PC si guarda molto
+  // piu' spesso e senza tetto, online almeno ogni 30 s e al massimo 30 all'ora.
+  const every = (s) => s < 60 ? s + ' s' : s % 60 ? Math.floor(s / 60) + ' min ' + (s % 60) + ' s' : s === 60 ? 'minuto' : s / 60 + ' min'
+  function showTalk(cfg) {
+    const talk = cfg.gameTalk
+    if (!talk) return
+    for (const b of document.querySelectorAll('#game-talk button')) b.setAttribute('aria-checked', String(b.dataset.talk === game.talk))
+    const t = talk.times
+    $('game-talk-note').textContent = game.talk === 'custom'
+      ? 'Tempi a mano: ogni ' + every(talk.timing.intervalS) + (talk.local ? ', senza tetto.' : ', al massimo ' + talk.timing.perHour + ' all\'ora.') + ' Scegli Poco, Normale o Tanto per tornare a quelli dell\'app.'
+      : talk.local
+        ? 'Con il modello sul tuo PC: Poco ogni ' + every(t.poco[0]) + ', Normale ogni ' + every(t.normale[0]) + ', Tanto ogni ' + every(t.tanto[0]) + ', sempre solo quando la scena cambia. Senza tetto.'
+        : 'Con un modello online: Poco ogni ' + every(t.poco[0]) + ', Normale ogni ' + every(t.normale[0]) + ', Tanto ogni ' + every(t.tanto[0]) + ', solo quando la scena cambia e al massimo ' + t.poco[1] + ', ' + t.normale[1] + ' o ' + t.tanto[1] + ' all\'ora.'
+    $('game-interval').min = talk.local ? '5' : '30'
+    $('game-interval').value = String(talk.timing.intervalS)
+    $('game-per-hour').value = String(talk.timing.perHour)
+    $('game-per-hour-row').classList.toggle('hidden', talk.local)
+    showGameOutputs()
+  }
   function showGameOutputs() {
-    const s = Number($('game-interval').value)
-    $('game-interval-out').textContent = 'ogni ' + (s < 60 ? s + ' s' : s % 60 ? Math.floor(s / 60) + ' min ' + (s % 60) + ' s' : s / 60 + ' min')
+    $('game-interval-out').textContent = 'ogni ' + every(Number($('game-interval').value))
     $('game-per-hour-out').textContent = $('game-per-hour').value + ' sguardi all\'ora'
   }
+  for (const b of document.querySelectorAll('#game-talk button')) b.addEventListener('click', () => saveGame({ talk: b.dataset.talk }))
   for (const [id, key] of [['game-interval', 'intervalS'], ['game-per-hour', 'perHour']]) {
     $(id).addEventListener('input', showGameOutputs)
-    $(id).addEventListener('change', () => saveGame({ [key]: Number($(id).value) }))
+    $(id).addEventListener('change', () => saveGame({ talk: 'custom', intervalS: Number($('game-interval').value), perHour: Number($('game-per-hour').value), [key]: Number($(id).value) }))
   }
+
+  // ─── Il modello che guarda: quello della chat ─────────────────────────────
+  async function loadVisionCards() { showGameModel().catch(() => {}) }
   function showGameState(st) {
     if (!st) return
     const line = $('game-status')
@@ -836,45 +909,22 @@
       if ('source' in partial) loadGameWindows()
     } catch (_) {}
   }
-  // I provider con la chiave (e Ollama), e i loro modelli che vedono le immagini.
+  // Il modello della chat vede le immagini? (Guarda il gioco con lui.)
   async function showGameModel() {
-    const cfg = gameCfg
-    if (!cfg) return
-    const sel = $('game-provider')
-    const providers = Object.keys(cfg.keyConfigured || {}).filter(p => cfg.keyConfigured[p]).concat('ollama').filter((p, i, a) => a.indexOf(p) === i)
-    const want = game.vision ? game.vision.provider : ''
-    sel.replaceChildren(new Option('Come la chat', ''), ...providers.map(p => new Option(p === 'openrouter' ? 'OpenRouter' : p === 'claude' ? 'Claude' : p === 'openai' ? 'OpenAI' : 'Ollama', p)))
-    sel.value = want
-    $('game-model-row').classList.toggle('hidden', !want)
     const note = $('game-model-note')
-    if (!want) {
-      let sees = null
-      try { const m = (await api.listModels(cfg.provider)).models.find(x => x.id === cfg.model); sees = m && m.caps ? !!m.caps.vision : null } catch (_) {}
-      note.textContent = 'Usa il modello della chat (' + cfg.model + ')' + (sees === true ? ', che vede le immagini.' : sees === false ? ', ma non vede le immagini: scegline uno qui (su OpenRouter ce ne sono di gratuiti).' : '. Con "Prova" vedi se vede le immagini.')
-      return
-    }
-    note.textContent = 'Solo per guardare il gioco; la chat resta con il suo modello.'
-    const models = $('game-model')
-    models.replaceChildren(new Option('Carico i modelli…', ''))
-    let list = []
-    try { list = (await api.listModels(want)).models.filter(m => m.caps && m.caps.vision) } catch (_) {}
-    // Quello salvato resta scelto anche se l'elenco non lo da' fra quelli che vedono.
-    const saved = game.vision && game.vision.provider === want && game.vision.model !== '-' ? game.vision.model : ''
-    if (saved && !list.some(m => m.id === saved)) list.unshift({ id: saved, label: saved + ' (da provare)' })
-    models.replaceChildren(...list.map(m => new Option(m.label || m.id, m.id)))
-    if (!list.length) models.replaceChildren(new Option('Nessun modello che vede le immagini', ''))
-    if (game.vision && list.some(m => m.id === game.vision.model)) models.value = game.vision.model
-    else if (list[0]) saveGame({ vision: { provider: want, model: list[0].id } })
+    let r = null
+    try { r = await api.gameChatSees() } catch (_) {}
+    if (!r) { note.className = 'state'; note.textContent = ''; return }
+    const what = (r.provider === 'openrouter' ? 'OpenRouter' : r.provider === 'claude' ? 'Claude' : r.provider === 'openai' ? 'OpenAI' : 'Ollama') + ' · ' + r.model
+    note.className = 'state' + (r.sees === false ? ' error' : r.sees ? ' ok' : '')
+    note.textContent = r.sees === true ? 'Ora guarda con ' + what + ', che vede le immagini.'
+      : r.sees === false ? what + ' non vede le immagini: scegline uno che le vede nella pagina Modello, o la modalità gioco non parte.'
+        : 'Ora guarda con ' + what + '. Con "Prova" vedi se vede le immagini.'
   }
-  $('game-provider').addEventListener('change', () => {
-    const p = $('game-provider').value
-    saveGame({ vision: p ? { provider: p, model: (game.vision && game.vision.provider === p && game.vision.model) || '-' } : null })
-  })
-  $('game-model').addEventListener('change', () => { if ($('game-model').value) saveGame({ vision: { provider: $('game-provider').value, model: $('game-model').value } }) })
   $('game-refresh').addEventListener('click', loadGameWindows)
   $('game-test').addEventListener('click', async () => {
     const note = $('game-test-note')
-    const vision = game && game.vision ? game.vision : gameCfg ? { provider: gameCfg.provider, model: gameCfg.model } : null
+    const vision = gameCfg ? { provider: gameCfg.provider, model: gameCfg.model } : null
     if (!vision) return
     note.textContent = 'Gli mostro un quadrato rosso…'
     $('game-test').disabled = true
@@ -884,8 +934,8 @@
     } catch (e) { note.textContent = 'Non riuscita: ' + e.message }
     $('game-test').disabled = false
   })
-  document.addEventListener('settings-page-shown', (e) => { if (e.detail === 'visione') { loadGameWindows(); loadScreens() } })
-  if (!$('page-visione').classList.contains('hidden')) { loadGameWindows(); loadScreens() }
+  document.addEventListener('settings-page-shown', (e) => { if (e.detail === 'visione') { loadGameWindows(); loadScreens(); loadVisionCards() } })
+  if (!$('page-visione').classList.contains('hidden')) { loadGameWindows(); loadScreens(); loadVisionCards() }
 
   // ─── Quale schermo (con piu' monitor) ──────────────────────────────────────
   // Il monitor del companion (di base), uno preciso, o tutti affiancati: vale
@@ -1014,6 +1064,7 @@
   const weatherOn = $('weather-on')
   const weatherCity = $('weather-city')
   function showGeneral(cfg) {
+    showKimodo(cfg)
     idleLife.checked = cfg.idleLife !== false
     $('needs-on').checked = cfg.needs !== false
     touchReactions.checked = cfg.touchReactions !== false

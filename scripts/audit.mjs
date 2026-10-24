@@ -85,7 +85,10 @@ const MODELS = {
   'audit/json:free': ['response_format', 'max_tokens'],
   'audit/tools:free': ['tools', 'tool_choice', 'reasoning', 'max_tokens'],   // come Laguna S 2.1
   'audit/prosa:free': ['max_tokens'],
+  'audit/vede:free': ['max_tokens'],   // un gratuito che vede le immagini (per la modalita' gioco)
+  'audit/daily:free': ['max_tokens'],  // vede, ma ha finito le richieste gratuite di oggi
 }
+const SEES = new Set(['audit/vede:free', 'audit/daily:free'])
 // Cosa risponderebbe un modello ben fatto a ogni richiesta.
 const REPLIES = {
   'corri fino al bordo sinistro': { reply: 'Corro!', emotion: 'joy', action: { type: 'none', animation: 'run-to', direction: 'left', distance: 'edge' } },
@@ -106,7 +109,8 @@ const fake = http.createServer((req, res) => {
   req.on('end', () => {
     res.setHeader('Content-Type', 'application/json')
     if (req.url === '/api/v1/models') {
-      res.end(JSON.stringify({ data: Object.entries(MODELS).map(([id, params]) => ({ id, name: id, supported_parameters: params })) }))
+      res.end(JSON.stringify({ data: Object.entries(MODELS).map(([id, params]) => ({ id, name: id, supported_parameters: params,
+        ...(SEES.has(id) ? { architecture: { input_modalities: ['text', 'image'] } } : {}) })) }))
       return
     }
     const payload = JSON.parse(body)
@@ -356,7 +360,7 @@ const occlusionArgs = ['--disable-backgrounding-occluded-windows', '--disable-re
 
 const app = spawn(require('electron'), ['.', `--remote-debugging-port=${PORT}`, '--user-data-dir=' + USER_DATA, ...occlusionArgs, ...micArgs], {
   cwd: ROOT, stdio: 'ignore',
-  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, TWITCH_IRC_URL: IRC_URL, COMPANION_ONLY_USER_CLIPS: "1", COMPANION_TEST_HOOKS: '1', COMPANION_NO_OLLAMA_START: '1' },
+  env: { ...process.env, USERPROFILE: HOME, HOME, OPENROUTER_URL: FAKE_URL, TWITCH_IRC_URL: IRC_URL, COMPANION_ONLY_USER_CLIPS: "1", COMPANION_TEST_HOOKS: '1', COMPANION_NO_OLLAMA_START: '1', OLLAMA_PORT: '11998' },
 })
 
 // ── Protocollo DevTools ──────────────────────────────────────────────────────
@@ -966,6 +970,9 @@ try {
     // quadrato rosso.
     {
       const GAME_PORT = 9352
+      // La modalita' gioco guarda con il modello della chat: per queste prove
+      // uno che vede le immagini; alla fine si torna a quello di prima.
+      const chatModelBefore = (await chat.evaluate('window.companion.getConfig()')).model
       const fakeGame = spawn(require('electron'), [path.join(ROOT, 'scripts', 'fixtures', 'fake-game', 'main.js'), '--port=' + GAME_PORT], { stdio: 'ignore' })
       const gameCmd = (cmd) => fetch('http://127.0.0.1:' + GAME_PORT + '/' + cmd).catch(() => null)
       try {
@@ -990,7 +997,7 @@ try {
         const renamed = await chat.evaluate('window.companion.testGameCapture()')
         // Il ciclo (Blocco 12b): il pulsante "gioco" della barra lo accende e il
         // primo sguardo e' subito; una scena nuova prima dei 30 s aspetta.
-        await chat.evaluate(`window.companion.setConfig({ game: { vision: { provider: 'openrouter', model: 'audit/json:free' }, intervalS: 30, perHour: 20 } })`)
+        await chat.evaluate(`window.companion.setConfig({ model: 'audit/vede:free', game: { talk: 'custom', intervalS: 30, perHour: 20 } })`)
         const cr = await comp.evaluate('({ x: window.screenX, y: window.screenY, width: window.outerWidth, height: window.outerHeight })')
         await comp.evaluate(`window.companion.testPeek({ cursor: { x: ${cr.x + cr.width / 2}, y: ${cr.y + cr.height / 2} } })`)
         const hud = await connect((await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find(t => t.url.includes('hud.html')))
@@ -1061,7 +1068,7 @@ try {
           && /Nel gioco che state guardando insieme \(Gioco di prova.*quadrato giallo/.test(askSystem) && /hai detto ad alta voce: «Dai, questo primo livello/.test(askSystem),
           'gioco: a fine partita una riga in memoria, e la chat sa cosa c\'era sullo schermo e cosa ha detto (' + JSON.stringify({ memory: remembered.memory, line: remembered.line, said: /hai detto ad alta voce/.test(askSystem) }) + ')')
         // Un modello gratuito al limite di oggi: si ferma e lo dice.
-        await chat.evaluate(`window.companion.setConfig({ game: { vision: { provider: 'openrouter', model: 'audit/daily:free' } } })`)
+        await chat.evaluate(`window.companion.setConfig({ model: 'audit/daily:free' })`)
         await hud.evaluate(`document.getElementById('b-game').click(); true`)
         let daily = null
         for (let i = 0; i < 40 && !(daily && daily.status.ended); i++) { await sleep(250); daily = await chat.evaluate('window.companion.testGame()') }
@@ -1072,7 +1079,7 @@ try {
         // Schermo intero (Blocco 12d): il gioco copre lo schermo e si mette
         // sopra; il companion torna sopra. Nero per 15 s: e' lo schermo intero
         // esclusivo, pausa con l'avviso; in finestra riparte.
-        await chat.evaluate(`window.companion.setConfig({ game: { vision: { provider: 'openrouter', model: 'audit/json:free' } } })`)
+        await chat.evaluate(`window.companion.setConfig({ model: 'audit/vede:free' })`)
         await hud.evaluate(`document.getElementById('b-game').click(); true`)
         for (let i = 0; i < 20 && !(await chat.evaluate('window.companion.testGame()')).status.on; i++) await sleep(250)
         await gameCmd('fullscreen')
@@ -1127,8 +1134,54 @@ try {
         const sees = await chat.evaluate(`window.companion.gameTestVision({ provider: 'openrouter', model: 'audit/json:free' })`)
         const visionReq = requests.find(r => r.messages && r.messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')))
         check(sees.ok && sees.sees && sees.said === 'Rosso.' && !!visionReq, 'gioco: la prova del modello che guarda manda un\'immagine e capisce se la vede (' + JSON.stringify(sees) + ')')
+        // Il modello che guarda e' quello della chat: la pagina Visione dice se
+        // vede le immagini (audit/vede:free si', audit/json:free no). "Tanto"
+        // da' i tempi di un modello online.
+        {
+          const noteFor = async (model, want) => {
+            await chat.evaluate(`window.companion.setConfig({ model: ${JSON.stringify(model)} })`)
+            let note = ''
+            for (let i = 0; i < 30 && !want.test(note); i++) { await sleep(250); note = await st.evaluate(`document.getElementById('game-model-note').textContent`) }
+            return note
+          }
+          const seesNote = await noteFor('audit/vede:free', /audit\/vede:free, che vede le immagini/)
+          const blindNote = await noteFor('audit/json:free', /non vede le immagini/)
+          const noChoice = await st.evaluate(`!document.getElementById('game-own-model') && !document.getElementById('game-provider')`)
+          await st.evaluate(`document.querySelector('#game-talk button[data-talk="tanto"]').click(); true`)
+          let talk = null
+          for (let i = 0; i < 20 && !(talk && talk.talk === 'tanto'); i++) {
+            await sleep(200)
+            const c = await chat.evaluate('window.companion.getConfig()')
+            talk = { talk: c.game.talk, timing: c.gameTalk.timing, note: await st.evaluate(`document.getElementById('game-talk-note').textContent`) }
+          }
+          await sleep(300)
+          await st.evaluate(`document.getElementById('game-model-note').scrollIntoView(); true`)
+          await stShot('visione-modello')
+          check(/che vede le immagini/.test(seesNote) && /non vede le immagini/.test(blindNote) && noChoice
+            && talk.timing.intervalS === 30 && talk.timing.perHour === 30 && /online/.test(talk.note),
+            'gioco: guarda con il modello della chat, la pagina dice se vede le immagini, e "Quanto parla" sceglie i tempi (' + JSON.stringify({ seesNote, blindNote, noChoice, talk }) + ')')
+        }
+        // Movimenti: l'interruttore di Kimodo sta qui (prima la pagina mandava
+        // a un'opzione di Generale che non c'era). Nell'audit Kimodo non e'
+        // installato: l'interruttore e' spento e la pagina lo dice.
+        {
+          await chat.evaluate(`window.companion.openSettings('movimenti'); true`)
+          let k = null
+          for (let i = 0; i < 20 && !(k && k.note && k.install); i++) {
+            await sleep(200)
+            k = await st.evaluate(`({ disabled: document.getElementById('kimodo-on').disabled, checked: document.getElementById('kimodo-on').checked, note: document.getElementById('kimodo-note').textContent, empty: document.getElementById('motions-empty').textContent,
+              install: !document.getElementById('kimodo-get').classList.contains('hidden') && !document.getElementById('kimodo-install').classList.contains('hidden'), button: document.getElementById('kimodo-install').textContent,
+              remove: !document.getElementById('kimodo-managed').classList.contains('hidden') })`)
+          }
+          await st.evaluate(`document.getElementById('kimodo-get').scrollIntoView(); true`)
+          await stShot('movimenti-kimodo')
+          check(k.disabled && !k.checked && /non è installato/.test(k.note) && !/Generale/.test(k.empty + k.note) && k.install && /installo Kimodo/.test(k.button) && !k.remove,
+            'movimenti: l\'interruttore di Kimodo e\' nella pagina, e senza Kimodo c\'e\' il pulsante per installarlo (' + JSON.stringify(k) + ')')
+          await chat.evaluate(`window.companion.openSettings('visione'); true`)
+        }
       } finally {
         try { await chat.evaluate('window.companion.testGame({ off: true })') } catch (_) {}
+        try { await chat.evaluate(`window.companion.setConfig({ model: ${JSON.stringify(chatModelBefore)} })`) } catch (_) {}
         try { fakeGame.kill() } catch (_) {}
       }
     }

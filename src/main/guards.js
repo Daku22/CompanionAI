@@ -381,7 +381,7 @@ function mergeConfig(current, incoming) {
   // La live su Twitch (Blocco 11c): canale, comando, tetti, bot (live-chat.js).
   if (incoming.stream && typeof incoming.stream === 'object') merged.stream = require('./live-chat').mergeStream(current.stream, incoming.stream)
   // La modalita' gioco (Blocco 12): la finestra, il modello che guarda, i tempi.
-  if (incoming.game && typeof incoming.game === 'object') merged.game = require('./game-mode').mergeGame(current.game, incoming.game, Object.keys(require('./ai-router').PROVIDERS))
+  if (incoming.game && typeof incoming.game === 'object') merged.game = require('./game-mode').mergeGame(current.game, incoming.game)
   if (typeof incoming.activeApp === 'boolean') merged.activeApp = incoming.activeApp
   // Quale schermo guarda con piu' monitor: il suo, uno scelto o tutti (screens.js).
   if (incoming.visionScreen !== undefined) merged.visionScreen = require('./screens').cleanScreenChoice(incoming.visionScreen)

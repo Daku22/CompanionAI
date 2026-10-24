@@ -244,6 +244,21 @@
   fullscreen cannot be captured, so it pauses and tells you to switch to
   borderless. It stops and says so when a free model runs out of today's
   requests. Screenshots are never saved.
+- Game mode always watches with the chat's model, and Settings → Visione
+  says whether it sees images. "Quanto parla" (Poco, Normale, Tanto) sets
+  the timing for the kind of model: with a model on your PC (Ollama) it can
+  look every 5 to 30 seconds without an hourly cap.
+- Kimodo is turned on in Settings → Movimenti; the page used to send you to
+  an option in Generale that did not exist.
+- Kimodo can be installed from the app (Settings → Movimenti) or the
+  installer: a Windows build of kimodo.cpp published with this release, and
+  the weights from Hugging Face at fixed revisions, checked with SHA-256.
+  Before, it had to be compiled by hand.
+- The installer has a "Componenti facoltativi" page: the realistic voice
+  (XTTS), the microphone and Kimodo download at the end of the installation,
+  with a window showing each one's progress.
+- Ollama models now get the exact reply format instead of "any JSON", so a
+  small model no longer answers with a stray object like {"score": 1}.
 - With more than one monitor, Settings → Visione → "Lo schermo" picks which
   one the companion looks at (👁 and the game mode's whole-screen option),
   from thumbnails: the companion's, a specific monitor, or all of them side

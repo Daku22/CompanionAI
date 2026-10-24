@@ -262,6 +262,7 @@
     .key-row select { flex: none; width: 190px; }
     .key-row .what span.warn { color: var(--danger); }
 
+  .seg button[aria-checked="true"] { background: var(--surface-top); color: var(--text); box-shadow: var(--shadow-sm); }
   /* La finestra del gioco (Blocco 12a): miniature da scegliere. */
   .game-windows { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 10px 0 6px; }
   .game-win { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 0; padding: 6px; border-radius: 10px; text-align: left;
@@ -526,19 +527,25 @@
     <section>
       <h2>Il modello che guarda</h2>
       <div class="box">
-        <p class="muted" id="game-model-note">Serve un modello che vede le immagini.</p>
-        <div class="row"><label class="name" for="game-provider">Provider</label><select id="game-provider"></select></div>
-        <div class="row" id="game-model-row"><label class="name" for="game-model">Modello</label><select id="game-model"></select></div>
+        <p class="muted">Guarda il gioco con il modello della chat, che si sceglie nella pagina Modello: deve vedere le immagini.</p>
+        <p class="state" id="game-model-note" role="status"></p>
         <div class="row"><button type="button" id="game-test">Prova</button><span class="muted" id="game-test-note"></span></div>
       </div>
     </section>
     <section>
-      <h2>Quanto spesso guarda</h2>
+      <h2>Quanto parla</h2>
       <div class="box">
-        <p class="muted">Ogni 5 secondi controlla se la scena è cambiata, senza chiamare nessun modello. Il modello guarda
-          solo quando la scena cambia, mai più spesso di così e mai oltre il tetto. Mentre parli o scrivi non guarda.</p>
-        <div class="row"><label class="name" for="game-interval">Al massimo</label><input type="range" id="game-interval" min="30" max="300" step="15"><output class="wide" id="game-interval-out"></output></div>
-        <div class="row"><label class="name" for="game-per-hour">Tetto</label><input type="range" id="game-per-hour" min="5" max="30" step="1"><output class="wide" id="game-per-hour-out"></output></div>
+        <div class="seg" id="game-talk" role="radiogroup" aria-label="Quanto parla">
+          <button type="button" role="radio" data-talk="poco">Poco</button>
+          <button type="button" role="radio" data-talk="normale">Normale</button>
+          <button type="button" role="radio" data-talk="tanto">Tanto</button>
+        </div>
+        <p class="muted" id="game-talk-note"></p>
+        <details class="mcp-advanced" id="talk-advanced">
+          <summary>Avanzate: i tempi a mano</summary>
+          <div class="row"><label class="name" for="game-interval">Al massimo</label><input type="range" id="game-interval" min="30" max="300" step="5"><output class="wide" id="game-interval-out"></output></div>
+          <div class="row" id="game-per-hour-row"><label class="name" for="game-per-hour">Tetto</label><input type="range" id="game-per-hour" min="5" max="30" step="1"><output class="wide" id="game-per-hour-out"></output></div>
+        </details>
         <div class="state" id="game-status" role="status"></div>
       </div>
     </section>
@@ -716,9 +723,29 @@
     <h1>Movimenti</h1>
     <p class="sub">I movimenti nuovi generati con Kimodo, dal più recente. Dagli un nome per ritrovarli nel menu "Prova", provali sull'avatar o eliminali.</p>
     <section>
+      <div class="box toggles">
+        <label class="toggle">
+          <span class="what"><b>Movimenti nuovi con Kimodo</b><span id="kimodo-note"></span></span>
+          <input type="checkbox" id="kimodo-on">
+        </label>
+        <div class="hidden" id="kimodo-get">
+          <p class="pf-note">Si scaricano circa 5,5 GB: il programma (kimodo.cpp, licenza Apache-2.0) e i modelli da Hugging Face, con
+            le loro licenze: <a href="#" data-license="nvidia">NVIDIA Open Model License</a> e
+            <a href="#" data-license="llama">Meta Llama 3 Community License</a> (Built with Meta Llama 3). Serve una scheda video con circa 3 GB liberi.</p>
+          <div class="bar hidden" id="kimodo-bar"><div id="kimodo-bar-fill"></div></div>
+          <div class="row">
+            <button class="primary" id="kimodo-install">Accetto le licenze e installo Kimodo</button>
+            <button id="kimodo-cancel" class="hidden">Annulla</button>
+            <span class="muted" id="kimodo-step"></span>
+          </div>
+        </div>
+        <div class="row hidden" id="kimodo-managed"><button class="danger" id="kimodo-remove">Disinstalla Kimodo</button></div>
+      </div>
+    </section>
+    <section>
       <div class="box">
         <div id="motions-list"></div>
-        <p class="muted" id="motions-empty">Ancora nessun movimento generato. Accendi Kimodo in Generale e chiedi in chat un movimento che non c'è, per esempio "fai una ruota".</p>
+        <p class="muted" id="motions-empty">Ancora nessun movimento generato.</p>
         <p class="state" id="motions-state" role="status"></p>
       </div>
     </section>
