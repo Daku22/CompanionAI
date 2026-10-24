@@ -288,17 +288,23 @@ fan, a commentator or with a tip (never spoilers), as its personality
 decides. Now and then another companion on the desktop chimes in; during a
 live the comments are for the viewers too. It does not look while you talk
 or type, pauses by itself when the game is closed or minimized or an app
-from the ignore list is in front, and resumes when it comes back. For 2
-minutes it knows the last scene, so you can ask "what do you think of this
-boss?" in the chat or hands-free; guides and builds only if you ask. When
+from the ignore list is in front, and resumes when it comes back. It knows
+the last scene (for 2 minutes, longer while the scene stays the same) and
+what it said about it, so you can answer a comment or ask "what do you think
+of this boss?" in the chat or hands-free; guides and builds only if you ask.
+Its looks know your recent conversation and memory, like a chat reply. When
 you stop, it keeps one line in its memory about what you played. Play in
 borderless windowed mode: the companion stays on top, while exclusive
 fullscreen cannot be captured (it pauses and tells you). Screenshots are
 never saved.
 
 **Senses.** The 👁 button in the chat (or "guarda il mio schermo") takes a
-screenshot of the companion's monitor and shows it as a preview: it is sent
-with your next message only, to a model that sees images, and never saved.
+screenshot and shows it as a preview: it is sent with your next message only,
+to a model that sees images, and never saved. With more than one monitor,
+Settings → Visione → "Lo schermo" picks which one, from thumbnails: the
+companion's (the default), a specific monitor, or all of them side by side
+(less detail each). The same choice is used by the game mode's "Tutto lo
+schermo"; a chosen game window is seen on any monitor.
 "Sa quale app stai usando" in Settings → Visione (off by default) lets it
 know the title of the window you are using. In the room, 📷 opens the photo
 mode: pick a pose and an expression, then "Scatta" saves a PNG.

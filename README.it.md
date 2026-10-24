@@ -81,6 +81,7 @@ src/
              live-chat.js (la chat della live, puro), twitch-chat.js (IRC di
              Twitch), live-session.js (la live: scelta e registro),
              game-mode.js (la modalita' gioco, puro), game-loop.js (il ciclo),
+             screens.js (quale monitor si fotografa, puro),
              write-atomic.js, logger.js
   memory/    MemoryManager.js + types.ts
   renderer/  companion.html + companion-2d.js + companion-3d.js, chat.html + chat.js,
@@ -545,15 +546,22 @@ sopra a ogni giro (`bringToFront`, `moveTop`). Il costo stimato viene dai
 prezzi dell'elenco di OpenRouter (`caps.price`, `lookCost`).
 
 **Lo sguardo e il commento.** Una chiamata in prosa (`jsonMode: false`) con
-lo scatto a 1024 px, la personalita' e `LOOK_PROMPT`; `lookRequest` aggiunge
-il gioco, la scena e il commento di prima e se si e' in diretta.
+lo scatto a 1024 px, la personalita' e `LOOK_PROMPT`, e lo stesso contesto
+della chat (`buildHistoryWithMemory` e `withMoodLine`: memoria, conversazione
+recente anche a mani libere, umore e rapporto), cosi' chi commenta e chi ti
+risponde sono lo stesso companion; `lookRequest` aggiunge il gioco, la scena
+e il commento di prima e se si e' in diretta.
 `parseGameLook` legge `SCENA:` e `COMMENTO:` (anche in markdown; "niente" e'
 vuoto). `canComment` decide se dirlo: va in `speechSession` o
 `captionSession` (voce e fumetto, mai la chat), in diretta anche nel contesto
 della live, e con una probabilita' di 0,2 un altro companion aggiunge una
 battuta (`spokenReply`, la stessa delle risposte alla live). L'ultima scena
-entra per 2 minuti nella riga di sistema di `withMoodLine` (`sceneLine`),
-quindi la usano chat, mani libere, live e iniziative. Spenta la modalita',
+entra nella riga di sistema di `withMoodLine` (`sceneLine`) per 2 minuti, che
+ripartono a ogni giro in cui la scena e' ancora quella (`onSame`); con lei
+quello che quel companion ha detto ad alta voce della partita negli ultimi 5
+minuti (`saidLine`). Quindi la usano chat, mani libere, live e iniziative, e
+se rispondi a un commento sa di cosa parli. Con la modalita' accesa il tasto
+delle mani libere parla con chi guarda. Spenta la modalita',
 `sessionText` e `SUMMARY_PROMPT` danno una frase al modello della chat e
 `memoryLine` la mette nella memoria di chi guardava. Si ferma da sola al
 limite giornaliero dei gratuiti (`err.daily`) o dopo 3 sguardi falliti, e lo
@@ -1194,8 +1202,13 @@ racconta una storia lo zittisce.
 ## Sensi e connettori (Blocco 7)
 
 **Lo schermo.** Il pulsante 👁 nella chat, o l'azione `look` quando chiedi
-"guarda il mio schermo", fa una schermata del monitor del companion con le
-finestre dell'app nascoste per un istante (`desktopCapturer`). La schermata
+"guarda il mio schermo", fa una schermata con le finestre dell'app nascoste
+per un istante (`desktopCapturer`). Con piu' monitor quale si sceglie nella
+pagina Visione (`visionScreen`, `screens.js`): quello del companion (di
+base), uno preciso (per id di Electron; staccato, si torna a quello del
+companion) o tutti, affiancati nelle loro posizioni in un'immagine sola
+(`layout` e `compose`). Vale anche per "Tutto lo schermo" della modalita'
+gioco. La schermata
 compare come anteprima e parte solo col messaggio dopo, ridotta a 1568 px in
 JPEG, e solo verso un modello che vede le immagini (`withImage` la traduce per
 Claude, OpenAI/OpenRouter e Ollama). In memoria resta il testo più
@@ -1284,6 +1297,7 @@ arbitraria di comandi a qualunque cosa il modello decida di produrre.
 | Sessione della live | Scarti e scelte, eventi, commenti spontanei, una risposta alla volta, il riassunto |
 | Sottotitoli | Frasi lunghe divise in pezzi che stanno nel fumetto |
 | Modalità gioco | Impostazioni, la finestra dal titolo o dal programma, impronte e differenze, quando guardare (intervallo, tetto, occupato), il ciclo con orologio finto (uno alla volta, risultato vecchio, pausa, spegnimento), costo, SCENA/COMMENTO, la scena per 2 minuti, la riga in memoria, lo schermo intero |
+| Schermi | La scelta salvata, quali monitor si fotografano, le card della pagina Visione, i monitor affiancati nelle loro posizioni |
 | Oggetti | Inclusi con modello e icona, tipi e misure, cibo importato, l'oggetto nominato in chat |
 | Controlli | Allowlist dei comandi, percorsi eseguibili, config dal renderer (voce, microfono e scorciatoie comprese), opzioni della finestra, mittenti IPC, permessi del browser (solo il microfono) |
 | Animazioni | Player di pose: dissolvenze, ritorno a idle, nessun residuo fra clip, VRM 0.x e 1.0; ciglia uguali a ogni frame rate, sguardo, pesi dell'umore; testa che segue il mouse nei limiti, posa in braccio |

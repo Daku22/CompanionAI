@@ -236,12 +236,18 @@
   personality decides; now and then another companion chimes in, and during
   a live the comments are for the viewers too. It stays quiet while you talk
   or type, pauses by itself when the game is closed, minimized or an ignored
-  app is in front, and knows the last scene for 2 minutes, so you can ask it
-  about the game. When you stop, it keeps one line in its memory about what
+  app is in front, and knows the last scene (while it stays the same) and what
+  it said about the match, so you can ask it about the game or answer a
+  comment in the chat or hands-free; its looks know your recent conversation
+  too. When you stop, it keeps one line in its memory about what
   you played. Over a borderless fullscreen game it stays on top; exclusive
   fullscreen cannot be captured, so it pauses and tells you to switch to
   borderless. It stops and says so when a free model runs out of today's
   requests. Screenshots are never saved.
+- With more than one monitor, Settings → Visione → "Lo schermo" picks which
+  one the companion looks at (👁 and the game mode's whole-screen option),
+  from thumbnails: the companion's, a specific monitor, or all of them side
+  by side.
 - 32 built-in animation clips made with NVIDIA Kimodo (idle, greeting,
   sitting, walking, running, dancing, being carried, the touch reactions,
   eating, drinking, picking up, hugging, volleyball), in the repository and

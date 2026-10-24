@@ -102,6 +102,8 @@ contextBridge.exposeInMainWorld('companion', {
   streamState:      ()       => ipcRenderer.invoke('stream:state'),
   // Modalita' gioco (Blocco 12a): le finestre da scegliere e la prova del modello che guarda.
   visionSources:    ()       => ipcRenderer.invoke('vision:sources'),
+  // Con piu' monitor: quale guarda, con le miniature.
+  visionScreens:    ()       => ipcRenderer.invoke('vision:screens'),
   gameTestVision:   (input)  => ipcRenderer.invoke('game:test-vision', input && typeof input === 'object' ? { provider: String(input.provider || ''), model: String(input.model || '') } : null),
   testGameCapture:  ()       => ipcRenderer.invoke('test:game-capture'),
   // Il ciclo della modalita' gioco (Blocco 12b): lo stato, e quando cambia.

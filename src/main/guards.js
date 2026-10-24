@@ -383,6 +383,8 @@ function mergeConfig(current, incoming) {
   // La modalita' gioco (Blocco 12): la finestra, il modello che guarda, i tempi.
   if (incoming.game && typeof incoming.game === 'object') merged.game = require('./game-mode').mergeGame(current.game, incoming.game, Object.keys(require('./ai-router').PROVIDERS))
   if (typeof incoming.activeApp === 'boolean') merged.activeApp = incoming.activeApp
+  // Quale schermo guarda con piu' monitor: il suo, uno scelto o tutti (screens.js).
+  if (incoming.visionScreen !== undefined) merged.visionScreen = require('./screens').cleanScreenChoice(incoming.visionScreen)
   if (incoming.activeAppIgnore !== undefined) { const list = require('./active-app').cleanIgnore(incoming.activeAppIgnore); if (list) merged.activeAppIgnore = list }
   if (typeof incoming.initiativeVoice === 'boolean') merged.initiativeVoice = incoming.initiativeVoice
   if (incoming.danceApps !== undefined) { const apps = danceApps(incoming.danceApps); if (apps) merged.danceApps = apps }

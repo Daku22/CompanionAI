@@ -36,6 +36,7 @@ const { createDesktopObjects } = require('./desktop-objects')
 const { createLiveSession } = require('./live-session')
 const { streamConfig, liveLine, LIVE_PROMPT } = require('./live-chat')
 const GameMode = require('./game-mode')
+const Screens = require('./screens')
 const { createGameLoop } = require('./game-loop')
 const Diary = require('./diary')
 const Initiative = require('./initiative')
@@ -171,6 +172,8 @@ function loadConfig() {
   // Fame e sete (Blocco 10a): accese di base.
   cfg.needs = cfg.needs !== false
   cfg.activeAppIgnore = ActiveApp.cleanIgnore(cfg.activeAppIgnore) || ActiveApp.IGNORE_DEFAULT
+  // Con piu' monitor: quale si fotografa (il suo di base, uno scelto, tutti).
+  cfg.visionScreen = Screens.cleanScreenChoice(cfg.visionScreen)
   // Server MCP (Blocco 7f): li aggiunge l'utente, spenti di base.
   cfg.mcpServers = Mcp.cleanServers(cfg.mcpServers)
   cfg.danceApps = danceApps(cfg.danceApps) || DANCE_APPS_DEFAULT
@@ -468,8 +471,9 @@ const companionCtx = {
   chatFocused: () => allChats().some(w => w.isFocused()),
   isChatTarget: (c) => chatTarget() === c,
   lastForeign: () => lastForeign,
-  // La scena del gioco, per 2 minuti (Blocco 12c).
-  gameLine: () => GameMode.sceneLine(gameScene, Date.now()),
+  // La scena del gioco (2 minuti, finche' non cambia) e quello che questo
+  // companion ne ha detto ad alta voce (5 minuti): Blocco 12c.
+  gameLine: (personaId) => [GameMode.sceneLine(gameScene, Date.now()), GameMode.saidLine(gameSaid, personaId, Date.now())].filter(Boolean).join(' ') || null,
   testCursor: () => testCursor,
   listening: () => micBusy || !!micHold,
   voiceOn: () => voiceConfig(loadConfig()).enabled,
@@ -1250,7 +1254,8 @@ const appShortcutsWanted = { chat: null, hide: null }  // scelte nella config
 const SHORTCUT_ACTIONS = {
   chat: () => toggleChat(),
   hide: () => toggleCompanionsShown(),
-  handsfree: () => toggleHandsFree(hudFor || chatTarget()),
+  // Con la modalita' gioco accesa, a mani libere si parla con chi guarda.
+  handsfree: () => toggleHandsFree(gameWatcher() || hudFor || chatTarget()),
   live: () => toggleLive(),
   game: () => { if (gameLoop.state().on) endGame(); else toggleGame(chatTarget()) },
 }
@@ -1799,30 +1804,80 @@ handle('ollama:open-page', (_e, which) => {
 const VISION_LONG_SIDE = 1568
 const GAME_LONG_SIDE = 1024   // per i commenti della modalita' gioco: costa meno
 
+/** I monitor collegati, per screens.js. */
+function displayList() {
+  const primary = screen.getPrimaryDisplay().id
+  return screen.getAllDisplays().map(d => ({ id: d.id, bounds: d.bounds, size: d.size, label: d.label || '', primary: d.id === primary }))
+}
+
 /**
- * Lo schermo su cui sta anchor, con il lato lungo di longSide px. hideApp:
+ * I monitor in un'immagine sola, con il lato lungo di longSide px: uno, o
+ * piu' affiancati nelle loro posizioni (screens.js).
+ */
+async function shootDisplays(displays, longSide) {
+  const plan = Screens.layout(displays, longSide)
+  const box = { width: Math.max(...plan.parts.map(p => p.width)), height: Math.max(...plan.parts.map(p => p.height)) }
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: box })
+  const sourceOf = (id) => sources.find(s => s.display_id === String(id))
+  if (plan.parts.length === 1) {
+    const source = sourceOf(plan.parts[0].id) || sources[0]
+    return source ? source.thumbnail : null
+  }
+  const pieces = []
+  for (const p of plan.parts) {
+    const source = sourceOf(p.id)
+    if (!source) continue
+    const img = source.thumbnail.resize({ width: p.width, height: p.height })
+    const size = img.getSize()
+    pieces.push({ x: p.x, y: p.y, width: size.width, height: size.height, bitmap: img.toBitmap() })
+  }
+  if (!pieces.length) return null
+  return nativeImage.createFromBitmap(Screens.compose(plan.width, plan.height, pieces), { width: plan.width, height: plan.height })
+}
+
+/**
+ * Lo schermo scelto nella pagina Visione (di base quello su cui sta anchor,
+ * o un monitor preciso, o tutti), con il lato lungo di longSide px. hideApp:
  * le finestre dell'app spariscono per un istante (il pulsante "Guarda lo
  * schermo"); la modalita' gioco no, se no lampeggerebbero a ogni sguardo.
  */
 async function captureScreen(anchor, longSide, { hideApp = true } = {}) {
   if (!anchor || anchor.isDestroyed()) return { ok: false, error: 'Nessuna finestra' }
-  const display = screen.getDisplayMatching(anchor.getBounds())
+  const displays = Screens.pickDisplays(displayList(), loadConfig().visionScreen, screen.getDisplayMatching(anchor.getBounds()).id)
+  if (!displays.length) return { ok: false, error: 'Schermo non trovato' }
   const wins = hideApp ? [...companions.map(c => c.win), ...allChats(), settingsWindow].filter(w => w && !w.isDestroyed() && w.isVisible()) : []
-  const scale = longSide / Math.max(display.size.width, display.size.height)
   try {
     for (const w of wins) w.setOpacity(0)
     if (wins.length) await new Promise(r => setTimeout(r, 250))
-    const sources = await desktopCapturer.getSources({ types: ['screen'],
-      thumbnailSize: { width: Math.round(display.size.width * scale), height: Math.round(display.size.height * scale) } })
-    const source = sources.find(s => s.display_id === String(display.id)) || sources[0]
-    if (!source) return { ok: false, error: 'Schermo non trovato' }
-    return { ok: true, image: 'data:image/jpeg;base64,' + source.thumbnail.toJPEG(80).toString('base64'), picture: source.thumbnail, title: 'schermo' }
+    const picture = await shootDisplays(displays, longSide)
+    if (!picture || picture.isEmpty()) return { ok: false, error: 'Schermo non trovato' }
+    return { ok: true, image: 'data:image/jpeg;base64,' + picture.toJPEG(80).toString('base64'), picture, title: 'schermo' }
   } catch (e) {
     return { ok: false, error: e.message }
   } finally {
     for (const w of wins) if (!w.isDestroyed()) w.setOpacity(1)
   }
 }
+
+// Le card della pagina Visione: quale schermo, con la miniatura di ciascuno.
+handle('vision:screens', async () => {
+  try {
+    const all = displayList()
+    const c = chatTarget()
+    const own = screen.getDisplayMatching((c && c.alive() ? c.win : currentChat() || { getBounds: () => screen.getPrimaryDisplay().bounds }).getBounds()).id
+    const out = []
+    for (const o of Screens.screenOptions(all, own)) {
+      const shown = o.ids.map(id => all.find(d => d.id === id)).filter(Boolean)
+      const plan = Screens.layout(shown, 1000)
+      const thumb = await shootDisplays(shown, 240).catch(() => null)
+      out.push({ choice: o.choice, label: o.label, sub: o.sub, aspect: plan.width / plan.height, thumb: thumb && !thumb.isEmpty() ? thumb.toDataURL() : '' })
+    }
+    return out
+  } catch (e) {
+    console.error('[visione] schermi non letti:', e.message)
+    return []
+  }
+})
 
 handle('vision:capture', async () => {
   const r = await captureScreen(dialogParent() || currentChat(), VISION_LONG_SIDE)
@@ -1953,6 +2008,7 @@ let gameEnded = ''         // perche' si e' fermata da sola, per la pagina Visio
 let gameSecondChance = 0.2 // un altro companion aggiunge una battuta
 let gameLastComment = null // per l'audit
 let gameMemory = null      // per l'audit: l'ultima riga in memoria
+let gameSaid = []          // { by, text, at }: i commenti detti ad alta voce, per il prompt di chi li ha detti
 let gameBlank = 0          // impronte nere di fila con la finestra grande quanto lo schermo (12d)
 let gameWarned = false     // l'avviso dello schermo intero, una volta per partita
 
@@ -2014,18 +2070,21 @@ async function gameLook() {
   const last = gameScenes[gameScenes.length - 1]
   const started = Date.now()
   try {
+    // Lo stesso companion della chat: la memoria, la conversazione recente
+    // (anche a mani libere), l'umore e il rapporto, poi la schermata.
+    const look = { role: 'user', image: shot.image,
+      content: GameMode.lookRequest({ title, previous: last ? { scene: last.text, comment: last.comment } : null, live: liveSession.state().on }) }
     const result = await route({
       provider: vision.provider, model: vision.model, apiKey: loadConfig().keys?.[vision.provider] || '',
       jsonMode: false, maxTokens: 400, retries: 1,
       systemPrompt: Personas.systemPrompt(c.persona(), GameMode.LOOK_PROMPT),
-      history: [{ role: 'user', image: shot.image,
-        content: GameMode.lookRequest({ title, previous: last ? { scene: last.text, comment: last.comment } : null, live: liveSession.state().on }) }],
+      history: c.withMoodLine(await c.buildHistoryWithMemory([look])),
     })
-    const look = GameMode.parseGameLook(result && result.reply)
+    const seen = GameMode.parseGameLook(result && result.reply)
     const ms = Date.now() - started
     // Nel log solo com'e' andata: niente immagine, niente scena.
-    console.log('[gioco] sguardo, ' + ms + ' ms, ' + (!look ? 'risposta fuori formato' : look.comment ? 'con un commento' : 'senza commento'))
-    return look ? { ok: true, ...look, title, ms } : { ok: false, error: 'Il modello non ha risposto nel formato SCENA / COMMENTO.', ms }
+    console.log('[gioco] sguardo, ' + ms + ' ms, ' + (!seen ? 'risposta fuori formato' : seen.comment ? 'con un commento' : 'senza commento'))
+    return seen ? { ok: true, ...seen, title, ms } : { ok: false, error: 'Il modello non ha risposto nel formato SCENA / COMMENTO.', ms }
   } catch (err) {
     console.warn('[gioco] sguardo non riuscito:', err.message)
     return { ok: false, daily: !!err.daily, error: describeError(err, vision.provider) }
@@ -2059,6 +2118,7 @@ async function gameComment(c, r) {
   speech.end(r.comment)
   c.markActivity()
   gameLastComment = { by: c.personaId, text: r.comment, at: Date.now() }
+  rememberSaid(c, r.comment)
   if (liveSession.state().on) {
     liveContext.push({ role: 'user', content: '[Modalità gioco] La scena: ' + r.scene }, { role: 'assistant', content: r.comment, speaker: c.personaId })
     if (liveContext.length > LIVE_CONTEXT) liveContext = liveContext.slice(-LIVE_CONTEXT)
@@ -2070,7 +2130,13 @@ async function gameComment(c, r) {
   if (gameWatcher() !== c || gameBusy()) return
   const o = others[Math.floor(Math.random() * others.length)]
   const extra = await spokenReply(o, '[Modalità gioco] ' + nameOf(c) + ' ha appena detto: "' + r.comment + '". La scena: ' + r.scene, { context: [], prompt: GAME_REACT_PROMPT })
-  if (extra) gameLastComment = { by: o.personaId, text: extra, at: Date.now(), reaction: true }
+  if (extra) { gameLastComment = { by: o.personaId, text: extra, at: Date.now(), reaction: true }; rememberSaid(o, extra) }
+}
+
+/** Quello detto ad alta voce della partita: per 5 minuti nel prompt di chi l'ha detto. */
+function rememberSaid(c, text) {
+  gameSaid.push({ by: c.personaId, text, at: Date.now() })
+  if (gameSaid.length > 12) gameSaid = gameSaid.slice(-12)
 }
 
 /** A fine partita: una riga nella memoria di chi guardava (a cosa, per quanto, com'e' andata). */
@@ -2100,6 +2166,8 @@ const gameLoop = createGameLoop({
   config: () => GameMode.gameConfig(loadConfig(), Object.keys(PROVIDERS)),
   sigCapture: () => gameSignature(),
   busy: () => gameBusy(),
+  // Scena ancora uguale: resta valida come contesto oltre i 2 minuti.
+  onSame: () => { if (gameScene) gameScene.at = Date.now() },
   look: () => gameLook(),
   onResult: (r, info) => gameResult(r, info),
   onState: () => {
@@ -3548,7 +3616,7 @@ if (process.env.COMPANION_TEST_HOOKS === '1') {
     if (cmd && cmd.off === true) endGame()
     if (cmd && Number.isFinite(cmd.react)) gameSecondChance = cmd.react
     return { status: gameStatus(), last: gameLast, model: gameModel, hud: hudFor ? gameHud(hudFor) : null,
-      scene: gameScene, line: GameMode.sceneLine(gameScene, Date.now()), comment: gameLastComment, memory: gameMemory }
+      scene: gameScene, line: GameMode.sceneLine(gameScene, Date.now()), comment: gameLastComment, memory: gameMemory, said: gameSaid }
   })
   // La finestra di chat che chiede: mostrata o nascosta davvero (Blocco 11b,
   // sottotitoli senza voce); la pagina non lo sa con certezza.

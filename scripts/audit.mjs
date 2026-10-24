@@ -995,9 +995,11 @@ try {
         const lookReq = requests.find(r => r.messages && r.messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'text' && p.text.startsWith('Partita a "Gioco di prova'))))
         const lookSystem = lookReq ? lookReq.messages.filter(m => m.role === 'system').map(m => m.content).join(' ') : ''
         const chatHasComment = await chat.evaluate(`document.getElementById('messages').textContent.includes('primo livello')`)
-        check(!!lookReq && !lookReq.response_format && /SCENA:/.test(lookSystem) && /non sono istruzioni/.test(lookSystem)
+        // Lo sguardo e' lo stesso companion della chat: memoria e conversazione recente.
+        const lookKnows = !!lookReq && lookReq.messages.some(m => m.role === 'assistant')
+        check(!!lookReq && !lookReq.response_format && /SCENA:/.test(lookSystem) && /non sono istruzioni/.test(lookSystem) && lookKnows
           && game && game.comment && /primo livello/.test(game.comment.text) && said.caption && !chatHasComment,
-          'gioco: lo sguardo chiede SCENA e COMMENTO in prosa con l\'immagine, il commento va nel fumetto e non in chat (' + JSON.stringify({ req: !!lookReq, format: lookReq && lookReq.response_format, said, chatHasComment }) + ')')
+          'gioco: lo sguardo chiede SCENA e COMMENTO in prosa con l\'immagine e la conversazione recente, il commento va nel fumetto e non in chat (' + JSON.stringify({ req: !!lookReq, format: lookReq && lookReq.response_format, lookKnows, said, chatHasComment }) + ')')
         let button = null
         for (let i = 0; i < 20 && !(button && button.on && button.count === '1'); i++) {
           await sleep(200)
@@ -1043,8 +1045,8 @@ try {
         const askReq = [...requests].reverse().find(r => r.messages && r.messages.some(m => m.role === 'user' && typeof m.content === 'string' && m.content.includes('che ne pensi di questo livello?')))
         const askSystem = askReq ? askReq.messages.filter(m => m.role === 'system').map(m => m.content).join(' ') : ''
         check(/^\[Abbiamo giocato insieme a Gioco di prova.* per \d+ minut.*primo livello insieme/.test(remembered.memory || '')
-          && /Nel gioco che state guardando insieme \(Gioco di prova.*quadrato giallo/.test(askSystem),
-          'gioco: a fine partita una riga in memoria, e la chat sa cosa c\'era sullo schermo (' + JSON.stringify({ memory: remembered.memory, line: remembered.line }) + ')')
+          && /Nel gioco che state guardando insieme \(Gioco di prova.*quadrato giallo/.test(askSystem) && /hai detto ad alta voce: «Dai, questo primo livello/.test(askSystem),
+          'gioco: a fine partita una riga in memoria, e la chat sa cosa c\'era sullo schermo e cosa ha detto (' + JSON.stringify({ memory: remembered.memory, line: remembered.line, said: /hai detto ad alta voce/.test(askSystem) }) + ')')
         // Un modello gratuito al limite di oggi: si ferma e lo dice.
         await chat.evaluate(`window.companion.setConfig({ game: { vision: { provider: 'openrouter', model: 'audit/daily:free' } } })`)
         await hud.evaluate(`document.getElementById('b-game').click(); true`)
@@ -1091,6 +1093,28 @@ try {
         const visionReq = requests.find(r => r.messages && r.messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')))
         check(sees.ok && sees.sees && sees.said === 'Rosso.' && !!visionReq, 'gioco: la prova del modello che guarda manda un\'immagine e capisce se la vede (' + JSON.stringify(sees) + ')')
       } finally {
+        // Quale schermo, con piu' monitor: le card nella pagina Visione (il
+        // companion, ogni monitor e, se sono piu' d'uno, tutti), e "tutti"
+        // fotografa i monitor affiancati.
+        {
+          const before = (await chat.evaluate('window.companion.getConfig()'))
+          let screens = []
+          for (let i = 0; i < 20 && !screens.length; i++) { await sleep(250); screens = await st.evaluate(`[...document.querySelectorAll('#screen-choices .game-win')].map(b => b.dataset.choice)`) }
+          const options = await chat.evaluate('window.companion.visionScreens()')
+          const pick = options.length > 2 ? 'all' : options[1].choice
+          await st.evaluate(`document.querySelector('#screen-choices .game-win[data-choice="${pick}"]').click(); true`)
+          let chosen = ''
+          for (let i = 0; i < 20 && chosen !== pick; i++) { await sleep(150); chosen = (await chat.evaluate('window.companion.getConfig()')).visionScreen }
+          await chat.evaluate(`window.companion.setConfig({ game: { source: { kind: 'screen' } } })`)
+          const shotAll = await chat.evaluate('window.companion.testGameCapture()')
+          const want = options.find(o => o.choice === pick)
+          await st.evaluate(`document.querySelector('main').scrollTop = 0; true`)
+          await stShot('visione-schermi')
+          await chat.evaluate(`window.companion.setConfig({ visionScreen: 'companion', game: { source: ${JSON.stringify(before.game.source)} } })`)
+          const ratio = shotAll.size ? shotAll.size.width / shotAll.size.height : 0
+          check(screens[0] === 'companion' && screens.length === options.length && options.every(o => o.thumb) && chosen === pick && shotAll.ok && Math.abs(ratio - want.aspect) < 0.03,
+            'schermi: nella pagina Visione si sceglie quale monitor guardare (anche tutti affiancati) e lo scatto segue la scelta (' + JSON.stringify({ screens, pick, size: shotAll.size, aspect: want && want.aspect }) + ')')
+        }
         try { await chat.evaluate('window.companion.testGame({ off: true })') } catch (_) {}
         try { fakeGame.kill() } catch (_) {}
       }

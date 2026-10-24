@@ -19,6 +19,7 @@ const G = require('./game-mode')
  *   sigCapture: () => Promise<{ ok: boolean, state?: string, sig?: Uint8Array, title?: string }>,
  *   look: (info: { sig: Uint8Array, at: number }) => Promise<any>,
  *   busy?: () => string|null,
+ *   onSame?: () => void,
  *   onResult?: (result: any, info: { stale: boolean, at: number }) => void,
  *   onState?: (state: any) => void, now?: () => number, tickMs?: number }} ctx
  */
@@ -55,6 +56,9 @@ function createGameLoop(ctx) {
       const step = G.nextStep(s, { now: t, sig: snap.sig, intervalS: cfg.intervalS, perHour: cfg.perHour, busy: ctx.busy ? ctx.busy() : null })
       s.looks = step.looks
       s.lastReason = step.reason
+      // La scena e' ancora quella dell'ultimo sguardo: chi la usa come contesto
+      // sa che e' ancora vera, anche se lo sguardo e' di qualche minuto fa.
+      if (step.reason === 'scena uguale' && ctx.onSame) try { ctx.onSame() } catch (_) {}
       if (!step.look) return
       s.looking = true
       s.lookSig = snap.sig

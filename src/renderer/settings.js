@@ -792,7 +792,7 @@
     let list = []
     try { list = await api.visionSources() } catch (_) {}
     const cards = list.map(w => gameCard({ kind: 'window', title: w.title, app: w.app }, w.title, w.app + (w.minimized ? ' · ridotta a icona' : ''), w.thumb))
-    cards.push(gameCard({ kind: 'screen' }, 'Tutto lo schermo', 'Quello su cui sta il companion', ''))
+    cards.push(gameCard({ kind: 'screen' }, 'Tutto lo schermo', 'Quello scelto in "Lo schermo"', ''))
     $('game-windows').replaceChildren(...cards)
     $('game-windows-note').textContent = list.length ? '' : 'Nessun\'altra finestra aperta: apri il gioco e premi Aggiorna.'
   }
@@ -884,8 +884,44 @@
     } catch (e) { note.textContent = 'Non riuscita: ' + e.message }
     $('game-test').disabled = false
   })
-  document.addEventListener('settings-page-shown', (e) => { if (e.detail === 'visione') loadGameWindows() })
-  if (!$('page-visione').classList.contains('hidden')) loadGameWindows()
+  document.addEventListener('settings-page-shown', (e) => { if (e.detail === 'visione') { loadGameWindows(); loadScreens() } })
+  if (!$('page-visione').classList.contains('hidden')) { loadGameWindows(); loadScreens() }
+
+  // ─── Quale schermo (con piu' monitor) ──────────────────────────────────────
+  // Il monitor del companion (di base), uno preciso, o tutti affiancati: vale
+  // per "Guarda lo schermo" e per "Tutto lo schermo" della modalita' gioco.
+  let screenChoice = 'companion'
+  async function loadScreens() {
+    let list = []
+    try { list = await api.visionScreens() } catch (_) {}
+    try { screenChoice = (await api.getConfig()).visionScreen || 'companion' } catch (_) {}
+    const cards = list.map(o => {
+      const b = document.createElement('button')
+      b.type = 'button'
+      b.className = 'game-win'
+      b.dataset.choice = o.choice
+      b.setAttribute('role', 'radio')
+      b.setAttribute('aria-checked', String(o.choice === screenChoice))
+      const shot = document.createElement('span')
+      shot.className = 'shot'
+      if (o.thumb) shot.style.backgroundImage = 'url("' + o.thumb + '")'
+      const t = document.createElement('span')
+      t.className = 't'
+      t.textContent = o.label
+      const a = document.createElement('span')
+      a.className = 'a'
+      a.textContent = o.sub
+      b.append(shot, t, a)
+      b.title = o.label + (o.sub ? ' — ' + o.sub : '')
+      b.addEventListener('click', async () => {
+        try { screenChoice = (await api.setConfig({ visionScreen: o.choice })).visionScreen } catch (_) {}
+        for (const x of document.querySelectorAll('#screen-choices .game-win')) x.setAttribute('aria-checked', String(x.dataset.choice === screenChoice))
+      })
+      return b
+    })
+    $('screen-choices').replaceChildren(...cards)
+    $('screen-note').textContent = list.length > 2 ? '' : 'Un monitor solo: guarda quello.'
+  }
 
   // ─── Streaming (Blocco 11c) ────────────────────────────────────────────────
   // Le impostazioni della live (config.stream), "In diretta" e il registro.

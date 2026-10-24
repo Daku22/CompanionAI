@@ -89,6 +89,20 @@ test('12c: la scena nel prompt vale 2 minuti', () => {
   assert.equal(G.sceneLine(null, 5), null)
 })
 
+test('12c: quello che ha detto della partita resta nel suo prompt 5 minuti', () => {
+  const said = [
+    { by: 'luna', text: 'Attento al boss!', at: 1000 },
+    { by: 'kai', text: 'Che salto!', at: 2000 },
+    { by: 'luna', text: 'Bravo, ce l\'hai fatta!', at: 61000 },
+  ]
+  assert.equal(G.saidLine(said, 'luna', 91000), 'Guardando la partita hai detto ad alta voce: «Attento al boss!» (2 min fa), «Bravo, ce l\'hai fatta!» (30 s fa). Se l\'utente ti risponde, sta parlando di questo.')
+  assert.match(G.saidLine(said, 'kai', 91000), /Che salto!/, 'ognuno le sue')
+  assert.equal(G.saidLine(said, 'luna', 1000 + 5 * 60 * 1000 + 70000), null, 'dopo 5 minuti no')
+  assert.equal(G.saidLine([], 'luna', 5), null)
+  const many = Array.from({ length: 6 }, (_, i) => ({ by: 'luna', text: 'frase ' + i, at: 1000 + i }))
+  assert.ok(!/frase 1»/.test(G.saidLine(many, 'luna', 2000)) && /frase 5/.test(G.saidLine(many, 'luna', 2000)), 'le ultime 4')
+})
+
 test('12c: quando il commento si dice', () => {
   assert.equal(G.canComment({ comment: 'Forza!' }), true)
   assert.equal(G.canComment({ comment: '' }), false, 'niente da dire')
@@ -157,7 +171,7 @@ test('12b: quando guardare: scena cambiata, intervallo, tetto all\'ora', () => {
 test('12b: il costo di uno sguardo dai prezzi di OpenRouter', () => {
   assert.equal(G.lookCost(null), null, 'prezzi sconosciuti')
   assert.equal(G.lookCost({ prompt: 0, completion: 0, image: 0 }), 0, 'gratuito')
-  assert.ok(Math.abs(G.lookCost({ prompt: 0.000001, completion: 0.000002, image: 0.001 }) - 0.00266) < 1e-9)
+  assert.ok(Math.abs(G.lookCost({ prompt: 0.000001, completion: 0.000002, image: 0.001 }) - 0.00416) < 1e-9)
   assert.equal(G.costText(null, 3), '')
   assert.equal(G.costText(0, 3), 'gratis')
   assert.equal(G.costText(0.00266, 10), '≈ 0,003 $ a sguardo, ≈ 0,027 $ nell\'ultima ora')
@@ -182,9 +196,11 @@ async function testLoop() {
   const states = []
   const cfg = { intervalS: 30, perHour: 20 }
   let busy = null
+  let same = 0
   const loop = createGameLoop({
     config: () => cfg,
     busy: () => busy,
+    onSame: () => same++,
     sigCapture: async () => scene,
     look: (info) => new Promise(resolve => looks.push({ info, resolve })),
     onResult: (r, info) => results.push({ r, ...info }),
@@ -215,6 +231,10 @@ async function testLoop() {
   await flush()
   assert.equal(results[1].stale, false)
   assert.equal(results[1].r.scene, 'seconda')
+  // La scena e' ancora quella dello sguardo: lo dice (resta valida come contesto).
+  await loop._tick()
+  assert.equal(loop.state().reason, 'scena uguale')
+  assert.equal(same, 1)
   // Scena cambiata ma troppo presto.
   t = 50000
   scene = { ...scene, sig: sigOf(220) }
